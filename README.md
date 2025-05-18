@@ -1,17 +1,23 @@
-# MCP GitHub Issues Create/Update and PR Analyse
+# MCP for GitHub PR, Issues, Tags and Releases
 
-The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that can be implemented in any AI system, including Custom LLM setups. However, the degree of integration and optimisation varies based on the model's architecture and capabilities.
+The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
 
-This MCP application analyses GitHub pull requests and managing issues. It provides a set of tools to fetch PR details, create issues, and update issues directly from your desktop LLM as part of an automated workflow. The application is designed for integration with other systems and supports extensibility via the MCP tool interface.
+This MCP application serves as a bridge between LLMs and GitHub's repository management features, offering automated analysis of pull requests and comprehensive issue management. It provides a robust set of tools to fetch PR details, create issues, and update issues directly from your desktop LLM. The application is designed with modularity in mind, supporting extensibility via the MCP tool interface and seamless integration with existing workflows.
+
+The toolset enables automated PR analysis, issue tracking, tagging and release management through a standardised MCP interface, making it ideal for teams seeking to streamline their GitHub workflow automation.
 
 ## Features
 
-| Feature                     | Function Name             | Description                                                                                   |
-|-----------------------------|---------------------------|-----------------------------------------------------------------------------------------------|
-| Fetch Pull Request Details  | `fetch_pr`                | Retrieve metadata and content for any GitHub pull request.                                    |
-| Update PR Description       | `update_pr_description`   | Update the description of a GitHub pull request, including file changes and context.           |
-| Create GitHub Issues        | `create_github_issue`     | Easily create new issues from a PR with custom titles and bodies, including label support.     |
-| Update GitHub Issues        | `update_github_issue`     | Update existing issues with new titles and descriptions.                                       |
+| Feature                     | Function Name                  | Description                                                                                   |
+|----------------------------|--------------------------------|-----------------------------------------------------------------------------------------------|
+| PR Content Retrieval       | `get_github_pr_content`        | Fetch PR metadata including title, description, author, and state.                            |
+| PR Diff Analysis          | `get_github_pr_diff`           | Retrieve the diff/patch content showing file changes in the PR.                              |
+| PR Description Updates     | `update_github_pr_description` | Update PR titles and descriptions with What/Why/How sections and file changes.               |
+| Issue Creation            | `create_github_issue`          | Create new issues with conventional commit prefixes (feat/fix/chore) and MCP label.          |
+| Issue Updates             | `update_github_issue`          | Modify existing issues with new title, body, and state (open/closed).                        |
+| Tag Management            | `create_github_tag`            | Create new git tags with associated messages for versioning.                                  |
+| Release Management        | `create_github_release`        | Generate GitHub releases with automatic release notes and tag references.                     |
+| Network Information       | `get_ipv4_ipv6_info`          | Fetch IPv4 and IPv6 network information for the system.                                      |
 | MCP Tool Registration       | `_register_tools`         | Tools are registered and exposed via the MCP server for easy integration.                      |
 
 ## Requirements
@@ -22,38 +28,48 @@ This MCP application analyses GitHub pull requests and managing issues. It provi
 ## Architecture Diagram
 
 ```ascii
-+-------------------+         +--------------------------+
-|                   |         |                          |
-|      LLM 🤖       | <-----> |    MCP Server (FastMCP)  |
-|                   |         |  (issues_pr_analyser.py) |
-+-------------------+         +--------------------------+
-                                         |
-                                         |  (calls tools)
-                                         v
-                          +-------------------------------+
-                          |   GitHub Integration (GI)     |
-                          | (github_integration.py)       |
-                          +-------------------------------+
-                                         |
-                                         |  (REST API calls)
-                                         v
-                              +------------------------+
-                              |    GitHub API          |
-                              +------------------------+
+                                     +------------------------+
+                                     |                        |
+                                     |    MCP Client/User     |
+                                     |                        |
+                                     +------------------------+
+                                              |
+                                              | (stdio/SSE)
+                                              v
++--------------------+              +------------------------+
+|                    |              |    PRIssueAnalyser     |
+|   IP Integration   | <------------|    (FastMCP Server)    |
+|   (ipinfo.io)      |              |                        |
++--------------------+              +------------------------+
+                                              |
+                                              | (API calls)
+                                              v
+                                   +------------------------+
+                                   |   GitHub Integration   |
+                                   +------------------------+
+                                              |
+                                              | (REST API)
+                     +-------------------------+-------------------------+
+                     |                         |                       |
+              +-------------+           +--------------+        +-------------+
+              | GitHub PRs  |           |GitHub Issues |        |GitHub Tags/ |
+              | & Releases  |           |              |        | Releases    |
+              +-------------+           +--------------+        +-------------+
 ```
 
-### Legend:
+### Features:
 
-- LLM interacts with the MCP server (e.g., via stdio or other transport).
-- MCP Server (FastMCP) hosts tools for PR analysis and issue management.
-- GitHub Integration (GI) handles actual API requests to GitHub.
-- GitHub API is the external service for PR and issue data.
+1. PR Management: Fetch, analyze, and update
+2. Issue Tracking: Create and update
+3. Release Management: Tags and releases
+4. Network Info: IPv4/IPv6 details
 
 ### Main Flows:
 
-- LLM requests (e.g., fetch PR, create/update issue) go to MCP Server.
-- MCP Server delegates to GI for GitHub operations.
-- GutHubIntegration class communicates with GitHub API and returns results up the stack.
+- PRIssueAnalyser: Main MCP server handling tool registration and requests
+- GitHub Integration: Manages all GitHub API interactions
+- IP Integration: Handles IPv4/IPv6 information retrieval
+- MCP Client: Interacts via stdio or Server-Sent Events (SSE)
 
 ## Local Installation
 
@@ -71,23 +87,18 @@ uv pip install -r requirements.txt
 ```
 ## Local Integration with Desktop LLMs
 
-To add an MCP server to your desktop LLM such as Claude, LM Studio etc.., you need to add this section to the configuration file. The basic structure involves defining a server name and providing the command and any necessary arguments to run the server.
+To add an MCP server to your desktop LLM such as Claude etc.., you need to add this section to the configuration file. The basic structure involves defining a server name and providing the command and any necessary arguments to run the server.
 
 ```json
 {
   "mcpServers": {
     "github_pr_issues": {
-      "command": "uv",
+      "command": "uvx",
       "env": {
         "GITHUB_TOKEN": "<your-github-token>"
       },
       "args": [
-        "run",
-        "--with",
-        "mcp[cli]",
-        "--with",
-        "requests",
-        "/path/to/mcp-github-pr-issue-analyser/issues_pr_analyser.py"
+        "https://github.com/saidsef/mcp-github-pr-issue-analyser.git"
       ]
     }
   }
