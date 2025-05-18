@@ -265,7 +265,7 @@ class GutHubIntegration:
         tags_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs"
         try:
             # Fetch the latest commit SHA
-            latest_sha = self.get_latest_sh(repo_owner, repo_name)
+            latest_sha = self.get_latest_sha(repo_owner, repo_name)
             if not latest_sha:
                 raise ValueError("Failed to fetch the latest commit SHA")
             
