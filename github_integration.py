@@ -58,7 +58,7 @@ class GutHubIntegration:
             pr_number: The number of the pull request to analyze
             
         Returns:
-            A dictionary containing PR metadata and file changes
+            A string containing the raw patch of the pull request
         """
         logging.info(f"Fetching PR diff for {repo_owner}/{repo_name}#{pr_number}")
         
