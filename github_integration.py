@@ -216,14 +216,14 @@ class GutHubIntegration:
             traceback.print_exc()
             return None
 
-    def get_latest_sha(self, repo_owner: str, repo_name: str) -> Dict[str, Any]:
+    def get_latest_sha(self, repo_owner: str, repo_name: str) -> Optional[str]:
         """Fetch the latest commit SHA from the specified GitHub repository.
         
         Args:
             repo_owner: The owner of the GitHub repository
             repo_name: The name of the GitHub repository
         Returns:
-            The latest commit SHA as a string
+            The latest commit SHA as a string, or None if no commits are found
         """
         logging.info(f"Fetching latest commit SHA for {repo_owner}/{repo_name}")
         
