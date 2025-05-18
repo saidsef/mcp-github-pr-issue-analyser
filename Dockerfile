@@ -8,8 +8,7 @@ WORKDIR /app
 
 COPY requirements.txt github_integration.py ip_integration.py issues_pr_analyser.py /app
 
-RUN pip3 install --no-cache-dir uv && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 EXPOSE 8080
 
