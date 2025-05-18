@@ -54,7 +54,7 @@ jobs:
         lfs: 'true'
     - name: Set Tag Name
       run: |
-        echo "TAG=$(echo ${GITHUB_REF##*/})" >> $GITHUB_ENV
+        echo "TAG=$(echo ${{ github.head_ref || github.ref_name }})" >> $GITHUB_ENV
         echo "DATE=v$(echo `date +'%Y.%m'`)" >> $GITHUB_ENV
 
     - name: Run Trivy config vulnerability scanner
@@ -97,8 +97,7 @@ jobs:
         provenance: true
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG == 'main' && 'latest' || env.TAG }},${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}:${{ env.DATE }}
-
+        tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG != 'main' && env.TAG || env.DATE }}
 
   auto-approve:
     runs-on: ubuntu-latest
