@@ -73,7 +73,7 @@ class PRIssueAnalyser:
         async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
             """
             Fetch the content of a GitHub pull request.
-            If get_github_pr_content() erros or fails, use get_github_pr_diff().
+            If get_github_pr_content() errors or fails, use get_github_pr_diff().
             Args:
                 repo_owner: The owner of the GitHub repository
                 repo_name: The name of the GitHub repository
