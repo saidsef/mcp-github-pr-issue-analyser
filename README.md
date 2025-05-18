@@ -1,8 +1,10 @@
-# MCP GitHub Issues Create/Update and PR Analyse
+# MCP for GitHub PR, Issues, Tags and Releases
 
-The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that can be implemented in any AI system, including Custom LLM setups. However, the degree of integration and optimisation varies based on the model's architecture and capabilities.
+The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
 
-This MCP application analyses GitHub pull requests and managing issues. It provides a set of tools to fetch PR details, create issues, and update issues directly from your desktop LLM as part of an automated workflow. The application is designed for integration with other systems and supports extensibility via the MCP tool interface.
+This MCP application serves as a bridge between LLMs and GitHub's repository management features, offering automated analysis of pull requests and comprehensive issue management. It provides a robust set of tools to fetch PR details, create issues, and update issues directly from your desktop LLM. The application is designed with modularity in mind, supporting extensibility via the MCP tool interface and seamless integration with existing workflows.
+
+The toolset enables automated PR analysis, issue tracking, tagging and release management through a standardised MCP interface, making it ideal for teams seeking to streamline their GitHub workflow automation.
 
 ## Features
 
