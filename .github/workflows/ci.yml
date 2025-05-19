@@ -80,7 +80,7 @@ jobs:
       env:
         DOCKER_BUILDKIT: 1
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       env:
         DOCKER_BUILD_SUMMARY: true
         DOCKER_BUILD_CHECKS_ANNOTATIONS: true
