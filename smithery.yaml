@@ -11,11 +11,10 @@ startCommand:
         description: The GitHub token to use for authentication.
         default: "foo"
   commandFunction: |-
-    (config) => ({ 
-      command: 'python', 
-      args: ['issues_pr_analyser.py'],
-      env: {
-        GITHUB_TOKEN: config.githubToken,
+    (config) => ({
+      "command": "python3",
+      "args": ["issues_pr_analyser.py"],
+      "env": {
+        "GITHUB_TOKEN": config.githubToken,
       },
     })
-  exampleConfig: {}
