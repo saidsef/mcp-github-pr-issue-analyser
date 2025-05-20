@@ -128,7 +128,7 @@ class PRIssueAnalyser:
                 return error_msg
             
         @self.mcp.tool()
-        async def create_github_issue(repo_owner: str, repo_name: str, title: str, body: str) -> str:
+        async def create_github_issue(repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> str:
             """
             Create a GitHub issue.
             Prefix the title with one of chore, feat, or fix.
@@ -137,13 +137,14 @@ class PRIssueAnalyser:
                 repo_owner: The owner of the GitHub repository
                 repo_name: The name of the GitHub repository
                 title: The title of the issue, one of feat, fix, chore, docs, refactor, style, test
-                body: The body of the issue
+                body: The body content of the issue, this should include description, why, details, references
+                labels: The labels to add to the issue
             Returns:
                 A message indicating the success or failure of the issue creation
             """
             logging.info(f"Creating GitHub issue: {title}")
             try:
-                issue = self.gi.create_issue(repo_owner, repo_name, title, body)
+                issue = self.gi.create_issue(repo_owner, repo_name, title, body, labels)
                 logging.info(f"GitHub issue '{title}' created successfully!")
                 return f"GitHub issue '{title}' created successfully!"
             except Exception as e:
@@ -153,7 +154,7 @@ class PRIssueAnalyser:
                 return error_msg
 
         @self.mcp.tool()
-        async def update_github_issue(repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, state: str) -> str:
+        async def update_github_issue(repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str], state: str) -> str:
             """
             Update a GitHub issue.
             Prefix the title with one of chore, feat, or fix.
@@ -163,14 +164,16 @@ class PRIssueAnalyser:
                 repo_name: The name of the GitHub repository
                 issue_number: The number of the issue to update
                 title: The new title of the issue, one of feat, fix, chore, docs, refactor, style, test
-                body: The new body of the issue
+                body: The body content of the issue, this should include description, why, details, references
+                      if there is a PR number, add resolve by PR number
+                labels: The labels to add to the issue
                 state: The new state of the issue (open/closed)
             Returns:
                 A message indicating the success or failure of the issue update
             """
             logging.info(f"Updating GitHub issue #{issue_number}: {title}")
             try:
-                issue = self.gi.update_issue(repo_owner, repo_name, issue_number, title, body, state)
+                issue = self.gi.update_issue(repo_owner, repo_name, issue_number, title, body, labels, state)
                 logging.info(f"GitHub issue #{issue_number} updated successfully!")
                 return f"GitHub issue #{issue_number} updated successfully!"
             except Exception as e:
