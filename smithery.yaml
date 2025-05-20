@@ -1,0 +1,7 @@
+---
+version: 1
+start:
+  command: ["python3", "issues_pr_analyser.py"]
+  env:
+    ENABLE_SSE: true
+  port: 8080
