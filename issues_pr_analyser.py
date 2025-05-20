@@ -268,7 +268,10 @@ class PRIssueAnalyser:
             logging.error(f"Fatal Error in MCP Server: {str(e)}")
             traceback.print_exc(file=sys.stderr)
 
-
-if __name__ == "__main__":
+def main():
+    """Entry point for the application."""
     review = PRIssueAnalyser()
     review.run()
+
+if __name__ == "__main__":
+    main()
