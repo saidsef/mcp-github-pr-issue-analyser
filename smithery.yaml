@@ -1,7 +1,21 @@
----
-version: 1
-start:
-  command: ["python3", "issues_pr_analyser.py"]
-  env:
-    ENABLE_SSE: true
-  port: 8080
+# Smithery configuration file: https://smithery.ai/docs/use/session-config
+
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    required: ["githubToken"]
+    properties:
+      githubToken:
+        type: string
+        description: The GitHub token to use for authentication.
+        default: "foo"
+  commandFunction: |-
+    (config) => ({ 
+      command: 'python', 
+      args: ['issues_pr_analyser.py'],
+      env: {
+        GITHUB_TOKEN: config.githubToken,
+      },
+    })
+  exampleConfig: {}
