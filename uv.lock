@@ -185,8 +185,8 @@ cli = [
 
 [[package]]
 name = "mcp-github-pr-issue-analyser"
-version = "1.0.1"
-source = { virtual = "." }
+version = "1.5.2"
+source = { editable = "." }
 dependencies = [
     { name = "mcp", extra = ["cli"] },
     { name = "requests" },
