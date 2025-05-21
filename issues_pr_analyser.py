@@ -269,9 +269,14 @@ class PRIssueAnalyser:
             traceback.print_exc(file=sys.stderr)
 
 def main():
-    """Entry point for the application."""
-    review = PRIssueAnalyser()
-    review.run()
+    """Entry point for the application script."""
+    try:
+        review = PRIssueAnalyser()
+        review.run()
+    except Exception as e:
+        logging.error(f"Error running main analyzer: {str(e)}")
+        traceback.print_exc()
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

@@ -1,11 +1,25 @@
 [project]
 name = "mcp-github-pr-issue-analyser"
-version = "1.0.1"
+version = "1.5.2"
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
 requires-python = ">=3.12"
+authors = [
+    {name = "saidsef"}
+]
 dependencies = [
-    "mcp[cli]>=1.8.1,<2.0.0",
+    "mcp[cli]==1.8.1",
     "requests==2.32.3",
     "uv==0.7.5",
 ]
+
+[project.scripts]
+mcp-github-pr-issue-analyser = "issues_pr_analyser:main"
+
+[project.urls]
+Homepage = "https://github.com/saidsef/mcp-github-pr-issue-analyser"
+Issues = "https://github.com/saidsef/mcp-github-pr-issue-analyser/issues"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
