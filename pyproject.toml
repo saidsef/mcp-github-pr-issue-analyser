@@ -1,6 +1,6 @@
 [project]
 name = "mcp-github-pr-issue-analyser"
-version = "1.5.2"
+version = "1.6.3"
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,7 +10,6 @@ authors = [
 dependencies = [
     "mcp[cli]==1.8.1",
     "requests==2.32.3",
-    "uv==0.7.5",
 ]
 
 [project.scripts]
@@ -20,6 +19,12 @@ mcp-github-pr-issue-analyser = "issues_pr_analyser:main"
 Homepage = "https://github.com/saidsef/mcp-github-pr-issue-analyser"
 Issues = "https://github.com/saidsef/mcp-github-pr-issue-analyser/issues"
 
+[tool.setuptools]
+# Configure package/module discovery
+[tool.setuptools.packages.find]
+where = ["."]  # Look in the project root directory
+include = ["issues_pr_analyser", "ip_integration", "github_integration"] # Specify modules to include
+
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0","uv>=0.7.6"]
 build-backend = "setuptools.build_meta"
