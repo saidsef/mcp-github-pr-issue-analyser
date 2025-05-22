@@ -29,7 +29,7 @@ GITHUB_TOKEN = getenv('GITHUB_TOKEN')
 logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
-class GutHubIntegration:
+class GitHubIntegration:
     def __init__(self):
         """
         Initialize the GitHubIntegration class.

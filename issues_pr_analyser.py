@@ -23,7 +23,7 @@ import traceback
 from os import getenv
 from typing import Any, List, Dict
 from mcp.server.fastmcp import FastMCP
-from github_integration import GutHubIntegration as GI
+from github_integration import GitHubIntegration as GI
 from ip_integration import IPIntegration as IP
 
 # Set up logging for the application
