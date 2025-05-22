@@ -180,7 +180,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Adding comment to PR #{pr_number}")
             try:
-                self.gi.add_pr_comment(repo_owner, repo_name, pr_number, comment)
+                self.gi.add_pr_comments(repo_owner, repo_name, pr_number, comment)
                 logging.info(f"Successfully added comment to PR #{pr_number}")
                 return f"Successfully added comment to PR #{pr_number}"
             except Exception as e:
