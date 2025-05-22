@@ -10,7 +10,7 @@ ENV MCP_ENABLE_REMOTE="true"
 
 WORKDIR /app
 
-COPY requirements.txt github_integration.py ip_integration.py issues_pr_analyser.py /app
+COPY requirements.txt src/github_integration.py src/ip_integration.py src/issues_pr_analyser.py /app/
 
 RUN pip install --no-cache-dir -r requirements.txt
 
