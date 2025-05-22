@@ -40,12 +40,6 @@ class GitHubIntegration:
         Raises:
             ValueError: If the GitHub token is not found in environment variables.
         """
-        try:
-            pass  # No additional initialization required at this time
-        except Exception as e:
-            logging.error(f"Error during initialization: {str(e)}")
-            traceback.print_exc()
-            raise
         self.github_token = GITHUB_TOKEN
         if not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
