@@ -31,7 +31,35 @@ logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 class PRIssueAnalyser:
+    """
+    PRIssueAnalyser is a class that provides an interface for analyzing GitHub Pull Requests (PRs) and managing GitHub Issues, Tags, and Releases, as well as retrieving IP information. It integrates with GitHub and an MCP (Multi-Component Platform) server to expose a set of tools for PR and issue management, and can be run as an MCP server using either SSE or stdio transport.
+    Methods
+    -------
+    __init__():
+        Initializes the PRIssueAnalyser instance by setting up GitHub integration, IP processing, and the MCP server. Registers all MCP tools for PR and issue management.
+            Any exceptions during initialization are not explicitly handled and will propagate.
+    _register_tools():
+        Registers a set of asynchronous MCP tools for:
+            - Fetching PR diffs and content
+            - Updating PR descriptions
+            - Creating and updating GitHub issues
+            - Creating tags and releases
+            - Fetching IPv4 and IPv6 information
+            Each tool handles its own exceptions, logging errors and returning appropriate error messages or empty results.
+    run():
+        Runs the MCP server for GitHub PR analysis, selecting the transport mechanism based on the 'ENABLE_SSE' environment variable.
+            Logs and prints any exceptions that occur during server execution, including a fatal error message and traceback.
+    """
     def __init__(self):
+        """
+        Initializes the main components required for the Issue and PR Analyser.
+        This constructor performs the following actions:
+        - Initializes the GitHub integration and issue processing components.
+        - Sets up the MCP (Multi-Component Platform) server for handling PR analysis, issue creation, and updates.
+        - Registers the necessary MCP tools for further processing.
+        - Logs the successful initialization of the MCP server.
+        """
+        
         # Initialize GitHub token
         self.gi = GI()
         self.ip = IP()
@@ -44,17 +72,24 @@ class PRIssueAnalyser:
         self._register_tools()
     
     def _register_tools(self):
-        """Register MCP tools for GitHub PR analysis."""
+        """Registers the MCP tools for GitHub PR and issue management."""
+
         @self.mcp.tool()
         async def get_github_pr_diff(repo_owner: str, repo_name: str, pr_number: int) -> str:
             """
-            Fetch the diff/patch of a pull request.
+            Fetches the diff of a specific pull request from a GitHub repository.
+
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                pr_number: The number of the pull request to analyze
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                pr_number (int): The pull request number to fetch the diff for.
+
             Returns:
-                A string containing the diff/patch of the pull request
+                str: The diff of the pull request as a string. Returns an empty string if no changes are found,
+                     or an error message string if an exception occurs.
+
+            Error Handling:
+                Logs and returns the error message if an exception is raised during the fetch operation.
             """
             logging.info(f"Fetching PR #{pr_number} diff from {repo_owner}/{repo_name}")
             try:
@@ -72,14 +107,15 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
             """
-            Fetch the content of a GitHub pull request.
-            If get_github_pr_content() errors or fails, use get_github_pr_diff().
+            Fetches the content of a GitHub pull request for a given repository and PR number.
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                pr_number: The number of the pull request to analyze
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                pr_number (int): The pull request number to fetch.
             Returns:
-                A dictionary containing PR metadata and file changes
+                Dict[str, Any]: A dictionary containing the pull request information if successful, or an empty dictionary if no information is found or an error occurs.
+            Error Handling:
+                Logs an error message and prints the traceback to stderr if an exception is raised during the fetch operation. Returns an empty dictionary in case of errors.
             """
             logging.info(f"Fetching PR #{pr_number} from {repo_owner}/{repo_name}")
             try:
@@ -97,24 +133,20 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def update_github_pr_description(repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> str:
             """
-            Update the description of a GitHub pull request.
-            List files changed in the PR and add them to the description.
-            Where possible include What, Why and How if you have enough information in the PR.
-            eample:
-            ## What? 
-            Added support for authentication. #123
-            ## Why?
-            These changes complete the user login and account creation experience, see #123 for full details
-            ## How?
-            This includes a migration, model and controller for user authentication..
+            Updates the title and description of a GitHub pull request.
+
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                pr_number: The number of the pull request to update
-                new_title: The new title for the pull request, one of feat, fix, chore, docs, refactor, style, test
-                new_description: The new description for the pull request
+                repo_owner (str): The owner of the repository.
+                repo_name (str): The name of the repository.
+                pr_number (int): The pull request number to update.
+                new_title (str): The new title for the pull request.
+                new_description (str): The new description for the pull request.
+
             Returns:
-                A message indicating the success or failure of the update
+                str: A message indicating the result of the update operation. Returns a success message if the update is successful, or an error message if an exception occurs.
+
+            Error Handling:
+                Catches and logs any exceptions that occur during the update process. If an error is encountered, the error message is logged and returned.
             """
             logging.info(f"Updating PR #{pr_number} description")
             try:
@@ -130,17 +162,17 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def create_github_issue(repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> str:
             """
-            Create a GitHub issue.
-            Prefix the title with one of chore, feat, or fix.
-            In the body indicate if the PR closes, fixes or resolves the issue.
+            Creates a GitHub issue in the specified repository.
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                title: The title of the issue, one of feat, fix, chore, docs, refactor, style, test
-                body: The body content of the issue, this should include description, why, details, references
-                labels: The labels to add to the issue
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                title (str): The title of the issue to be created.
+                body (str): The body content of the issue.
+                labels (list[str]): A list of labels to assign to the issue.
             Returns:
-                A message indicating the success or failure of the issue creation
+                str: A message indicating the result of the issue creation. Returns a success message if the issue is created successfully, or an error message if an exception occurs.
+            Error Handling:
+                Logs and returns an error message if an exception is raised during the issue creation process. The exception traceback is also printed to stderr for debugging purposes.
             """
             logging.info(f"Creating GitHub issue: {title}")
             try:
@@ -156,20 +188,19 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def update_github_issue(repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str], state: str) -> str:
             """
-            Update a GitHub issue.
-            Prefix the title with one of chore, feat, or fix.
-            In the body indicate if the PR closes, fixes or resolves the issue.
+            Updates a GitHub issue with the specified parameters.
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                issue_number: The number of the issue to update
-                title: The new title of the issue, one of feat, fix, chore, docs, refactor, style, test
-                body: The body content of the issue, this should include description, why, details, references
-                      if there is a PR number, add resolve by PR number
-                labels: The labels to add to the issue
-                state: The new state of the issue (open/closed)
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                issue_number (int): The number of the issue to update.
+                title (str): The new title for the issue.
+                body (str): The new body content for the issue.
+                labels (list[str]): A list of labels to assign to the issue.
+                state (str): The state to set for the issue (e.g., 'open', 'closed').
             Returns:
-                A message indicating the success or failure of the issue update
+                str: A message indicating whether the issue was updated successfully or an error occurred.
+            Error Handling:
+                Logs and returns an error message if an exception occurs during the update process.
             """
             logging.info(f"Updating GitHub issue #{issue_number}: {title}")
             try:
@@ -185,14 +216,16 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def create_github_tag(repo_owner: str, repo_name: str, tag_name: str, message: str) -> str:
             """
-            Create a GitHub tag.
+            Creates a GitHub tag for the specified repository.
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                tag_name: The name of the tag to create
-                message: The message for the tag
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                tag_name (str): The name of the tag to create.
+                message (str): The message associated with the tag.
             Returns:
-                A message indicating the success or failure of the tag creation
+                str: A success message if the tag is created successfully, or an error message if an exception occurs.
+            Error Handling:
+                Logs and returns an error message if the tag creation fails due to an exception.
             """
             logging.info(f"Creating GitHub tag: {tag_name}")
             try:
@@ -208,15 +241,17 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def create_github_release(repo_owner: str, repo_name: str, tag_name: str, release_name: str, body: str) -> str:
             """
-            Create a GitHub release.
+            Creates a GitHub release for the specified repository and tag.
             Args:
-                repo_owner: The owner of the GitHub repository
-                repo_name: The name of the GitHub repository
-                tag_name: The name of the tag to create the release from
-                release_name: The name of the release
-                body: The body of the release
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                tag_name (str): The tag name to create the release from.
+                release_name (str): The name of the release to be created.
+                body (str): The description or body content of the release.
             Returns:
-                A message indicating the success or failure of the release creation
+                str: A success message if the release is created successfully, or an error message if an exception occurs.
+            Error Handling:
+                Logs and returns an error message if the release creation fails due to an exception.
             """
             logging.info(f"Creating GitHub release '{release_name}' from tag '{tag_name}'")
             try:
@@ -232,9 +267,15 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def get_ipv4_ipv6_info() -> Dict[str, Any]:
             """
-            Fetch IPv4 and IPv6 information.
+            Fetches IPv4 and IPv6 information.
+            This function retrieves IPv4 and IPv6 address information using the `self.ip` interface.
+            If either IPv4 or IPv6 information is unavailable, it logs the event and returns an empty dictionary.
+            If both are available, the IPv6 address is added to the IPv4 info dictionary under the "ipv6" key.
             Returns:
-                A dictionary containing the IPv4 and IPv6 information
+                Dict[str, Any]: A dictionary containing IPv4 information, with the IPv6 address included if available.
+                                Returns an empty dictionary if either IPv4 or IPv6 information is missing or if an error occurs.
+            Error Handling:
+                Logs any exceptions encountered during the fetching process and returns an empty dictionary.
             """
             logging.info(f"Fetching IPv4 and IPv6 information")
             try:
@@ -256,7 +297,18 @@ class PRIssueAnalyser:
                 return {}
 
     def run(self):
-        """Run the MCP server."""
+        """
+        Runs the MCP Server for GitHub PR Analysis using the appropriate transport.
+        This method checks the 'ENABLE_SSE' environment variable to determine whether to use
+        Server-Sent Events (SSE) or standard input/output (stdio) as the transport mechanism
+        for the MCP server. It logs the server startup and handles any exceptions that occur
+        during execution, logging errors and printing the traceback to standard error.
+        Returns:
+            None
+        Error Handling:
+            Logs any exceptions that occur during server execution and prints the traceback
+            to standard error for debugging purposes.
+        """
         MCP_ENABLE_SSE = getenv("ENABLE_SSE", None)
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
@@ -269,7 +321,17 @@ class PRIssueAnalyser:
             traceback.print_exc(file=sys.stderr)
 
 def main():
-    """Entry point for the application script."""
+    """
+    Main entry point for the PR and Issue Analyzer.
+    This function initializes the PRIssueAnalyser and executes its main logic.
+    If an exception occurs during execution, it logs the error, prints the traceback,
+    and exits the program with a non-zero status code.
+    Returns:
+        None
+    Error Handling:
+        Catches all exceptions, logs the error message, prints the traceback,
+        and terminates the program with exit code 1.
+    """
     try:
         review = PRIssueAnalyser()
         review.run()

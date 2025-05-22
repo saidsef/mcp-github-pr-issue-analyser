@@ -31,7 +31,21 @@ logging.basicConfig(level=logging.WARNING)
 
 class GutHubIntegration:
     def __init__(self):
-        # Initialize GitHub token
+        """
+        Initialize the GitHubIntegration class.
+
+        Returns:
+            None
+
+        Raises:
+            ValueError: If the GitHub token is not found in environment variables.
+        """
+        try:
+            pass  # No additional initialization required at this time
+        except Exception as e:
+            logging.error(f"Error during initialization: {str(e)}")
+            traceback.print_exc()
+            raise
         self.github_token = GITHUB_TOKEN
         if not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
@@ -39,26 +53,51 @@ class GutHubIntegration:
         logging.info("GitHub Integration initialized")
 
     def _get_headers(self):
-        """Get headers for GitHub API requests."""
+        """
+        Return the headers required for GitHub API requests.
+
+        Returns:
+            dict: A dictionary containing the required HTTP headers.
+
+        Raises:
+            ValueError: If the GitHub token is missing.
+
+        Error Handling:
+            Raises ValueError if the GitHub token is not set.
+        """
+        if not self.github_token:
+            raise ValueError("GitHub token is missing for API requests")
         return {
             'Authorization': f'token {self.github_token}',
             'Accept': 'application/vnd.github.v3+json'
         }
     
     def _get_pr_url(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
-        """Construct the URL for a specific pull request."""
+        """
+        Generates the GitHub API URL for a specific pull request in a given repository.
+        Args:
+            repo_owner (str): The owner of the GitHub repository.
+            repo_name (str): The name of the GitHub repository.
+            pr_number (int): The pull request number.
+        Returns:
+            str: The formatted GitHub API URL for the specified pull request.
+        Raises:
+            ValueError: If any of the arguments are empty or if pr_number is not a positive integer.
+        """
+        
         return f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
     
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
-        """Fetch the diff/patch of a pull request.
-        
+        """
+        Fetches the diff/patch of a pull request from a GitHub repository.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            pr_number: The number of the pull request to analyze
-            
+            repo_owner (str): The owner of the GitHub repository.
+            repo_name (str): The name of the GitHub repository.
+            pr_number (int): The pull request number.
         Returns:
-            A string containing the raw patch of the pull request
+            str: The raw patch/diff text of the pull request if successful, otherwise None.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception occurs.
         """
         logging.info(f"Fetching PR diff for {repo_owner}/{repo_name}#{pr_number}")
         
@@ -77,15 +116,17 @@ class GutHubIntegration:
             return None
 
     def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
-        """Fetch the content of a pull request.
-        
+        """
+        Fetches the content of a specific pull request from a GitHub repository.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            pr_number: The number of the pull request to analyze
-            
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            pr_number (int): The pull request number.
         Returns:
-            A dictionary containing PR metadata and file changes
+            Dict[str, Any]: A dictionary containing the pull request's title, description, author, creation and update timestamps, and state.
+            Returns None if an error occurs during the fetch operation.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised during processing.
         """
         logging.info(f"Fetching PR content for {repo_owner}/{repo_name}#{pr_number}")
         
@@ -117,16 +158,18 @@ class GutHubIntegration:
             return None
 
     def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> Dict[str, Any]:
-        """Add a comment to a pull request.
-
+        """
+        Adds a comment to a specified pull request on GitHub.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            pr_number: The number of the pull request to comment on
-            comment: The content of the comment
-
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            pr_number (int): The pull request number to which the comment will be added.
+            comment (str): The content of the comment to add.
         Returns:
-            A dictionary containing the added comment's metadata
+            Dict[str, Any]: The JSON response from the GitHub API containing the comment data if successful.
+            None: If an error occurs while adding the comment.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
         logging.info(f"Adding comment to PR {repo_owner}/{repo_name}#{pr_number}")
 
@@ -148,17 +191,19 @@ class GutHubIntegration:
             return None
 
     def update_pr_description(self, repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> Dict[str, Any]:
-        """Update the description of a pull request.
-
+        """
+        Updates the title and description of a pull request on GitHub.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo
-            repo_name: The name of the GitHub repository
-            pr_number: The number of the pull request to update
-            new_title: The new title for the pull request
-            new_description: The new description for the pull request
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            pr_number (int): The pull request number to update.
+            new_title (str): The new title for the pull request.
+            new_description (str): The new description (body) for the pull request.
         Returns:
-            A dictionary containing the updated pull request's metadata
+            Dict[str, Any]: The updated pull request data as returned by the GitHub API if the update is successful.
+            None: If an error occurs during the update process.
+        Error Handling:
+            Logs an error message and prints the traceback if the update fails due to an exception (e.g., network issues, invalid credentials, or API errors).
         """
         logging.info(f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}")
 
@@ -181,17 +226,20 @@ class GutHubIntegration:
             return None
 
     def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> Dict[str, Any]:
-        """Create a new issue in the specified GitHub repository.
-        
+        """
+        Creates a new issue in the specified GitHub repository.
+        When issue is created add comment to PR with "Resolves: #<issue_number>" using add_pr_comments function.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            title: The title of the issue
-            body: The body content of the issue, this should include description, why, details, references
-                  if there is a PR number, add resolve by PR number
-            labels: A list of labels to apply to the issue
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            title (str): The title of the issue to be created.
+            body (str): The body content of the issue.
+            labels (list[str]): A list of labels to assign to the issue. The label 'mcp' will always be included.
         Returns:
-            A dictionary containing the created issue's metadata
+            Dict[str, Any]: A dictionary containing the created issue's data if successful.
+            None: If an error occurs during issue creation.
+        Error Handling:
+            Logs errors and prints the traceback if the issue creation fails, returning None.
         """
         logging.info(f"Creating issue in {repo_owner}/{repo_name}")
         
@@ -218,18 +266,21 @@ class GutHubIntegration:
             return None
 
     def update_issue(self, repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str] = [], state: str = 'open') -> Dict[str, Any]:
-        """Update an existing issue in the specified GitHub repository.
-
+        """
+        Updates an existing GitHub issue with the specified parameters.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            issue_number: The number of the issue to update
-            title: The new title of the issue
-            body: The new body content of the issue
-            labels: A list of labels to apply to the issue
-            state: The new state of the issue (open/closed)
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            issue_number (int): The number of the issue to update.
+            title (str): The new title for the issue.
+            body (str): The new body content for the issue.
+            labels (list[str], optional): A list of labels to assign to the issue. Defaults to an empty list.
+            state (str, optional): The state of the issue ('open' or 'closed'). Defaults to 'open'.
         Returns:
-            A dictionary containing the updated issue's metadata
+            Dict[str, Any]: The updated issue data as returned by the GitHub API if the update is successful.
+            None: If an error occurs during the update process.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
         logging.info(f"Updating issue {issue_number} in {repo_owner}/{repo_name}")
 
@@ -254,13 +305,16 @@ class GutHubIntegration:
             return None
 
     def get_latest_sha(self, repo_owner: str, repo_name: str) -> Optional[str]:
-        """Fetch the latest commit SHA from the specified GitHub repository.
-
+        """
+        Fetches the latest commit SHA from a specified GitHub repository.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
+            repo_owner (str): The owner of the GitHub repository.
+            repo_name (str): The name of the GitHub repository.
         Returns:
-            The latest commit SHA as a string, or None if no commits are found
+            Optional[str]: The SHA string of the latest commit if found, otherwise None.
+        Error Handling:
+            Logs errors and warnings if the request fails, the response is invalid, or no commits are found.
+            Returns None in case of exceptions or if the repository has no commits.
         """
         logging.info(f"Fetching latest commit SHA for {repo_owner}/{repo_name}")
 
@@ -287,15 +341,18 @@ class GutHubIntegration:
             return None
 
     def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> Dict[str, Any]:
-        """Create a new tag in the specified GitHub repository.
-
+        """
+        Creates a new tag in the specified GitHub repository.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            tag_name: The name of the new tag
-            message: The message for the tag
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            tag_name (str): The name of the tag to create.
+            message (str): The message associated with the tag.
         Returns:
-            A dictionary containing the created tag's metadata
+            Dict[str, Any]: The response data from the GitHub API if the tag is created successfully.
+            None: If an error occurs during the tag creation process.
+        Error Handling:
+            Logs errors and prints the traceback if fetching the latest commit SHA fails or if the GitHub API request fails.
         """
         logging.info(f"Creating tag {tag_name} in {repo_owner}/{repo_name}")
         # Construct the tags URL
@@ -324,16 +381,19 @@ class GutHubIntegration:
             return None
 
     def create_release(self, repo_owner: str, repo_name: str, tag_name: str, release_name: str, body: str) -> Dict[str, Any]:
-        """Create a new release in the specified GitHub repository.
-
+        """
+        Creates a new release in the specified GitHub repository.
         Args:
-            repo_owner: The owner of the GitHub repository
-            repo_name: The name of the GitHub repository
-            tag_name: The name of the tag for the release
-            release_name: The name of the release
-            body: The body content of the release
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            tag_name (str): The tag name for the release.
+            release_name (str): The name of the release.
+            body (str): The description or body content of the release.
         Returns:
-            A dictionary containing the created release's metadata
+            Dict[str, Any]: The JSON response from the GitHub API containing release information if successful.
+            None: If an error occurs during the release creation process.
+        Error Handling:
+            Logs errors and prints the traceback if the release creation fails, returning None.
         """
         logging.info(f"Creating release {release_name} in {repo_owner}/{repo_name}")
 
