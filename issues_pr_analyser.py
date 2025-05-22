@@ -107,6 +107,8 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
             """
+            First use get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
+            Then, if you still need more context use get_pr_content to fetch the content of the pull request.
             Fetches the content of a GitHub pull request for a given repository and PR number.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
@@ -158,11 +160,40 @@ class PRIssueAnalyser:
                 logging.error(error_msg)
                 traceback.print_exc(file=sys.stderr)
                 return error_msg
-            
+
+        @self.mcp.tool()
+        async def add_github_pr_comment(repo_owner: str, repo_name: str, pr_number: int, comment: str) -> str:
+            """
+            Adds a comment to a GitHub pull request.
+
+            Args:
+                repo_owner (str): The owner of the repository.
+                repo_name (str): The name of the repository.
+                pr_number (int): The pull request number to add the comment to.
+                comment (str): The comment text to be added.
+
+            Returns:
+                str: A message indicating the result of the comment addition. Returns a success message if the comment is added successfully, or an error message if an exception occurs.
+
+            Error Handling:
+                Catches and logs any exceptions that occur during the comment addition process. If an error is encountered, the error message is logged and returned.
+            """
+            logging.info(f"Adding comment to PR #{pr_number}")
+            try:
+                self.gi.add_pr_comment(repo_owner, repo_name, pr_number, comment)
+                logging.info(f"Successfully added comment to PR #{pr_number}")
+                return f"Successfully added comment to PR #{pr_number}"
+            except Exception as e:
+                error_msg = f"Error adding comment to PR: {str(e)}"
+                logging.error(error_msg)
+                traceback.print_exc(file=sys.stderr)
+                return error_msg
+
         @self.mcp.tool()
         async def create_github_issue(repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> str:
             """
             Creates a GitHub issue in the specified repository.
+            Then use add_github_pr_comment to link the issue to the PR with comment "Resolves #<issue_number>".
             Args:
                 repo_owner (str): The owner of the GitHub repository.
                 repo_name (str): The name of the GitHub repository.
