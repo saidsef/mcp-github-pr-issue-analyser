@@ -26,5 +26,5 @@ where = ["."]  # Look in the project root directory
 include = ["issues_pr_analyser", "ip_integration", "github_integration"] # Specify modules to include
 
 [build-system]
-requires = ["setuptools>=61.0"]
+requires = ["setuptools>=61.0","uv>=0.7.6"]
 build-backend = "setuptools.build_meta"
