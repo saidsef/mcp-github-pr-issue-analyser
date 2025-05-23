@@ -1,29 +1,31 @@
 [project]
 name = "mcp-github-pr-issue-analyser"
-version = "2.0.2"
+version = "2.1.0"
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
 requires-python = ">=3.12"
 authors = [
-    {name = "saidsef"}
+    { name = "saidsef" }
 ]
 dependencies = [
     "mcp[cli]==1.8.1",
-    "requests==2.32.3",
+    "requests==2.32.3"
 ]
 
 [project.scripts]
-mcp-github-pr-issue-analyser = "issues_pr_analyser:main"
+mcp-github-pr-issue-analyser = "mcp_github.issues_pr_analyser:main"
 
 [project.urls]
-Homepage = "https://github.com/saidsef/mcp-github-pr-issue-analyser"
-Issues = "https://github.com/saidsef/mcp-github-pr-issue-analyser/issues"
+homepage = "https://github.com/saidsef/mcp-github-pr-issue-analyser"
+issues = "https://github.com/saidsef/mcp-github-pr-issue-analyser/issues"
 
 [tool.setuptools]
-[tool.setuptools.packages.find]
-where = ["src"]  # Look in the src directory
-include = ["*"]  # Include all packages/modules in src
+package-dir = {"" = "src"}
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
 
 [build-system]
-requires = ["setuptools>=61.0","uv>=0.7.6"]
+requires = ["setuptools>=61.0","wheel"]
 build-backend = "setuptools.build_meta"

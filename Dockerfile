@@ -10,10 +10,11 @@ ENV MCP_ENABLE_REMOTE="true"
 
 WORKDIR /app
 
-COPY requirements.txt src/github_integration.py src/ip_integration.py src/issues_pr_analyser.py /app/
+COPY requirements.txt src/mcp_github/*.py /app/
 
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir uv
 
 EXPOSE 8080
 
-CMD ["python3", "issues_pr_analyser.py"]
+CMD ["uvx", "./"]

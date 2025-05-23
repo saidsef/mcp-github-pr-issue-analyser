@@ -12,8 +12,8 @@ startCommand:
         default: "foo"
   commandFunction: |-
     (config) => ({
-      "command": "python3",
-      "args": ["issues_pr_analyser.py"],
+      "command": "uvx",
+      "args": ["./"],
       "env": {
         "GITHUB_TOKEN": config.githubToken,
       },
