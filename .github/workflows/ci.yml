@@ -5,12 +5,14 @@ on:
       - main
     paths:
       - "*.py"
+      - "Dockerfile"
       - ".github/workflows/ci.yml"
   pull_request:
     branches:
       - main
     paths:
       - "*.py"
+      - "Dockerfile"
       - ".github/workflows/ci.yml"
   workflow_dispatch:
 
