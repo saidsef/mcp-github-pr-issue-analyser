@@ -1,4 +1,4 @@
 -i https://pypi.org/simple
-mcp[cli]==1.8.1
+mcp[cli]==1.9.3
 requests==2.32.3
 uv==0.7.9
