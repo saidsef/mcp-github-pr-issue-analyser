@@ -65,7 +65,10 @@ class PRIssueAnalyser:
         self.ip = IP()
         
         # Initialize MCP Server
-        self.mcp = FastMCP("GitHub PR Analyse, Issue Create and Update")
+        self.mcp = FastMCP(
+            name="GitHub PR Analyse, Issue Create and Update",
+            instruction="Use the tools to analyze GitHub PRs, create and update issues, and manage tags and releases.",
+        )
         logging.info("MCP Server initialized")
         
         # Register MCP tools
@@ -107,8 +110,8 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
             """
-            First use get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
-            Then, if you still need more context use get_pr_content to fetch the content of the pull request.
+            Use get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
+            If you still need more context, then use this to fetch the content of the pull request.
             Fetches the content of a GitHub pull request for a given repository and PR number.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
@@ -162,6 +165,36 @@ class PRIssueAnalyser:
                 return error_msg
 
         @self.mcp.tool()
+        async def add_github_pr_inline_comment(repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> str:
+            """
+            Adds an inline review comment to a specific line in a GitHub pull request file.
+            Only comment if there is an issue with the code, otherwise do not comment.
+            Args:
+                repo_owner (str): The owner of the repository.
+                repo_name (str): The name of the repository.
+                pr_number (int): The pull request number to add the comment to.
+                path (str): The relative path to the file (e.g., 'src/main.py').
+                line (int): The line number in the file to comment on.
+                comment_body (str): The content of the review comment.
+
+            Returns:
+                str: A message indicating the result of the comment addition. Returns a success message if the comment is added successfully, or an error message if an exception occurs.
+
+            Error Handling:
+                Catches and logs any exceptions that occur during the comment addition process. If an error is encountered, the error message is logged and returned.
+            """
+            logging.info(f"Adding inline review comment to PR #{pr_number}")
+            try:
+                self.gi.add_inline_pr_comment(repo_owner, repo_name, pr_number, path, line, comment_body)
+                logging.info(f"Successfully added inline review comment to PR #{pr_number}")
+                return f"Successfully added inline review comment to PR #{pr_number}"
+            except Exception as e:
+                error_msg = f"Error adding inline review comment to PR: {str(e)}"
+                logging.error(error_msg)
+                traceback.print_exc(file=sys.stderr)
+                return error_msg
+
+        @self.mcp.tool()
         async def add_github_pr_comment(repo_owner: str, repo_name: str, pr_number: int, comment: str) -> str:
             """
             Adds a comment to a GitHub pull request.
@@ -197,7 +230,7 @@ class PRIssueAnalyser:
             Args:
                 repo_owner (str): The owner of the GitHub repository.
                 repo_name (str): The name of the GitHub repository.
-                title (str): The title of the issue to be created.
+                title (str): The title of the issue to be created, one of chore, fix, bug, feat, docs etc.
                 body (str): The body content of the issue.
                 labels (list[str]): A list of labels to assign to the issue.
             Returns:
@@ -224,7 +257,7 @@ class PRIssueAnalyser:
                 repo_owner (str): The owner of the GitHub repository.
                 repo_name (str): The name of the GitHub repository.
                 issue_number (int): The number of the issue to update.
-                title (str): The new title for the issue.
+                title (str): The new title for the issue, one of chore, fix, bug, feat, docs etc.
                 body (str): The new body content for the issue.
                 labels (list[str]): A list of labels to assign to the issue.
                 state (str): The state to set for the issue (e.g., 'open', 'closed').
@@ -340,10 +373,10 @@ class PRIssueAnalyser:
             Logs any exceptions that occur during server execution and prints the traceback
             to standard error for debugging purposes.
         """
-        MCP_ENABLE_SSE = getenv("ENABLE_SSE", None)
+        MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", None)
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
-            if MCP_ENABLE_SSE:
+            if MCP_ENABLE_REMOTE:
                 self.mcp.run(transport='sse')
             else:
                 self.mcp.run(transport='stdio')

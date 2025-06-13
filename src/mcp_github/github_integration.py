@@ -184,6 +184,57 @@ class GitHubIntegration:
             traceback.print_exc()
             return None
 
+    def add_inline_pr_comment(self, repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> Dict[str, Any]:
+        """
+        Adds an inline review comment to a specific line in a pull request file.
+
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            pr_number (int): The pull request number.
+            path (str): The relative path to the file (e.g., 'src/main.py').
+            line (int): The line number in the file to comment on.
+            comment_body (str): The content of the review comment.
+
+        Returns:
+            Dict[str, Any]: The JSON response from the GitHub API containing the comment data if successful.
+            None: If an error occurs while adding the comment.
+
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised.
+        """
+        logging.info(f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}")
+
+        # Construct the review comments URL
+        review_comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
+
+        try:
+            pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
+            pr_response = requests.get(pr_url, headers=self._get_headers())
+            pr_response.raise_for_status()
+            pr_data = pr_response.json()
+            commit_id = pr_data['head']['sha']
+
+            payload = {
+                "body": comment_body,
+                "commit_id": commit_id,
+                "path": path,
+                "line": line,
+                "side": "RIGHT"
+            }
+
+            response = requests.post(review_comments_url, headers=self._get_headers(), json=payload)
+            response.raise_for_status()
+            comment_data = response.json()
+
+            logging.info(f"Inline review comment added successfully")
+            return comment_data
+
+        except Exception as e:
+            logging.error(f"Error adding inline review comment: {str(e)}")
+            traceback.print_exc()
+            return None
+
     def update_pr_description(self, repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> Dict[str, Any]:
         """
         Updates the title and description of a pull request on GitHub.
