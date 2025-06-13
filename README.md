@@ -13,6 +13,8 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 | PR Content Retrieval       | `get_github_pr_content`        | Fetch PR metadata including title, description, author, and state.                            |
 | PR Diff Analysis          | `get_github_pr_diff`           | Retrieve the diff/patch content showing file changes in the PR.                              |
 | PR Description Updates     | `update_github_pr_description` | Update PR titles and descriptions with What/Why/How sections and file changes.               |
+| PR General Comments        | `add_github_pr_comment`        | Add general discussion comments to pull requests.                                            |
+| PR Inline Code Comments    | `add_github_pr_inline_comment` | Add inline review comments to specific lines in PR files for code review.                    |
 | Issue Creation            | `create_github_issue`          | Create new issues with conventional commit prefixes (feat/fix/chore) and MCP label.          |
 | Issue Updates             | `update_github_issue`          | Modify existing issues with new title, body, and state (open/closed).                        |
 | Tag Management            | `create_github_tag`            | Create new git tags with associated messages for versioning.                                  |
@@ -80,11 +82,21 @@ cd mcp-github-pr-issue-analyser
 ```
 
 2. **Install dependencies:**
+
+Launch MCP in `stdio` mode.
 ```sh
-uv init
-uv venv
-uv pip install -r requirements.txt
+export GITHUB_TOKEN="<github-token>"
+uvx ./
 ```
+
+Alternatively, launch MCP in `sse` mode.
+```sh
+export GITHUB_TOKEN="<github-token>"
+export MCP_ENABLE_REMOTE=true
+uvx ./
+```
+> You can access it via `sse` i.e. `http(s)://localhost:8080/sse`
+
 ## Local Integration with Desktop LLMs
 
 To add an MCP server to your desktop LLM such as Claude etc.., you need to add this section to the configuration file. The basic structure involves defining a server name and providing the command and any necessary arguments to run the server.

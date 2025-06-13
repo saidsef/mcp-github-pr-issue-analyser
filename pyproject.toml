@@ -1,6 +1,6 @@
 [project]
 name = "mcp-github-pr-issue-analyser"
-version = "2.1.0"
+version = "2.2.1"
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -27,5 +27,5 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 
 [build-system]
-requires = ["setuptools>=61.0","wheel"]
+requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
