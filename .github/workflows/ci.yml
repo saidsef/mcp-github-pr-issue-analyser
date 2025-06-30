@@ -7,6 +7,8 @@ on:
       - "src/mcp_github/*.py"
       - "Dockerfile"
       - ".github/workflows/ci.yml"
+      - "requirements.txt"
+      - "pyproject.toml"
   pull_request:
     branches:
       - main
@@ -14,6 +16,8 @@ on:
       - "src/mcp_github/*.py"
       - "Dockerfile"
       - ".github/workflows/ci.yml"
+      - "requirements.txt"
+      - "pyproject.toml"
   workflow_dispatch:
 
 env:
