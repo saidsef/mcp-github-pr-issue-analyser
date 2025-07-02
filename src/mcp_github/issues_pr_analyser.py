@@ -242,7 +242,7 @@ class PRIssueAnalyser:
             try:
                 issue = self.gi.create_issue(repo_owner, repo_name, title, body, labels)
                 logging.info(f"GitHub issue '{title}' created successfully!")
-                return f"GitHub issue '{title}' created successfully!"
+                return f"GitHub issue number #{issue} created successfully!"
             except Exception as e:
                 error_msg = f"Error creating GitHub issue: {str(e)}"
                 logging.error(error_msg)
@@ -270,7 +270,7 @@ class PRIssueAnalyser:
             try:
                 issue = self.gi.update_issue(repo_owner, repo_name, issue_number, title, body, labels, state)
                 logging.info(f"GitHub issue #{issue_number} updated successfully!")
-                return f"GitHub issue #{issue_number} updated successfully!"
+                return f"GitHub issue number #{issue} updated successfully!"
             except Exception as e:
                 error_msg = f"Error updating GitHub issue: {str(e)}"
                 logging.error(error_msg)
@@ -295,7 +295,7 @@ class PRIssueAnalyser:
             try:
                 tag = self.gi.create_tag(repo_owner, repo_name, tag_name, message)
                 logging.info(f"GitHub tag '{tag_name}' created successfully!")
-                return f"GitHub tag '{tag_name}' created successfully!"
+                return f"GitHub tag '{tag}' created successfully!"
             except Exception as e:
                 error_msg = f"Error creating GitHub tag: {str(e)}"
                 logging.error(error_msg)
@@ -321,7 +321,7 @@ class PRIssueAnalyser:
             try:
                 release = self.gi.create_release(repo_owner, repo_name, tag_name, release_name, body)
                 logging.info(f"GitHub release '{release_name}' created successfully!")
-                return f"GitHub release '{release_name}' created successfully!"
+                return f"GitHub release '{release}' created successfully!"
             except Exception as e:
                 error_msg = f"Error creating GitHub release: {str(e)}"
                 logging.error(error_msg)
