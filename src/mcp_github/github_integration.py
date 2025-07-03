@@ -270,6 +270,49 @@ class GitHubIntegration:
             traceback.print_exc()
             return None
 
+    def list_open_prs(self, repo_owner: str) -> Dict[str, Any]:
+        """
+        Lists all open pull requests for a given repository owner.
+        Args:
+            repo_owner (str): The owner of the repository.
+        Returns:
+            Dict[str, Any]: A dictionary containing the list of open pull requests.
+            None: If an error occurs during the request.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised.
+        """
+        logging.info(f"Listing open PRs for {repo_owner}")
+
+        # Construct the search URL
+        search_url = f"https://api.github.com/search/issues?q=is:pr+is:open+user:{repo_owner}"
+
+        try:
+            response = requests.get(search_url, headers=self._get_headers())
+            response.raise_for_status()
+            pr_data = response.json()
+            open_prs = {
+                "total_open_prs": pr_data['total_count'],
+                "pull_requests": [
+                    {
+                        "url": item['url'],
+                        "title": item['title'],
+                        "number": item['number'],
+                        "state": item['state'],
+                        "created_at": item['created_at'],
+                        "label_names": [label['name'] for label in item.get('labels', [])]
+                    }
+                    for item in pr_data['items']
+                ]
+            }
+
+            logging.info(f"Open PRs listed successfully")
+            return open_prs
+
+        except Exception as e:
+            logging.error(f"Error listing open PRs: {str(e)}")
+            traceback.print_exc()
+            return None
+
     def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> Dict[str, Any]:
         """
         Creates a new issue in the specified GitHub repository.
