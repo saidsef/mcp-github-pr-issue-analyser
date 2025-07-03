@@ -223,6 +223,27 @@ class PRIssueAnalyser:
                 return error_msg
 
         @self.mcp.tool()
+        async def list_github_prs(repo_owner: str) -> str:
+            """
+            Lists all open pull requests for a given repository owner.
+            Args:
+                repo_owner (str): The owner of the repository.
+            Returns:
+                Dict[str, Any]: A dictionary containing the list of open pull requests.
+            Error Handling:
+                Catches and logs any exceptions that occur during the fetch operation. If an error is encountered, the error message is logged and an empty dictionary is returned.
+            """
+            logging.info(f"Listing open PRs for {repo_owner}")
+            try:
+                open_prs = self.gi.list_open_prs(repo_owner)
+                return f"Successfully listed open PRs for {repo_owner}: {open_prs}"
+            except Exception as e:
+                error_msg = f"Error adding comment to PR: {str(e)}"
+                logging.error(error_msg)
+                traceback.print_exc(file=sys.stderr)
+                return error_msg
+
+        @self.mcp.tool()
         async def create_github_issue(repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> str:
             """
             Creates a GitHub issue in the specified repository.
