@@ -119,7 +119,7 @@ class PRIssueAnalyser:
                 repo_name (str): The name of the GitHub repository.
                 pr_number (int): The pull request number to fetch.
             Returns:
-                str: A string containing the pull request information if successful, or 'No changes' string if no information is found or an error occurs.
+                str: A string containing the pull request information if successful, or a 'No changes' string if no information is found or an error occurs.
             Error Handling:
                 Logs an error message and prints the traceback to stderr if an exception is raised during the fetch operation. Returns error string in case of errors.
             """
