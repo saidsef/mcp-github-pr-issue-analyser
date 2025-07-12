@@ -131,7 +131,7 @@ class PRIssueAnalyser:
                     logging.info(f"{no_changes}")
                     return f"{no_changes}"
                 logging.info(f"Successfully fetched PR information")
-                return pr_info
+                return str(pr_info)
             except Exception as e:
                 logging.error(f"Error fetching PR: {str(e)}")
                 traceback.print_exc(file=sys.stderr)
