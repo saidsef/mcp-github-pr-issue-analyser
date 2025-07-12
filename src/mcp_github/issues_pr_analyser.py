@@ -21,7 +21,7 @@ import sys
 import logging
 import traceback
 from os import getenv
-from typing import Any, List, Dict
+from typing import Any, Dict, List
 from mcp.server.fastmcp import FastMCP
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
@@ -88,7 +88,7 @@ class PRIssueAnalyser:
                 pr_number (int): The pull request number to fetch the diff for.
 
             Returns:
-                str: The diff of the pull request as a string. Returns an empty string if no changes are found,
+                str: The diff of the pull request as a string. Returns a 'No changes' string if no changes are found,
                      or an error message string if an exception occurs.
 
             Error Handling:
@@ -98,8 +98,9 @@ class PRIssueAnalyser:
             try:
                 pr_diff = self.gi.get_pr_diff(repo_owner, repo_name, pr_number)
                 if pr_diff is None:
-                    logging.info("No changes returned from get_pr_diff")
-                    return ""
+                    no_changes = "No changes returned from get_pr_diff"
+                    logging.info(f"{no_changes}")
+                    return f"{no_changes}"
                 logging.info(f"Successfully fetched PR diff")
                 return pr_diff
             except Exception as e:
@@ -108,7 +109,7 @@ class PRIssueAnalyser:
                 return str(e)
 
         @self.mcp.tool()
-        async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
+        async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> str:
             """
             Use get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
             If you still need more context, then use this to fetch the content of the pull request.
@@ -118,22 +119,23 @@ class PRIssueAnalyser:
                 repo_name (str): The name of the GitHub repository.
                 pr_number (int): The pull request number to fetch.
             Returns:
-                Dict[str, Any]: A dictionary containing the pull request information if successful, or an empty dictionary if no information is found or an error occurs.
+                str: A string containing the pull request information if successful, or a 'No changes' string if no information is found or an error occurs.
             Error Handling:
-                Logs an error message and prints the traceback to stderr if an exception is raised during the fetch operation. Returns an empty dictionary in case of errors.
+                Logs an error message and prints the traceback to stderr if an exception is raised during the fetch operation. Returns error string in case of errors.
             """
             logging.info(f"Fetching PR #{pr_number} from {repo_owner}/{repo_name}")
             try:
                 pr_info = self.gi.get_pr_content(repo_owner, repo_name, pr_number)
                 if pr_info is None:
-                    logging.info("No changes returned from get_pr_content")
-                    return {}
+                    no_changes = "No changes returned from get_pr_content"
+                    logging.info(f"{no_changes}")
+                    return f"{no_changes}"
                 logging.info(f"Successfully fetched PR information")
-                return pr_info
+                return str(pr_info)
             except Exception as e:
                 logging.error(f"Error fetching PR: {str(e)}")
                 traceback.print_exc(file=sys.stderr)
-                return {}
+                return str(e)
             
         @self.mcp.tool()
         async def update_github_pr_description(repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> str:
