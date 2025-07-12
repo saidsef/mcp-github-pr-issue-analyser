@@ -88,7 +88,7 @@ class PRIssueAnalyser:
                 pr_number (int): The pull request number to fetch the diff for.
 
             Returns:
-                str: The diff of the pull request as a string. Returns an 'No changes' string if no changes are found,
+                str: The diff of the pull request as a string. Returns a 'No changes' string if no changes are found,
                      or an error message string if an exception occurs.
 
             Error Handling:
