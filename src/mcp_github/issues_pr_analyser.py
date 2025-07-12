@@ -164,7 +164,7 @@ class PRIssueAnalyser:
                 error_msg = f"Error updating PR description: {str(e)}"
                 logging.error(error_msg)
                 traceback.print_exc(file=sys.stderr)
-                return str(error_msg)
+                return error_msg
 
         @self.mcp.tool()
         async def add_github_pr_inline_comment(repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> str:
