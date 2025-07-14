@@ -166,7 +166,7 @@ class PRIssueAnalyser:
         async def add_github_pr_inline_comment(repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> str:
             """
             Adds an inline review comment to a specific line in a pull request on GitHub.
-            Only comment if there are an issue(s) with the code, otherwise do not comment.
+            Only comment if there are issues with the code, otherwise do not comment.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
                 repo_name (str): The name of the GitHub repository.
