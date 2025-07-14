@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.WARNING)
 class GitHubIntegration:
     def __init__(self):
         """
-        Initialize the GitHubIntegration class.
+        Initialise the GitHubIntegration class.
 
         Returns:
             None
@@ -44,7 +44,7 @@ class GitHubIntegration:
         if not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
         
-        logging.info("GitHub Integration initialized")
+        logging.info("GitHub Integration Initialised")
 
     def _get_headers(self):
         """
@@ -299,6 +299,8 @@ class GitHubIntegration:
                         "number": item['number'],
                         "state": item['state'],
                         "created_at": item['created_at'],
+                        "updated_at": item['updated_at'],
+                        "author": item['user']['login'],
                         "label_names": [label['name'] for label in item.get('labels', [])]
                     }
                     for item in pr_data['items']
