@@ -36,7 +36,7 @@ class PRIssueAnalyser:
     Methods
     -------
     __init__():
-        Initializes the PRIssueAnalyser instance by setting up GitHub integration, IP processing, and the MCP server. Registers all MCP tools for PR and issue management.
+        Initialises the PRIssueAnalyser instance by setting up GitHub integration, IP processing, and the MCP server. Registers all MCP tools for PR and issue management.
             Any exceptions during initialization are not explicitly handled and will propagate.
     _register_tools():
         Registers a set of asynchronous MCP tools for:
@@ -52,9 +52,9 @@ class PRIssueAnalyser:
     """
     def __init__(self):
         """
-        Initializes the main components required for the Issue and PR Analyser.
+        Initialises the main components required for the Issue and PR Analyser.
         This constructor performs the following actions:
-        - Initializes the GitHub integration and issue processing components.
+        - Initialises the GitHub integration and issue processing components.
         - Sets up the MCP (Multi-Component Platform) server for handling PR analysis, issue creation, and updates.
         - Registers the necessary MCP tools for further processing.
         - Logs the successful initialization of the MCP server.
@@ -66,8 +66,8 @@ class PRIssueAnalyser:
         
         # Initialize MCP Server
         self.mcp = FastMCP(
-            name="GitHub PR Analyse, Issue Create and Update",
-            instruction="Use the tools to analyze GitHub PRs, create and update issues, and manage tags and releases.",
+            name="GitHub PR and Issue Analyser",
+            instruction="You are a GitHub PR and Issue Analyser. You can fetch PR diffs, update PR descriptions, create and update issues, create tags and releases, and fetch IP information.",
         )
         logging.info("MCP Server initialized")
         
@@ -81,18 +81,17 @@ class PRIssueAnalyser:
         async def get_github_pr_diff(repo_owner: str, repo_name: str, pr_number: int) -> str:
             """
             Fetches the diff of a specific pull request from a GitHub repository.
-
+            Use only get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
                 repo_name (str): The name of the GitHub repository.
                 pr_number (int): The pull request number to fetch the diff for.
-
             Returns:
                 str: The diff of the pull request as a string. Returns a 'No changes' string if no changes are found,
                      or an error message string if an exception occurs.
-
             Error Handling:
                 Logs and returns the error message if an exception is raised during the fetch operation.
+                The exception traceback is also printed to stderr for debugging purposes.
             """
             logging.info(f"Fetching PR #{pr_number} diff from {repo_owner}/{repo_name}")
             try:
@@ -111,17 +110,17 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> str:
             """
-            Use get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
-            If you still need more context, then use this to fetch the content of the pull request.
-            Fetches the content of a GitHub pull request for a given repository and PR number.
+            Fetches the content of a specific pull request from a GitHub repository.
+            Use only get_pr_diff to fetch the diff of a specific pull request from a GitHub repository.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
                 repo_name (str): The name of the GitHub repository.
-                pr_number (int): The pull request number to fetch.
+                pr_number (int): The pull request number to fetch the content for.
             Returns:
-                str: A string containing the pull request information if successful, or a 'No changes' string if no information is found or an error occurs.
+                str: The content of the pull request as a string. Returns a 'No changes' string if no changes are found,
+                     or an error message string if an exception occurs.
             Error Handling:
-                Logs an error message and prints the traceback to stderr if an exception is raised during the fetch operation. Returns error string in case of errors.
+                Logs and returns the error message if an exception is raised during the fetch operation.
             """
             logging.info(f"Fetching PR #{pr_number} from {repo_owner}/{repo_name}")
             try:
@@ -140,18 +139,15 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def update_github_pr_description(repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> str:
             """
-            Updates the title and description of a GitHub pull request.
-
+            Updates the description of a GitHub pull request with a new title and description.
             Args:
-                repo_owner (str): The owner of the repository.
-                repo_name (str): The name of the repository.
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
                 pr_number (int): The pull request number to update.
                 new_title (str): The new title for the pull request.
                 new_description (str): The new description for the pull request.
-
             Returns:
                 str: A message indicating the result of the update operation. Returns a success message if the update is successful, or an error message if an exception occurs.
-
             Error Handling:
                 Catches and logs any exceptions that occur during the update process. If an error is encountered, the error message is logged and returned.
             """
@@ -169,21 +165,19 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def add_github_pr_inline_comment(repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> str:
             """
-            Adds an inline review comment to a specific line in a GitHub pull request file.
-            Only comment if there is an issue with the code, otherwise do not comment.
+            Adds an inline review comment to a specific line in a pull request on GitHub.
+            Only comment if there are an issue(s) with the code, otherwise do not comment.
             Args:
-                repo_owner (str): The owner of the repository.
-                repo_name (str): The name of the repository.
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
                 pr_number (int): The pull request number to add the comment to.
-                path (str): The relative path to the file (e.g., 'src/main.py').
-                line (int): The line number in the file to comment on.
-                comment_body (str): The content of the review comment.
-
+                path (str): The file path in the pull request where the comment should be added.
+                line (int): The line number in the file where the comment should be added.
+                comment_body (str): The content of the comment to be added.
             Returns:
-                str: A message indicating the result of the comment addition. Returns a success message if the comment is added successfully, or an error message if an exception occurs.
-
+                str: A message indicating the result of the inline comment addition. Returns a success message if the comment is added successfully, or an error message if an exception occurs.
             Error Handling:
-                Catches and logs any exceptions that occur during the comment addition process. If an error is encountered, the error message is logged and returned.
+                Catches and logs any exceptions that occur during the inline comment addition process. If an error is encountered, the error message is logged and returned.
             """
             logging.info(f"Adding inline review comment to PR #{pr_number}")
             try:
@@ -200,16 +194,13 @@ class PRIssueAnalyser:
         async def add_github_pr_comment(repo_owner: str, repo_name: str, pr_number: int, comment: str) -> str:
             """
             Adds a comment to a GitHub pull request.
-
             Args:
-                repo_owner (str): The owner of the repository.
-                repo_name (str): The name of the repository.
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
                 pr_number (int): The pull request number to add the comment to.
-                comment (str): The comment text to be added.
-
+                comment (str): The content of the comment to be added.
             Returns:
                 str: A message indicating the result of the comment addition. Returns a success message if the comment is added successfully, or an error message if an exception occurs.
-
             Error Handling:
                 Catches and logs any exceptions that occur during the comment addition process. If an error is encountered, the error message is logged and returned.
             """
@@ -227,13 +218,13 @@ class PRIssueAnalyser:
         @self.mcp.tool()
         async def list_github_prs(repo_owner: str) -> str:
             """
-            Lists all open pull requests for a given repository owner.
+            Lists all open pull requests for a given GitHub repository owner.
             Args:
-                repo_owner (str): The owner of the repository.
+                repo_owner (str): The owner of the GitHub repository.
             Returns:
-                Dict[str, Any]: A dictionary containing the list of open pull requests.
+                str: A message indicating the result of the PR listing. Returns a success message with the list of open PRs if successful, or an error message if an exception occurs.
             Error Handling:
-                Catches and logs any exceptions that occur during the fetch operation. If an error is encountered, the error message is logged and an empty dictionary is returned.
+                Catches and logs any exceptions that occur during the PR listing process. If an error is encountered, the error message is logged and returned.
             """
             logging.info(f"Listing open PRs for {repo_owner}")
             try:
@@ -410,7 +401,7 @@ class PRIssueAnalyser:
 def main():
     """
     Main entry point for the PR and Issue Analyzer.
-    This function initializes the PRIssueAnalyser and executes its main logic.
+    This function Initialises the PRIssueAnalyser and executes its main logic.
     If an exception occurs during execution, it logs the error, prints the traceback,
     and exits the program with a non-zero status code.
     Returns:
