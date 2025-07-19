@@ -1,4 +1,5 @@
-# MCP for GitHub PR, Issues, Tags and Releases
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/saidsef/mcp-github-pr-issue-analyser)
+# MCP for GitHub PRs, Issues, Tags and Releases
 
 The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
 
