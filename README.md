@@ -12,19 +12,17 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 
 ## Features
 
-| Feature                     | Function Name                  | Description                                                                                   |
-|----------------------------|--------------------------------|-----------------------------------------------------------------------------------------------|
-| PR Content Retrieval       | `get_github_pr_content`        | Fetch PR metadata including title, description, author, and state.                            |
-| PR Diff Analysis          | `get_github_pr_diff`           | Retrieve the diff/patch content showing file changes in the PR.                              |
-| PR Description Updates     | `update_github_pr_description` | Update PR titles and descriptions with What/Why/How sections and file changes.               |
-| PR General Comments        | `add_github_pr_comment`        | Add general discussion comments to pull requests.                                            |
-| PR Inline Code Comments    | `add_github_pr_inline_comment` | Add inline review comments to specific lines in PR files for code review.                    |
-| Issue Creation            | `create_github_issue`          | Create new issues with conventional commit prefixes (feat/fix/chore) and MCP label.          |
-| Issue Updates             | `update_github_issue`          | Modify existing issues with new title, body, and state (open/closed).                        |
-| Tag Management            | `create_github_tag`            | Create new git tags with associated messages for versioning.                                  |
-| Release Management        | `create_github_release`        | Generate GitHub releases with automatic release notes and tag references.                     |
-| Network Information       | `get_ipv4_ipv6_info`          | Fetch IPv4 and IPv6 network information for the system.                                      |
-| MCP Tool Registration       | `_register_tools`         | Tools are registered and exposed via the MCP server for easy integration.                      |
+| Function                                 | Description                                                                                       |
+|------------------------------------------|---------------------------------------------------------------------------------------------------|
+| Analyse GitHub Pull Requests and fetch diffs         | Retrieve the diff/patch for any PR in a repository.                                                |
+| Fetch content and metadata for specific PRs          | Get PR title, description, author, timestamps, and state.                                          |
+| Update PR title and description                      | Change the title and body of any PR.                                                               |
+| Add comments to PRs                                  | Post general comments to a PR thread.                                                              |
+| Add inline review comments to PRs                    | Comment on specific lines in PR files for code review.                                             |
+| Create and update GitHub Issues                      | Open new issues or update existing ones with title, body, labels, and state.                       |
+| Create tags and releases                             | Tag repository commits and publish releases with changelogs.                                       |
+| Retrieve IPv4 and IPv6 information                   | Get public IP address details for both IPv4 and IPv6.                                              |
+| List all open Issues or Pull Requests                | View all open PRs or issues for any user or organisation.                                          |
 
 ## Requirements
 

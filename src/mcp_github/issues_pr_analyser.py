@@ -216,20 +216,21 @@ class PRIssueAnalyser:
                 return error_msg
 
         @self.mcp.tool()
-        async def list_github_prs(repo_owner: str) -> str:
+        async def list_github_prs(repo_owner: str, issue: str) -> str:
             """
             Lists all open pull requests for a given GitHub repository owner.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
+                issue (str): The type of items to list, either 'pr' for pull requests or 'issue' for issues.
             Returns:
                 str: A message indicating the result of the PR listing. Returns a success message with the list of open PRs if successful, or an error message if an exception occurs.
             Error Handling:
                 Catches and logs any exceptions that occur during the PR listing process. If an error is encountered, the error message is logged and returned.
             """
-            logging.info(f"Listing open PRs for {repo_owner}")
+            logging.info(f"Listing open {issue} for {repo_owner}")
             try:
-                open_prs = self.gi.list_open_prs(repo_owner)
-                return f"Successfully listed open PRs for {repo_owner}: {open_prs}"
+                open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue)
+                return f"Successfully listed open {issue} for {repo_owner}: {open_issues_prs}"
             except Exception as e:
                 error_msg = f"Error adding comment to PR: {str(e)}"
                 logging.error(error_msg)
