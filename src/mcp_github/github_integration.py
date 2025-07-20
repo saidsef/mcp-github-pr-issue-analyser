@@ -277,7 +277,7 @@ class GitHubIntegration:
             repo_owner (str): The owner of the repository.
             issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
         Returns:
-            Dict[str, Any]: A dictionary containing the list of open pull requests.
+            Dict[str, Any]: A dictionary containing the list of open pull requests or issues, depending on the value of the `issue` parameter.
             None: If an error occurs during the request.
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
