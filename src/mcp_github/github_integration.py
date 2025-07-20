@@ -275,7 +275,7 @@ class GitHubIntegration:
         Lists all open Issues or Pull Requests for a given repository owner.
         Args:
             repo_owner (str): The owner of the repository.
-            issue (Literal['pr', 'issue'] | None): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
+            issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
         Returns:
             Dict[str, Any]: A dictionary containing the list of open pull requests.
             None: If an error occurs during the request.
