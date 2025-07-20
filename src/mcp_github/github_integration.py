@@ -282,7 +282,7 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Listing open PRs for {repo_owner}")
+        logging.info(f"Listing open {issue}s for {repo_owner}")
 
         # Construct the search URL
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+user:{repo_owner}"
