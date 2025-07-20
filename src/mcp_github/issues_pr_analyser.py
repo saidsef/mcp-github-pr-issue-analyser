@@ -232,7 +232,7 @@ class PRIssueAnalyser:
                 open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue)
                 return f"Successfully listed open {issue} for {repo_owner}: {open_issues_prs}"
             except Exception as e:
-                error_msg = f"Error adding comment to PR: {str(e)}"
+                error_msg = f"Error listing {issue} for {repo_owner}: {str(e)}"
                 logging.error(error_msg)
                 traceback.print_exc(file=sys.stderr)
                 return error_msg
