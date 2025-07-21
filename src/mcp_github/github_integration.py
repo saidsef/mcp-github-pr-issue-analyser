@@ -21,7 +21,7 @@ import logging
 import requests
 import traceback
 from os import getenv
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Literal
 
 GITHUB_TOKEN = getenv('GITHUB_TOKEN')
 
@@ -270,21 +270,22 @@ class GitHubIntegration:
             traceback.print_exc()
             return None
 
-    def list_open_prs(self, repo_owner: str) -> Dict[str, Any]:
+    def list_open_issues_prs(self, repo_owner: str, issue: Literal['pr', 'issue'] = 'pr') -> Dict[str, Any]:
         """
-        Lists all open pull requests for a given repository owner.
+        Lists all open Issues or Pull Requests for a given repository owner.
         Args:
             repo_owner (str): The owner of the repository.
+            issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
         Returns:
-            Dict[str, Any]: A dictionary containing the list of open pull requests.
+            Dict[str, Any]: A dictionary containing the list of open pull requests or issues, depending on the value of the `issue` parameter.
             None: If an error occurs during the request.
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Listing open PRs for {repo_owner}")
+        logging.info(f"Listing open {issue}s for {repo_owner}")
 
         # Construct the search URL
-        search_url = f"https://api.github.com/search/issues?q=is:pr+is:open+user:{repo_owner}"
+        search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+user:{repo_owner}"
 
         try:
             response = requests.get(search_url, headers=self._get_headers())
