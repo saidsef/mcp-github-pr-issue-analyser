@@ -219,6 +219,7 @@ class PRIssueAnalyser:
         async def list_github_issues_prs(repo_owner: str, issue: str) -> str:
             """
             Lists all open pull requests or issues for a given GitHub repository owner.
+            GitHub /issues/ endpoint is used to list all open issues and pull requests.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
                 issue (str): The type of items to list, either 'pr' for pull requests or 'issue' for issues.
