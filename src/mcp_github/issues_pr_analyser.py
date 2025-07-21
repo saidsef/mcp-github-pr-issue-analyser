@@ -230,7 +230,7 @@ class PRIssueAnalyser:
             logging.info(f"Listing open {issue} for {repo_owner}")
             try:
                 open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue)
-                return f"Successfully listed open {issue} for {repo_owner}: {open_issues_prs}"
+                return f"{open_issues_prs}"
             except Exception as e:
                 error_msg = f"Error listing {issue} for {repo_owner}: {str(e)}"
                 logging.error(error_msg)
