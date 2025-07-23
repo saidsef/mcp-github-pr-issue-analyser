@@ -95,10 +95,10 @@ class PRIssueAnalyser:
                 pr_diff = self.gi.get_pr_diff(repo_owner, repo_name, pr_number)
                 if pr_diff is None:
                     no_changes = "No changes returned from get_pr_diff"
-                    logging.info({"status": "error", "message": no_changes})
-                    return {"status": "error", "message": no_changes}
+                    logging.info({"status": "info", "message": no_changes})
+                    return {"status": "info", "message": no_changes}
                 logging.info({"status": "success", "message": f"Successfully fetched PR #{pr_number} diff"})
-                return {"status": "success", "message": f"{pr_diff}"}
+                return {"status": "success", "message": pr_diff}
             except Exception as e:
                 logging.error({"status": "error", "message": str(e)})
                 traceback.print_exc(file=sys.stderr)
