@@ -302,7 +302,9 @@ class GitHubIntegration:
                         "created_at": item['created_at'],
                         "updated_at": item['updated_at'],
                         "author": item['user']['login'],
-                        "label_names": [label['name'] for label in item.get('labels', [])]
+                        "label_names": [label['name'] for label in item.get('labels', [])],
+                        "is_draft": item.get('draft', False),
+                        "author": item['user']['login'],
                     }
                     for item in pr_data['items']
                 ]
@@ -407,7 +409,7 @@ class GitHubIntegration:
             Logs errors and warnings if the request fails, the response is invalid, or no commits are found.
             Returns None in case of exceptions or if the repository has no commits.
         """
-        logging.info(f"Fetching latest commit SHA for {repo_owner}/{repo_name}")
+        logging.info({"status": "info", "message": f"Fetching latest commit SHA for {repo_owner}/{repo_name}"})
 
         # Construct the commits URL
         commits_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
@@ -420,10 +422,10 @@ class GitHubIntegration:
 
             if commits_data:
                 latest_sha = commits_data[0]['sha']
-                logging.info(f"Latest commit SHA fetched successfully")
+                logging.info({"status": "info", "message": f"Latest commit SHA: {latest_sha}"})
                 return latest_sha
             else:
-                logging.warning("No commits found in the repository")
+                logging.warning({"status": "warning", "message": "No commits found in the repository"})
                 return None
 
         except Exception as e:
