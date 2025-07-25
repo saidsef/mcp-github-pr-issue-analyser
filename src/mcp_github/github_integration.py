@@ -304,7 +304,6 @@ class GitHubIntegration:
                         "author": item['user']['login'],
                         "label_names": [label['name'] for label in item.get('labels', [])],
                         "is_draft": item.get('draft', False),
-                        "author": item['user']['login'],
                     }
                     for item in pr_data['items']
                 ]
