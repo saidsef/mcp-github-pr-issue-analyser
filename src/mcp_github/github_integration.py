@@ -49,13 +49,10 @@ class GitHubIntegration:
     def _get_headers(self):
         """
         Return the headers required for GitHub API requests.
-
         Returns:
             dict: A dictionary containing the required HTTP headers.
-
         Raises:
             ValueError: If the GitHub token is missing.
-
         Error Handling:
             Raises ValueError if the GitHub token is not set.
         """
@@ -78,7 +75,7 @@ class GitHubIntegration:
         Raises:
             ValueError: If any of the arguments are empty or if pr_number is not a positive integer.
         """
-        
+
         return f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
     
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
@@ -262,7 +259,7 @@ class GitHubIntegration:
             })
             response.raise_for_status()
             pr_data = response.json()
-            
+
             logging.info(f"PR description updated successfully")
             return pr_data
         except Exception as e:
@@ -295,7 +292,7 @@ class GitHubIntegration:
                 "total_open_prs": pr_data['total_count'],
                 "pull_requests": [
                     {
-                        "url": item['url'],
+                        "url": item['html_url'],
                         "title": item['title'],
                         "number": item['number'],
                         "state": item['state'],
@@ -320,7 +317,7 @@ class GitHubIntegration:
     def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> Dict[str, Any]:
         """
         Creates a new issue in the specified GitHub repository.
-        When issue is created add comment to PR with "Resolves: #<issue_number>" using add_pr_comments function.
+        When issue is created add comment to PR with "Resolves: #<issue_number>" using update_pr_description function.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -357,7 +354,7 @@ class GitHubIntegration:
             traceback.print_exc()
             return None
 
-    def update_issue(self, repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str] = [], state: str = 'open') -> Dict[str, Any]:
+    def update_issue(self, repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str] = [], state: Literal['open', 'closed'] = 'open') -> Dict[str, Any]:
         """
         Updates an existing GitHub issue with the specified parameters.
         Args:
