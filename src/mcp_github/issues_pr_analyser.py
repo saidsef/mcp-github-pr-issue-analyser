@@ -290,7 +290,7 @@ class PRIssueAnalyser:
         async def create_github_tag(repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
             """
             Creates a GitHub tag for the specified repository.
-            - Add a markdown comment to teh tag.
+            - Add a markdown comment to the tag.
             - The tag name should be descriptive and meaningful.
             - The message should contain detailed information about the tag, including changes, features, and fixes
             Args:
