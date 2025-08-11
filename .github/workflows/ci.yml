@@ -108,7 +108,7 @@ jobs:
         provenance: mode=max
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG != 'main' && env.TAG || env.DATE }}
+        tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG != 'main' && env.TAG || env.DATE && 'latest' }}
         labels: ${{ steps.meta.outputs.labels }}
 
   auto-approve:
