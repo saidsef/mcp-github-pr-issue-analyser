@@ -21,7 +21,7 @@ import sys
 import logging
 import traceback
 from os import getenv
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Literal
 from mcp.server.fastmcp import FastMCP
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
@@ -210,21 +210,22 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
-        async def list_github_issues_prs(repo_owner: str, issue: str) -> dict[str, Any]:
+        async def list_github_issues_prs(repo_owner: str, issue: Literal['pr', 'issue'] = 'pr', filtering: Literal['user', 'owner', 'involves'] = 'involves') -> dict[str, Any]:
             """
             Lists open issues or pull requests for a specified GitHub repository.
             - Present the issues or pull requests in a markdown table format.
             - Add index column to the table, and make the title link to the issue or pull request.
             Args:
                 repo_owner (str): The owner of the GitHub repository.
-                issue (str): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
+                issue (Literal['pr', 'issue']): The type of item to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
+                filtering (Literal['user', 'owner', 'involves']): The filtering criteria for the search. Defaults to 'involves'.
             Returns:
                 dict[str, Any]: A dictionary containing the list of open issues or pull requests.
                     Returns an error message if an exception occurs during the listing process.
             """
             logging.info({"status": "info", "message": f"Listing open {issue} for {repo_owner}"})
             try:
-                open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue)
+                open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue, filtering)
                 return open_issues_prs
             except Exception as e:
                 error_msg = f"Error listing {issue} for {repo_owner}: {str(e)}"
