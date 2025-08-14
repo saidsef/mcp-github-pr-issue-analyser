@@ -105,6 +105,7 @@ To add an MCP server to your IDE or LLM, you need to add this section to the con
 
 <details>
 <summary>Claude / Cursor / Windsurf</summary>
+
 ```json
 {
   "mcpServers": {
@@ -114,7 +115,7 @@ To add an MCP server to your IDE or LLM, you need to add this section to the con
         "GITHUB_TOKEN": "<your-github-token>"
       },
       "args": [
-        "https://github.com/saidsef/mcp-github-pr-issue-analyser.git"
+        "https://github.com/saidsef/mcp-github-pr-issue-analyser.git",
       ]
     }
   }
@@ -124,6 +125,8 @@ To add an MCP server to your IDE or LLM, you need to add this section to the con
 
 <details>
 <summary>VS Code</summary>
+
+```json
 {
   "inputs": [
     {
@@ -146,6 +149,7 @@ To add an MCP server to your IDE or LLM, you need to add this section to the con
     }
   }
 }
+```
 </details>
 
 ## Source
