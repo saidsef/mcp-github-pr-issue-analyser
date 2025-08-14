@@ -99,25 +99,58 @@ uvx ./
 ```
 > You can access it via `sse` i.e. `http(s)://localhost:8080/sse`
 
-## Local Integration with Desktop LLMs
+## Local Integration with IDEs and LLMs
 
-To add an MCP server to your desktop LLM such as Claude etc.., you need to add this section to the configuration file. The basic structure involves defining a server name and providing the command and any necessary arguments to run the server.
+To add an MCP server to your IDE or LLM, you need to add this section to the configuration file. The basic structure involves defining a server name and providing the command and any necessary arguments to run the server.
+
+<details>
+<summary>Claude / Cursor / Windsurf</summary>
 
 ```json
 {
   "mcpServers": {
-    "github_pr_issues": {
+    "github_prs_issues": {
       "command": "uvx",
       "env": {
         "GITHUB_TOKEN": "<your-github-token>"
       },
       "args": [
-        "https://github.com/saidsef/mcp-github-pr-issue-analyser.git"
+        "https://github.com/saidsef/mcp-github-pr-issue-analyser.git",
       ]
     }
   }
 }
 ```
+</details>
+
+<details>
+<summary>VS Code</summary>
+
+```json
+{
+  "inputs": [
+    {
+      "type": "promptString",
+      "id": "github-token",
+      "description": "Enter your GitHub token",
+      "password": true
+    }
+  ],
+  "servers": {
+    "github-prs-issues": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "https://github.com/saidsef/mcp-github-pr-issue-analyser.git",
+      ],
+      "env": {
+        "GITHUB_TOKEN": "${input:github-token}"
+      }
+    }
+  }
+}
+```
+</details>
 
 ## Source
 

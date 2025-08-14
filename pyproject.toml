@@ -1,6 +1,6 @@
 [project]
 name = "mcp-github-pr-issue-analyser"
-version = "2.6.0"
+version = "2.6.1"
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
 requires-python = ">=3.12"
