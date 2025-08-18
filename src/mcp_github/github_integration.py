@@ -290,8 +290,8 @@ class GitHubIntegration:
             response.raise_for_status()
             pr_data = response.json()
             open_prs = {
-                "total_open_prs": pr_data['total_count'],
-                "pull_requests": [
+                "total": pr_data['total_count'],
+                f"open_{issue}s": [
                     {
                         "url": item['html_url'],
                         "title": item['title'],
@@ -307,11 +307,11 @@ class GitHubIntegration:
                 ]
             }
 
-            logging.info(f"Open PRs listed successfully")
+            logging.info(f"Open {issue}s listed successfully")
             return open_prs
 
         except Exception as e:
-            logging.error(f"Error listing open PRs: {str(e)}")
+            logging.error(f"Error listing open {issue}s: {str(e)}")
             traceback.print_exc()
             return None
 

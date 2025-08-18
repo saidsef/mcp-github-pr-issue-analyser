@@ -358,15 +358,19 @@ class PRIssueAnalyser:
             logging.info({"status": "info", "message": "Fetching IPv4 and IPv6 information"})
             try:
                 ipv4_info = self.ip.get_ipv4_info()
-                ipv6_info = self.ip.get_ipv6_info()
-                if ipv4_info is None:
+                try:
+                    ipv6_info = self.ip.get_ipv6_info()
+                except Exception as e:
+                    logging.error(f"Error fetching IPv6 info: {e}")
+                    ipv6_info = None
+                if not isinstance(ipv4_info, dict) or ipv4_info is None:
                     logging.info({"status": "error", "message": "No changes returned from getv4_ip_info"})
-                    return {}
-                if ipv6_info is None:
+                    return {"status": "No IPv4 information available"}
+                if not isinstance(ipv6_info, dict) or ipv6_info is None or "ip" not in ipv6_info:
                     logging.info({"status": "error", "message": "No changes returned from getv6_ip_info"})
-                    return {}
-                if ipv4_info and ipv6_info:
-                    ipv4_info["ipv6"] = ipv6_info["ip"]
+                    return {"status": "No IPv6 information available"}
+                else:
+                    ipv4_info["ipv6"] = ipv6_info.get("ip", "No IPv6 address found")
                 logging.info({"status": "success", "message": "Successfully fetched IPv4 and IPv6 information"})
                 return ipv4_info
             except Exception as e:
