@@ -63,7 +63,8 @@ class IPIntegration:
         return response.json()
     except requests.RequestException as e:
         logging.error(f"Error fetching IP info: {e}")
-        logging.debug(traceback.format_exc())
+        logging.debug(e)
+        traceback.print_exc()
         return {}
 
   def get_ipv4_info(self) -> Dict[str, Any]:
@@ -79,7 +80,8 @@ class IPIntegration:
           return ipv4
       except requests.RequestException as e:
           logging.error(f"Error fetching IPv4 info: {e}")
-          logging.debug(traceback.format_exc())
+          logging.debug(e)
+          traceback.print_exc()
           return {}
 
   def get_ipv6_info(self) -> Dict[str, Any]:
@@ -94,17 +96,15 @@ class IPIntegration:
         Logs an error message and returns an empty dictionary if a `requests.RequestException` is raised during the fetch operation.
         Also logs the full traceback at the debug level for troubleshooting.
     """
-    # Override the allowed_gai_family method to use IPv6
-    def allowed_gai_family():
-        return socket.AF_INET6
-    urllib3_connection.allowed_gai_family = allowed_gai_family
     try:
+        urllib3_connection.allowed_gai_family = lambda: socket.AF_INET6
         ipv6 = self.get_info(self.ipv6_api_url)
         if not ipv6:
             logging.error("No IPv6 information found.")
-            return {}
+            return {"error": "No IPv6 information found."}
         return ipv6
     except requests.RequestException as e:
         logging.error(f"Error fetching IPv6 info: {e}")
-        logging.debug(traceback.format_exc())
-        return {}
+        logging.debug(e)
+        traceback.print_exc()
+        return {"error": f"Failed to fetch IPv6 information: {str(e)}"}
