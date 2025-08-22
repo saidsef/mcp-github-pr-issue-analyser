@@ -15,6 +15,6 @@ COPY requirements.txt src/mcp_github/*.py /app/
 RUN pip install --no-cache-dir -r requirements.txt && \
     pip install --no-cache-dir uv
 
-EXPOSE 8080
+EXPOSE 8080 9090
 
 CMD ["uvx", "./"]
