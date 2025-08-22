@@ -67,12 +67,14 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 2. Issue Tracking: Create and update
 3. Release Management: Tags and releases
 4. Network Info: IPv4/IPv6 details
+5. Prometheus Metrics: Comprehensive observability and monitoring
 
 ### Main Flows:
 
 - PRIssueAnalyser: Main MCP server handling tool registration and requests
 - GitHub Integration: Manages all GitHub API interactions
 - IP Integration: Handles IPv4/IPv6 information retrieval
+- Metrics Integration: Provides Prometheus metrics for observability
 - MCP Client: Interacts via stdio or Server-Sent Events (SSE)
 
 ## Local Installation
@@ -151,6 +153,72 @@ To add an MCP server to your IDE or LLM, you need to add this section to the con
 }
 ```
 </details>
+
+## Prometheus Metrics
+
+When running in remote mode (`MCP_ENABLE_REMOTE=true`), the application automatically starts a Prometheus metrics server to provide observability and monitoring capabilities.
+
+### Metrics Configuration
+
+- **Metrics Port**: Configurable via `METRICS_PORT` environment variable (default: 9090)
+- **Metrics Endpoint**: `http://localhost:9090/metrics`
+- **Health Endpoint**: `http://localhost:9090/health`
+
+### Available Metrics
+
+The application exposes the following Prometheus metrics:
+
+| Metric Name | Type | Description | Labels |
+|-------------|------|-------------|---------|
+| `mcp_github_requests_total` | Counter | Total number of MCP tool requests | `tool`, `status` |
+| `mcp_github_request_duration_seconds` | Histogram | Request duration in seconds | `tool` |
+| `mcp_github_active_requests` | Gauge | Number of currently active requests | `tool` |
+| `mcp_github_response_size_bytes` | Summary | Size of response in bytes | `tool` |
+| `mcp_github_errors_total` | Counter | Total number of errors | `tool`, `error_type` |
+| `mcp_github_app_info` | Gauge | Application information | `version`, `name` |
+
+### Usage Examples
+
+**Basic usage with metrics enabled:**
+```bash
+export GITHUB_TOKEN="<your-github-token>"
+export MCP_ENABLE_REMOTE=true
+export METRICS_PORT=9090
+uvx ./
+```
+
+**Using Docker with metrics:**
+```bash
+docker run -e GITHUB_TOKEN="<token>" -e MCP_ENABLE_REMOTE=true -p 8080:8080 -p 9090:9090 saidsef/mcp-github-pr-issue-analyser
+```
+
+**Prometheus scraping configuration:**
+```yaml
+global:
+  scrape_interval: 15s
+
+scrape_configs:
+  - job_name: 'mcp-github-pr-issue-analyser'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: '/metrics'
+```
+
+**Grafana dashboard example queries:**
+```promql
+# Request rate by tool
+rate(mcp_github_requests_total[5m])
+
+# Average request latency
+rate(mcp_github_request_duration_seconds_sum[5m]) / rate(mcp_github_request_duration_seconds_count[5m])
+
+# Error rate by tool
+rate(mcp_github_errors_total[5m])
+
+# Active requests
+mcp_github_active_requests
+```
 
 ## Source
 

@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Literal
 from mcp.server.fastmcp import FastMCP
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
+from .metrics_integration import MetricsIntegration
 
 # Set up logging for the application
 logging.getLogger(__name__)
@@ -62,6 +63,9 @@ class PRIssueAnalyser:
 
         self.gi = GI() # Initialize GitHub token
         self.ip = IP()
+        
+        # Initialize Prometheus metrics
+        self.metrics = MetricsIntegration()
 
         # Initialize MCP Server
         self.mcp = FastMCP(
@@ -80,6 +84,7 @@ class PRIssueAnalyser:
         """Registers the MCP tools for GitHub PR and issue management."""
 
         @self.mcp.tool()
+        @self.metrics.track_request('get_github_pr_diff')
         async def get_github_pr_diff(repo_owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
             """
             Fetches the diff of a specific pull request from a GitHub repository.
@@ -106,6 +111,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": str(e)}
 
         @self.mcp.tool()
+        @self.metrics.track_request('get_github_pr_content')
         async def get_github_pr_content(repo_owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
             """
             Fetches the content of a specific pull request from a GitHub repository.
@@ -134,6 +140,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": str(e)}
 
         @self.mcp.tool()
+        @self.metrics.track_request('update_github_pr_description')
         async def update_github_pr_description(repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> dict[str, Any]:
             """
             Updates the title and description of a specific pull request on GitHub.
@@ -160,6 +167,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('add_github_pr_inline_comment')
         async def add_github_pr_inline_comment(repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> dict[str, Any]:
             """
             Adds an inline review comment to a specific line in a pull request on GitHub.
@@ -186,6 +194,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('add_github_pr_comment')
         async def add_github_pr_comment(repo_owner: str, repo_name: str, pr_number: int, comment: str) -> dict[str, Any]:
             """
             Adds a markdown comment to a specific pull request on GitHub.
@@ -210,6 +219,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('list_github_issues_prs')
         async def list_github_issues_prs(repo_owner: str, issue: Literal['pr', 'issue'] = 'pr', filtering: Literal['user', 'owner', 'involves'] = 'involves') -> dict[str, Any]:
             """
             Lists open issues or pull requests for a specified GitHub repository.
@@ -234,6 +244,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('create_github_issue')
         async def create_github_issue(repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> dict[str, Any]:
             """
             Creates a GitHub issue with the specified parameters.
@@ -260,6 +271,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('update_github_issue')
         async def update_github_issue(repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str], state: str) -> dict[str, Any]:
             """
             Updates a GitHub issue with the specified parameters.
@@ -288,6 +300,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('create_github_tag')
         async def create_github_tag(repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
             """
             Creates a GitHub tag for the specified repository.
@@ -315,6 +328,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('create_github_release')
         async def create_github_release(repo_owner: str, repo_name: str, tag_name: str, release_name: str, body: str) -> dict[str, Any]:
             """
             Creates a GitHub release from a specified tag.
@@ -343,6 +357,7 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        @self.metrics.track_request('get_ipv4_ipv6_info')
         async def get_ipv4_ipv6_info() -> dict[str, Any]:
             """
             Fetches IPv4 and IPv6 information.
@@ -389,6 +404,14 @@ class PRIssueAnalyser:
             to standard error for debugging purposes.
         """
         MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", None)
+        
+        # Start Prometheus metrics server if remote mode is enabled
+        if MCP_ENABLE_REMOTE:
+            try:
+                self.metrics.start_metrics_server()
+            except Exception as e:
+                logging.warning(f"Failed to start metrics server: {e}")
+        
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
@@ -398,6 +421,13 @@ class PRIssueAnalyser:
         except Exception as e:
             logging.error(f"Fatal Error in MCP Server: {str(e)}")
             traceback.print_exc(file=sys.stderr)
+        finally:
+            # Clean up metrics server on shutdown
+            if MCP_ENABLE_REMOTE:
+                try:
+                    self.metrics.stop_metrics_server()
+                except Exception as e:
+                    logging.warning(f"Error stopping metrics server: {e}")
 
 def main():
     """

@@ -2,3 +2,4 @@
 mcp[cli]==1.12.2
 requests==2.32.4
 uv==0.8.11
+prometheus_client==0.21.1
