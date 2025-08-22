@@ -93,7 +93,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Fetching PR #{pr_number} diff from {repo_owner}/{repo_name}")
             try:
-                pr_diff = self.gi.get_pr_diff(repo_owner, repo_name, pr_number)
+                pr_diff = await self.gi.get_pr_diff(repo_owner, repo_name, pr_number)
                 if pr_diff is None:
                     no_changes = "No changes returned from get_pr_diff"
                     logging.info({"status": "info", "message": no_changes})
@@ -121,7 +121,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Fetching PR #{pr_number} from {repo_owner}/{repo_name}")
             try:
-                pr_info = self.gi.get_pr_content(repo_owner, repo_name, pr_number)
+                pr_info = await self.gi.get_pr_content(repo_owner, repo_name, pr_number)
                 if pr_info is None:
                     no_changes = "No changes returned from get_pr_content"
                     logging.info({"status": "error", "message": no_changes})
@@ -150,7 +150,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Updating PR #{pr_number} description")
             try:
-                self.gi.update_pr_description(repo_owner, repo_name, pr_number, new_title, new_description)
+                await self.gi.update_pr_description(repo_owner, repo_name, pr_number, new_title, new_description)
                 logging.info({"status": "success", "message": f"Successfully updated PR #{pr_number} description"})
                 return {"status": "success", "message": f"Successfully updated PR #{pr_number} description"}
             except Exception as e:
@@ -176,7 +176,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Adding inline review comment to PR #{pr_number}")
             try:
-                self.gi.add_inline_pr_comment(repo_owner, repo_name, pr_number, path, line, comment_body)
+                await self.gi.add_inline_pr_comment(repo_owner, repo_name, pr_number, path, line, comment_body)
                 logging.info({"status": "success", "message": f"Successfully added inline review comment to PR #{pr_number}"})
                 return {"status": "success", "message": f"Successfully added inline review comment to PR #{pr_number}"}
             except Exception as e:
@@ -200,7 +200,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Adding comment to PR #{pr_number}")
             try:
-                self.gi.add_pr_comments(repo_owner, repo_name, pr_number, comment)
+                await self.gi.add_pr_comments(repo_owner, repo_name, pr_number, comment)
                 logging.info({"status": "success", "message": f"Successfully added comment to PR #{pr_number}"})
                 return {"status": "success", "message": f"Successfully added comment to PR #{pr_number}"}
             except Exception as e:
@@ -225,7 +225,7 @@ class PRIssueAnalyser:
             """
             logging.info({"status": "info", "message": f"Listing open {issue} for {repo_owner}"})
             try:
-                open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue, filtering)
+                open_issues_prs = await self.gi.list_open_issues_prs(repo_owner, issue, filtering)
                 return open_issues_prs
             except Exception as e:
                 error_msg = f"Error listing {issue} for {repo_owner}: {str(e)}"
@@ -250,7 +250,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Creating GitHub issue: {title}")
             try:
-                issue = self.gi.create_issue(repo_owner, repo_name, title, body, labels)
+                issue = await self.gi.create_issue(repo_owner, repo_name, title, body, labels)
                 logging.info({"status": "success", "message": f"GitHub issue #{issue} created successfully!"})
                 return {"status": "success", "message": f"GitHub issue number #{issue} created successfully!"}
             except Exception as e:
@@ -278,7 +278,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Updating GitHub issue #{issue_number}: {title}")
             try:
-                issue = self.gi.update_issue(repo_owner, repo_name, issue_number, title, body, labels, state)
+                issue = await self.gi.update_issue(repo_owner, repo_name, issue_number, title, body, labels, state)
                 logging.info({"status": "success", "message": f"GitHub issue #{issue} updated successfully!"})
                 return {"status": "success", "message": f"GitHub issue number #{issue} updated successfully!"}
             except Exception as e:
@@ -305,7 +305,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Creating GitHub tag: {tag_name}")
             try:
-                tag = self.gi.create_tag(repo_owner, repo_name, tag_name, message)
+                tag = await self.gi.create_tag(repo_owner, repo_name, tag_name, message)
                 logging.info({"status": "success", "message": f"GitHub tag '{tag}' created successfully!"})
                 return {"status": "success", "message": f"GitHub tag '{tag}' created successfully!"}
             except Exception as e:
@@ -333,7 +333,7 @@ class PRIssueAnalyser:
             """
             logging.info(f"Creating GitHub release '{release_name}' from tag '{tag_name}'")
             try:
-                release = self.gi.create_release(repo_owner, repo_name, tag_name, release_name, body)
+                release = await self.gi.create_release(repo_owner, repo_name, tag_name, release_name, body)
                 logging.info({"status": "success", "message": f"GitHub release '{release}' created successfully!"})
                 return {"status": "success", "message": f"GitHub release '{release}' created successfully!"}
             except Exception as e:
@@ -357,9 +357,9 @@ class PRIssueAnalyser:
             """
             logging.info({"status": "info", "message": "Fetching IPv4 and IPv6 information"})
             try:
-                ipv4_info = self.ip.get_ipv4_info()
+                ipv4_info = await self.ip.get_ipv4_info()
                 try:
-                    ipv6_info = self.ip.get_ipv6_info()
+                    ipv6_info = await self.ip.get_ipv6_info()
                 except Exception as e:
                     logging.error(f"Error fetching IPv6 info: {e}")
                     ipv6_info = None
@@ -382,7 +382,7 @@ class PRIssueAnalyser:
     def run(self):
         """
         Runs the MCP Server for GitHub PR Analysis using the appropriate transport.
-        This method checks the 'MCP_ENABLE_REMOTE' environment variable to determine whether to use
+        This method checks the 'ENABLE_SSE' environment variable to determine whether to use
         Server-Sent Events (MCP_ENABLE_REMOTE) or standard input/output (stdio) as the transport mechanism
         for the MCP server. It logs the server startup and handles any exceptions that occur
         during execution, logging errors and printing the traceback to standard error.
