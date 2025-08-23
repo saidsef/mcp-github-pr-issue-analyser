@@ -32,7 +32,7 @@ logging.basicConfig(level=logging.WARNING)
 
 class PRIssueAnalyser:
     """
-    PRIssueAnalyser is a class that provides an interface for analyzing GitHub Pull Requests (PRs) and managing GitHub Issues, Tags, and Releases, as well as retrieving IP information. It integrates with GitHub and an MCP (Multi-Component Platform) server to expose a set of tools for PR and issue management, and can be run as an MCP server using either SSE or stdio transport.
+    PRIssueAnalyser is a class that provides an interface for analyzing GitHub Pull Requests (PRs) and managing GitHub Issues, Tags, and Releases, as well as retrieving IP information. It integrates with GitHub and an MCP (Multi-Component Platform) server to expose a set of tools for PR and issue management, and can be run as an MCP server using either MCP_ENABLE_REMOTE or stdio transport.
     Methods
     -------
     __init__():
@@ -47,7 +47,7 @@ class PRIssueAnalyser:
             - Fetching IPv4 and IPv6 information
             Each tool handles its own exceptions, logging errors and returning appropriate error messages or empty results.
     run():
-        Runs the MCP server for GitHub PR analysis, selecting the transport mechanism based on the 'ENABLE_SSE' environment variable.
+        Runs the MCP server for GitHub PR analysis, selecting the transport mechanism based on the 'MCP_ENABLE_REMOTE' environment variable.
             Logs and prints any exceptions that occur during server execution, including a fatal error message and traceback.
     """
     def __init__(self):
@@ -382,8 +382,8 @@ class PRIssueAnalyser:
     def run(self):
         """
         Runs the MCP Server for GitHub PR Analysis using the appropriate transport.
-        This method checks the 'ENABLE_SSE' environment variable to determine whether to use
-        Server-Sent Events (SSE) or standard input/output (stdio) as the transport mechanism
+        This method checks the 'MCP_ENABLE_REMOTE' environment variable to determine whether to use
+        Server-Sent Events (MCP_ENABLE_REMOTE) or standard input/output (stdio) as the transport mechanism
         for the MCP server. It logs the server startup and handles any exceptions that occur
         during execution, logging errors and printing the traceback to standard error.
         Returns:
