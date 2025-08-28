@@ -66,7 +66,7 @@ class PRIssueAnalyser:
         # Initialize MCP Server
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
-            instruction="""
+            instructions="""
               You are a GitHub PR and Issue Analyser. You can fetch PR diffs, update PR descriptions, 
               create and update issues, create tags and releases, and fetch IP information.
             """,
