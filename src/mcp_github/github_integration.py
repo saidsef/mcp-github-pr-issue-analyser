@@ -21,7 +21,8 @@ import logging
 import requests
 import traceback
 from os import getenv
-from typing import Dict, Any, Optional, Literal
+from pydantic import BaseModel, conint
+from typing import Annotated, Any, Dict, Optional, Literal
 
 GITHUB_TOKEN = getenv('GITHUB_TOKEN')
 
@@ -30,6 +31,8 @@ logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 class GitHubIntegration:
+    PerPage = conint(ge=1, le=100)
+
     def __init__(self):
         """
         Initialise the GitHubIntegration class.
@@ -267,13 +270,22 @@ class GitHubIntegration:
             traceback.print_exc()
             return None
 
-    def list_open_issues_prs(self, repo_owner: str, issue: Literal['pr', 'issue'] = 'pr', filtering: Literal['user', 'owner', 'involves'] = 'involves') -> Dict[str, Any]:
+    def list_open_issues_prs(
+            self,
+            repo_owner: str,
+            issue: Literal['pr', 'issue'] = 'pr',
+            filtering: Literal['user', 'owner', 'involves'] = 'involves',
+            per_page: Annotated[PerPage, "Number of results per page (1-100)"] = 50,
+            page: int = 1
+    ) -> Dict[str, Any]:
         """
         Lists all open Issues or Pull Requests for a given repository owner.
         Args:
             repo_owner (str): The owner of the repository.
             issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
             filtering (Literal['user', 'owner', 'involves']): The filtering criteria for the search. Defaults to 'involves'.
+            per_page (Annotated[int, PerPage]): The number of results to return per page, range 1-100. Defaults to 50.
+            page (int): The page number to retrieve. Defaults to 1.
         Returns:
             Dict[str, Any]: A dictionary containing the list of open pull requests or issues, depending on the value of the `issue` parameter.
             None: If an error occurs during the request.
@@ -283,7 +295,7 @@ class GitHubIntegration:
         logging.info(f"Listing open {issue}s for {repo_owner}")
 
         # Construct the search URL
-        search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}"
+        search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
             response = requests.get(search_url, headers=self._get_headers())
