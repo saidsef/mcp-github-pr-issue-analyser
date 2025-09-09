@@ -21,7 +21,7 @@ import sys
 import logging
 import traceback
 from os import getenv
-from typing import Any, Dict, List, Literal
+from typing import Annotated, Any, Dict, List, Literal
 from mcp.server.fastmcp import FastMCP
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
@@ -210,7 +210,13 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
-        async def list_github_issues_prs(repo_owner: str, issue: Literal['pr', 'issue'] = 'pr', filtering: Literal['user', 'owner', 'involves'] = 'involves') -> dict[str, Any]:
+        async def list_github_issues_prs(
+            repo_owner: str,
+            issue: Literal['pr', 'issue'] = 'pr',
+            filtering: Literal['user', 'owner', 'involves'] = 'involves',
+            per_page: Annotated[GI.PerPage, "Number of results per page (1-100)"] = 50,
+            page: int = 1
+        ) -> dict[str, Any]:  # type: ignore
             """
             Lists open issues or pull requests for a specified GitHub repository.
             - Present the issues or pull requests in a markdown table format.
@@ -219,13 +225,15 @@ class PRIssueAnalyser:
                 repo_owner (str): The owner of the GitHub repository.
                 issue (Literal['pr', 'issue']): The type of item to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
                 filtering (Literal['user', 'owner', 'involves']): The filtering criteria for the search. Defaults to 'involves'.
+                per_page (Annotated[PerPage, "Number of results per page (1-100)"]): The number of results to return per page, range 1-100. Defaults to 50.
+                page (int): The page number to retrieve. Defaults to 1.
             Returns:
-                dict[str, Any]: A dictionary containing the list of open issues or pull requests.
-                    Returns an error message if an exception occurs during the listing process.
+            dict[str, Any]: A dictionary containing the list of open issues or pull requests.
+                Returns an error message if an exception occurs during the listing process.
             """
             logging.info({"status": "info", "message": f"Listing open {issue} for {repo_owner}"})
             try:
-                open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue, filtering)
+                open_issues_prs = self.gi.list_open_issues_prs(repo_owner, issue, filtering, per_page=per_page, page=page)
                 return open_issues_prs
             except Exception as e:
                 error_msg = f"Error listing {issue} for {repo_owner}: {str(e)}"
