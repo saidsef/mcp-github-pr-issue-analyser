@@ -22,6 +22,7 @@ import logging
 import inspect
 import traceback
 from os import getenv
+from typing import Any
 from mcp.server.fastmcp import FastMCP
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
@@ -60,31 +61,56 @@ class PRIssueAnalyser:
         - Logs the successful initialization of the MCP server.
         """
 
-        self.gi = GI() # Initialize GitHub token
+        self.gi = GI()
         self.ip = IP()
 
         # Initialize MCP Server
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
             instructions="""
-              You are a GitHub PR and Issue Analyser. You can fetch PR diffs, update PR descriptions, 
-              create and update issues, create tags and releases, and fetch IP information.
+          # GitHub PR and Issue Analyser
+
+          This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitHub Issues, Tags, and Releases, as well as retrieve IP information.
+
+          ## Features
+          - Fetch PR diffs and content
+          - Update PR descriptions
+          - Create and update GitHub issues
+          - Create tags and releases
+          - Fetch IPv4 and IPv6 information
+
+          ## Prerequisites
+          1. GitHub and IP integrations are preconfigured
+          2. Appropriate permissions and GitHub API key is set
+
+          ## Best Practices
+          - Use all tools available for a comprehensive understanding of the PR and issue landscape.
+          - Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
+          - Use update_pr_description to keep PRs up-to-date
+          - Use create_issue and update_issue for issue management
+          - Use create_tag and create_release for release management
+          - Use get_ipv4_info and get_ipv6_info for IP information
+          - Always maintain a professional, clear and concise tone
             """,
         )
         logging.info("MCP Server initialized")
 
-        # Register MCP tools
-        for name, method in inspect.getmembers(self.gi):
-            if inspect.isfunction(method) and not name.startswith("_"):
+        self._register_tools()
+
+    def _register_tools(self):
+        self.register_tools(self.gi)
+        self.register_tools(self.ip)
+
+    def register_tools(self, methods: Any = None) -> None:
+        for name, method in inspect.getmembers(methods):
+            if (inspect.isfunction(method) or inspect.ismethod(method)) and not name.startswith("_"):
                 self.mcp.add_tool(method)
 
-    def run(self) -> None:
+    def run(self):
         """
-        Runs the MCP Server for GitHub PR Analysis using the appropriate transport.
-        This method checks the 'MCP_ENABLE_REMOTE' environment variable to determine whether to use
-        Server-Sent Events (SSE) or standard input/output (stdio) as the transport mechanism
-        for the MCP server. It logs the server startup and handles any exceptions that occur
-        during execution, logging errors and printing the traceback to standard error.
+        Runs the MCP server for GitHub PR analysis.
+        This method checks the 'MCP_ENABLE_REMOTE' environment variable to determine the transport mechanism for
+        the MCP server. If 'MCP_ENABLE_REMOTE' is set, it uses Server-Sent Events (SSE) transport; otherwise, it defaults to standard input/output (stdio) transport
         Returns:
             None
         Error Handling:
@@ -104,10 +130,8 @@ class PRIssueAnalyser:
 
 def main():
     """
-    Main entry point for the PR and Issue Analyzer.
-    This function Initialises the PRIssueAnalyser and executes its main logic.
-    If an exception occurs during execution, it logs the error, prints the traceback,
-    and exits the program with a non-zero status code.
+    Main function to run the PRIssueAnalyser.
+    This function initializes the PRIssueAnalyser and starts the MCP server.
     Returns:
         None
     Error Handling:
