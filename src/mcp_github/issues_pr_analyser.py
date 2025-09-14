@@ -268,6 +268,32 @@ class PRIssueAnalyser:
                 return {"status": "error", "message": error_msg}
 
         @self.mcp.tool()
+        async def github_merge_pr(repo_owner: str, repo_name: str, pr_number: int, commit_title: str, commit_message: str, merge_method: Literal['merge', 'squash', 'rebase'] = 'squash') -> dict[str, Any]:
+            """
+            Merges a pull request on GitHub using the specified merge method.
+            Args:
+                repo_owner (str): The owner of the GitHub repository.
+                repo_name (str): The name of the GitHub repository.
+                pr_number (int): The pull request number to merge.
+                commit_title (str): The title for the merge commit.
+                commit_message (str): The message for the merge commit.
+                merge_method (Literal['merge', 'squash', 'rebase']): The method to use for merging the pull request. Defaults to 'squash'.
+            Returns:
+                dict[str, Any]: A dictionary containing the status and message of the merge operation.
+                    Returns a success message if the pull request is merged successfully, or an error message if an exception occurs.
+            """
+            logging.info(f"Merging PR #{pr_number} using {merge_method} method")
+            try:
+                self.gi.merge_pr(repo_owner, repo_name, pr_number, commit_title, commit_message, merge_method)
+                logging.info({"status": "success", "message": f"Successfully merged PR #{pr_number}"})
+                return {"status": "success", "message": f"Successfully merged PR #{pr_number}"}
+            except Exception as e:
+                error_msg = f"Error merging PR: {str(e)}"
+                logging.error(error_msg)
+                traceback.print_exc(file=sys.stderr)
+                return {"status": "error", "message": error_msg}
+
+        @self.mcp.tool()
         async def update_github_issue(repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str], state: str) -> dict[str, Any]:
             """
             Updates a GitHub issue with the specified parameters.

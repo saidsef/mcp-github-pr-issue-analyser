@@ -367,6 +367,43 @@ class GitHubIntegration:
             traceback.print_exc()
             return None
 
+    def merge_pr(self, repo_owner: str, repo_name: str, pr_number: int, commit_title: Optional[str] = None, commit_message: Optional[str] = None, merge_method: Literal['merge', 'squash', 'rebase'] = 'squash') -> Dict[str, Any]:
+        """
+        Merges a pull request in the specified GitHub repository.
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            pr_number (int): The pull request number to merge.
+            commit_title (str, optional): The title for the merge commit. Defaults to None.
+            commit_message (str, optional): The message for the merge commit. Defaults to None.
+            merge_method (Literal['merge', 'squash', 'rebase'], optional): The merge method to use ('merge', 'squash', or 'rebase'). Defaults to 'squash'.
+        Returns:
+            Dict[str, Any]: The JSON response from the GitHub API containing merge information if successful.
+        Error Handling:
+            Logs errors and prints the traceback if the merge fails, returning None.
+        """
+        logging.info(f"Merging PR {repo_owner}/{repo_name}#{pr_number}")
+
+        # Construct the merge URL
+        merge_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
+
+        try:
+            response = requests.put(merge_url, headers=self._get_headers(), json={
+                'commit_title': commit_title,
+                'commit_message': commit_message,
+                'merge_method': merge_method
+            })
+            response.raise_for_status()
+            merge_data = response.json()
+
+            logging.info(f"PR merged successfully")
+            return merge_data
+
+        except Exception as e:
+            logging.error({"status": "error", "message": str(e)})
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
     def update_issue(self, repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str] = [], state: Literal['open', 'closed'] = 'open') -> Dict[str, Any]:
         """
         Updates an existing GitHub issue with the specified parameters.
