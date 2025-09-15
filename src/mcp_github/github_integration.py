@@ -473,6 +473,37 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
+    def update_assignees(self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]) -> Dict[str, Any]:
+        """
+        Updates the assignees for a specific issue or pull request in a GitHub repository.
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            issue_number (int): The issue or pull request number to update.
+            assignees (list[str]): A list of usernames to assign to the issue or pull request.
+        Returns:
+            Dict[str, Any]: The updated issue or pull request data as returned by the GitHub API if the update is successful.
+            None: If an error occurs during the update process.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised.
+        """
+        logging.info(f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}")
+        # Construct the issue URL
+        issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        try:
+            # Update the assignees
+            response = requests.patch(issue_url, headers=self._get_headers(), json={
+                'assignees': assignees
+            })
+            response.raise_for_status()
+            issue_data = response.json()
+            logging.info(f"Assignees updated successfully")
+            return issue_data
+        except Exception as e:
+            logging.error(f"Error updating assignees: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
     def get_latest_sha(self, repo_owner: str, repo_name: str) -> Optional[str]:
         """
         Fetches the SHA of the latest commit in the specified GitHub repository.
