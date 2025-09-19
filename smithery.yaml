@@ -1,7 +1,11 @@
 # Smithery configuration file: https://smithery.ai/docs/use/session-config
 
+runtime: "python"
+env:
+  MCP_ENABLE_REMOTE: "true"
+
 startCommand:
-  type: stdio
+  type: "http"
   configSchema:
     type: object
     required: ["githubToken"]

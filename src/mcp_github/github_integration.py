@@ -35,13 +35,11 @@ class GitHubIntegration:
 
     def __init__(self):
         """
-        Initialise the GitHubIntegration class.
-
+        Initializes the GitHubIntegration instance by setting up the GitHub token from environment variables.
         Returns:
             None
-
-        Raises:
-            ValueError: If the GitHub token is not found in environment variables.
+        Error Handling:
+            Raises ValueError if the GITHUB_TOKEN environment variable is not set.
         """
         self.github_token = GITHUB_TOKEN
         if not self.github_token:
@@ -51,24 +49,23 @@ class GitHubIntegration:
 
     def _get_headers(self):
         """
-        Return the headers required for GitHub API requests.
+        Constructs the HTTP headers required for GitHub API requests, including the authorization token.
         Returns:
             dict: A dictionary containing the required HTTP headers.
-        Raises:
-            ValueError: If the GitHub token is missing.
         Error Handling:
             Raises ValueError if the GitHub token is not set.
         """
         if not self.github_token:
             raise ValueError("GitHub token is missing for API requests")
-        return {
+        headers = {
             'Authorization': f'token {self.github_token}',
             'Accept': 'application/vnd.github.v3+json'
         }
+        return headers
     
     def _get_pr_url(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
-        Generates the GitHub API URL for a specific pull request in a given repository.
+        Construct the GitHub API URL for a specific pull request.
         Args:
             repo_owner (str): The owner of the GitHub repository.
             repo_name (str): The name of the GitHub repository.
@@ -78,12 +75,12 @@ class GitHubIntegration:
         Raises:
             ValueError: If any of the arguments are empty or if pr_number is not a positive integer.
         """
-
-        return f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+        return url
     
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
-        Fetches the diff/patch of a pull request from a GitHub repository.
+        Fetches the diff/patch of a specific pull request from a GitHub repository.
         Args:
             repo_owner (str): The owner of the GitHub repository.
             repo_name (str): The name of the GitHub repository.
@@ -107,11 +104,11 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error fetching PR diff: {str(e)}")
             traceback.print_exc()
-            return None
+            return str(e)
 
     def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
         """
-        Fetches the content of a specific pull request from a GitHub repository.
+        Fetches the content/details of a specific pull request from a GitHub repository.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -149,11 +146,11 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error fetching PR content: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> Dict[str, Any]:
         """
-        Adds a comment to a specified pull request on GitHub.
+        Adds a comment to a specific pull request on GitHub.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -182,12 +179,11 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error adding comment: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def add_inline_pr_comment(self, repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> Dict[str, Any]:
         """
-        Adds an inline review comment to a specific line in a pull request file.
-
+        Adds an inline review comment to a specific line in a file within a pull request on GitHub.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -195,11 +191,9 @@ class GitHubIntegration:
             path (str): The relative path to the file (e.g., 'src/main.py').
             line (int): The line number in the file to comment on.
             comment_body (str): The content of the review comment.
-
         Returns:
             Dict[str, Any]: The JSON response from the GitHub API containing the comment data if successful.
             None: If an error occurs while adding the comment.
-
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
@@ -233,11 +227,11 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error adding inline review comment: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def update_pr_description(self, repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> Dict[str, Any]:
         """
-        Updates the title and description of a pull request on GitHub.
+        Updates the title and description (body) of a specific pull request on GitHub.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -268,7 +262,7 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error updating PR description: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def list_open_issues_prs(
             self,
@@ -279,7 +273,7 @@ class GitHubIntegration:
             page: int = 1
     ) -> Dict[str, Any]:
         """
-        Lists all open Issues or Pull Requests for a given repository owner.
+        Lists open pull requests or issues for a specified GitHub repository owner.
         Args:
             repo_owner (str): The owner of the repository.
             issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
@@ -325,12 +319,12 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error listing open {issue}s: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> Dict[str, Any]:
         """
         Creates a new issue in the specified GitHub repository.
-        When issue is created add comment to PR with "Resolves: #<issue_number>" using update_pr_description function.
+        If the issue is created successfully, a link to the issue must be appended in the PR's description.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -365,11 +359,11 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error creating issue: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def merge_pr(self, repo_owner: str, repo_name: str, pr_number: int, commit_title: Optional[str] = None, commit_message: Optional[str] = None, merge_method: Literal['merge', 'squash', 'rebase'] = 'squash') -> Dict[str, Any]:
         """
-        Merges a pull request in the specified GitHub repository.
+        Merges a specific pull request in a GitHub repository using the specified merge method.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -406,7 +400,7 @@ class GitHubIntegration:
 
     def update_issue(self, repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str] = [], state: Literal['open', 'closed'] = 'open') -> Dict[str, Any]:
         """
-        Updates an existing GitHub issue with the specified parameters.
+        Updates an existing issue in the specified GitHub repository.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -441,11 +435,78 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error updating issue: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
+
+    def update_reviews(self, repo_owner: str, repo_name: str, pr_number: int, event: Literal['APPROVE', 'REQUEST_CHANGES', 'COMMENT'], body: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Submits a review for a specific pull request in a GitHub repository.
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            pr_number (int): The pull request number to review.
+            event (Literal['APPROVE', 'REQUEST_CHANGES', 'COMMENT']): The type of review event.
+            body (str, optional): Required when using REQUEST_CHANGES or COMMENT for the event parameter. Defaults to None.
+        Returns:
+            Dict[str, Any]: The JSON response from the GitHub API containing review information if successful.
+            None: If an error occurs during the review submission process.
+        Error Handling:
+            Logs errors and prints the traceback if the review submission fails, returning None.
+        """
+        logging.info(f"Submitting review for PR {repo_owner}/{repo_name}#{pr_number}")
+
+        # Construct the reviews URL
+        reviews_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
+
+        try:
+            response = requests.post(reviews_url, headers=self._get_headers(), json={
+                'body': body,
+                'event': event
+            })
+            response.raise_for_status()
+            review_data = response.json()
+
+            logging.info(f"Review submitted successfully")
+            return review_data
+
+        except Exception as e:
+            logging.error(f"Error submitting review: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
+    def update_assignees(self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]) -> Dict[str, Any]:
+        """
+        Updates the assignees for a specific issue or pull request in a GitHub repository.
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            issue_number (int): The issue or pull request number to update.
+            assignees (list[str]): A list of usernames to assign to the issue or pull request.
+        Returns:
+            Dict[str, Any]: The updated issue or pull request data as returned by the GitHub API if the update is successful.
+            None: If an error occurs during the update process.
+        Error Handling:
+            Logs an error message and prints the traceback if the request fails or an exception is raised.
+        """
+        logging.info(f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}")
+        # Construct the issue URL
+        issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        try:
+            # Update the assignees
+            response = requests.patch(issue_url, headers=self._get_headers(), json={
+                'assignees': assignees
+            })
+            response.raise_for_status()
+            issue_data = response.json()
+            logging.info(f"Assignees updated successfully")
+            return issue_data
+        except Exception as e:
+            logging.error(f"Error updating assignees: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
 
     def get_latest_sha(self, repo_owner: str, repo_name: str) -> Optional[str]:
         """
-        Fetches the latest commit SHA from a specified GitHub repository.
+        Fetches the SHA of the latest commit in the specified GitHub repository.
         Args:
             repo_owner (str): The owner of the GitHub repository.
             repo_name (str): The name of the GitHub repository.
@@ -472,12 +533,12 @@ class GitHubIntegration:
                 return latest_sha
             else:
                 logging.warning({"status": "warning", "message": "No commits found in the repository"})
-                return None
+                return "No commits found in the repository"
 
         except Exception as e:
             logging.error(f"Error fetching latest commit SHA: {str(e)}")
             traceback.print_exc()
-            return None
+            return str(e)
 
     def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> Dict[str, Any]:
         """
@@ -517,7 +578,7 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error creating tag: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
 
     def create_release(self, repo_owner: str, repo_name: str, tag_name: str, release_name: str, body: str) -> Dict[str, Any]:
         """
@@ -558,4 +619,4 @@ class GitHubIntegration:
         except Exception as e:
             logging.error(f"Error creating release: {str(e)}")
             traceback.print_exc()
-            return None
+            return {"status": "error", "message": str(e)}
