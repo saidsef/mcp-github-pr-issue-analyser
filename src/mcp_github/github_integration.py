@@ -25,6 +25,7 @@ from pydantic import BaseModel, conint
 from typing import Annotated, Any, Dict, Optional, Literal
 
 GITHUB_TOKEN = getenv('GITHUB_TOKEN')
+TIMEOUT = int(getenv('GITHUB_API_TIMEOUT', '5'))  # seconds, configurable via env
 
 # Set up logging for the application
 logging.getLogger(__name__)
@@ -94,11 +95,11 @@ class GitHubIntegration:
         
         try:
             # Fetch PR details
-            response = requests.get(f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch", headers=self._get_headers())
+            response = requests.get(f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch", headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_patch = response.text
             
-            logging.info(f"Successfully fetched PR diff/patch")
+            logging.info("Successfully fetched PR diff/patch")
             return pr_patch
             
         except Exception as e:
@@ -126,7 +127,7 @@ class GitHubIntegration:
         
         try:
             # Fetch PR details
-            response = requests.get(pr_url, headers=self._get_headers())
+            response = requests.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
             
@@ -139,8 +140,8 @@ class GitHubIntegration:
                 'updated_at': pr_data['updated_at'],
                 'state': pr_data['state']
             }
-            
-            logging.info(f"Successfully fetched PR content")
+
+            logging.info("Successfully fetched PR content")
             return pr_info
             
         except Exception as e:
@@ -169,11 +170,11 @@ class GitHubIntegration:
 
         try:
             # Add the comment
-            response = requests.post(comments_url, headers=self._get_headers(), json={'body': comment})
+            response = requests.post(comments_url, headers=self._get_headers(), json={'body': comment}, timeout=TIMEOUT)
             response.raise_for_status()
             comment_data = response.json()
 
-            logging.info(f"Comment added successfully")
+            logging.info("Comment added successfully")
             return comment_data
 
         except Exception as e:
@@ -204,7 +205,7 @@ class GitHubIntegration:
 
         try:
             pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
-            pr_response = requests.get(pr_url, headers=self._get_headers())
+            pr_response = requests.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
             pr_response.raise_for_status()
             pr_data = pr_response.json()
             commit_id = pr_data['head']['sha']
@@ -217,11 +218,11 @@ class GitHubIntegration:
                 "side": "RIGHT"
             }
 
-            response = requests.post(review_comments_url, headers=self._get_headers(), json=payload)
+            response = requests.post(review_comments_url, headers=self._get_headers(), json=payload, timeout=TIMEOUT)
             response.raise_for_status()
             comment_data = response.json()
 
-            logging.info(f"Inline review comment added successfully")
+            logging.info("Inline review comment added successfully")
             return comment_data
 
         except Exception as e:
@@ -253,11 +254,11 @@ class GitHubIntegration:
             response = requests.patch(pr_url, headers=self._get_headers(), json={
                 'title': new_title,
                 'body': new_description
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
 
-            logging.info(f"PR description updated successfully")
+            logging.info("PR description updated successfully")
             return pr_data
         except Exception as e:
             logging.error(f"Error updating PR description: {str(e)}")
@@ -292,7 +293,7 @@ class GitHubIntegration:
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
-            response = requests.get(search_url, headers=self._get_headers())
+            response = requests.get(search_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
             open_prs = {
@@ -349,11 +350,11 @@ class GitHubIntegration:
                 'title': title,
                 'body': body,
                 'labels': issue_labels
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             issue_data = response.json()
             
-            logging.info(f"Issue created successfully")
+            logging.info("Issue created successfully")
             return issue_data
 
         except Exception as e:
@@ -386,11 +387,11 @@ class GitHubIntegration:
                 'commit_title': commit_title,
                 'commit_message': commit_message,
                 'merge_method': merge_method
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             merge_data = response.json()
 
-            logging.info(f"PR merged successfully")
+            logging.info("PR merged successfully")
             return merge_data
 
         except Exception as e:
@@ -427,10 +428,10 @@ class GitHubIntegration:
                 'body': body,
                 'labels': labels,
                 'state': state
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             issue_data = response.json()
-            logging.info(f"Issue updated successfully")
+            logging.info("Issue updated successfully")
             return issue_data
         except Exception as e:
             logging.error(f"Error updating issue: {str(e)}")
@@ -461,11 +462,11 @@ class GitHubIntegration:
             response = requests.post(reviews_url, headers=self._get_headers(), json={
                 'body': body,
                 'event': event
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             review_data = response.json()
 
-            logging.info(f"Review submitted successfully")
+            logging.info("Review submitted successfully")
             return review_data
 
         except Exception as e:
@@ -494,10 +495,10 @@ class GitHubIntegration:
             # Update the assignees
             response = requests.patch(issue_url, headers=self._get_headers(), json={
                 'assignees': assignees
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             issue_data = response.json()
-            logging.info(f"Assignees updated successfully")
+            logging.info("Assignees updated successfully")
             return issue_data
         except Exception as e:
             logging.error(f"Error updating assignees: {str(e)}")
@@ -523,7 +524,7 @@ class GitHubIntegration:
 
         try:
             # Fetch the latest commit
-            response = requests.get(commits_url, headers=self._get_headers())
+            response = requests.get(commits_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             commits_data = response.json()
 
@@ -568,11 +569,11 @@ class GitHubIntegration:
                 'ref': f'refs/tags/{tag_name}',
                 'sha': latest_sha,
                 'message': message
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             tag_data = response.json()
 
-            logging.info(f"Tag created successfully")
+            logging.info("Tag created successfully")
             return tag_data
 
         except Exception as e:
@@ -609,11 +610,11 @@ class GitHubIntegration:
                 'draft': False,
                 'prerelease': False,
                 'generate_release_notes': True
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             release_data = response.json()
 
-            logging.info(f"Release created successfully")
+            logging.info("Release created successfully")
             return release_data
 
         except Exception as e:
