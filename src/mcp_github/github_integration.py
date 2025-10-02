@@ -25,7 +25,7 @@ from pydantic import BaseModel, conint
 from typing import Annotated, Any, Dict, Optional, Literal
 
 GITHUB_TOKEN = getenv('GITHUB_TOKEN')
-TIMEOUT = 5  # seconds
+TIMEOUT = int(getenv('GITHUB_API_TIMEOUT', '5'))  # seconds, configurable via env
 
 # Set up logging for the application
 logging.getLogger(__name__)
