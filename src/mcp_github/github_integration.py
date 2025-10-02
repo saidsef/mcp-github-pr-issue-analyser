@@ -25,6 +25,7 @@ from pydantic import BaseModel, conint
 from typing import Annotated, Any, Dict, Optional, Literal
 
 GITHUB_TOKEN = getenv('GITHUB_TOKEN')
+TIMEOUT = 5  # seconds
 
 # Set up logging for the application
 logging.getLogger(__name__)
@@ -94,7 +95,7 @@ class GitHubIntegration:
         
         try:
             # Fetch PR details
-            response = requests.get(f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch", headers=self._get_headers())
+            response = requests.get(f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch", headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_patch = response.text
             
@@ -126,7 +127,7 @@ class GitHubIntegration:
         
         try:
             # Fetch PR details
-            response = requests.get(pr_url, headers=self._get_headers())
+            response = requests.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
             
@@ -169,7 +170,7 @@ class GitHubIntegration:
 
         try:
             # Add the comment
-            response = requests.post(comments_url, headers=self._get_headers(), json={'body': comment})
+            response = requests.post(comments_url, headers=self._get_headers(), json={'body': comment}, timeout=TIMEOUT)
             response.raise_for_status()
             comment_data = response.json()
 
@@ -204,7 +205,7 @@ class GitHubIntegration:
 
         try:
             pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
-            pr_response = requests.get(pr_url, headers=self._get_headers())
+            pr_response = requests.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
             pr_response.raise_for_status()
             pr_data = pr_response.json()
             commit_id = pr_data['head']['sha']
@@ -217,7 +218,7 @@ class GitHubIntegration:
                 "side": "RIGHT"
             }
 
-            response = requests.post(review_comments_url, headers=self._get_headers(), json=payload)
+            response = requests.post(review_comments_url, headers=self._get_headers(), json=payload, timeout=TIMEOUT)
             response.raise_for_status()
             comment_data = response.json()
 
@@ -253,7 +254,7 @@ class GitHubIntegration:
             response = requests.patch(pr_url, headers=self._get_headers(), json={
                 'title': new_title,
                 'body': new_description
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
 
@@ -292,7 +293,7 @@ class GitHubIntegration:
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
-            response = requests.get(search_url, headers=self._get_headers())
+            response = requests.get(search_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
             open_prs = {
@@ -349,7 +350,7 @@ class GitHubIntegration:
                 'title': title,
                 'body': body,
                 'labels': issue_labels
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             issue_data = response.json()
             
@@ -386,7 +387,7 @@ class GitHubIntegration:
                 'commit_title': commit_title,
                 'commit_message': commit_message,
                 'merge_method': merge_method
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             merge_data = response.json()
 
@@ -427,7 +428,7 @@ class GitHubIntegration:
                 'body': body,
                 'labels': labels,
                 'state': state
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             issue_data = response.json()
             logging.info("Issue updated successfully")
@@ -461,7 +462,7 @@ class GitHubIntegration:
             response = requests.post(reviews_url, headers=self._get_headers(), json={
                 'body': body,
                 'event': event
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             review_data = response.json()
 
@@ -494,7 +495,7 @@ class GitHubIntegration:
             # Update the assignees
             response = requests.patch(issue_url, headers=self._get_headers(), json={
                 'assignees': assignees
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             issue_data = response.json()
             logging.info("Assignees updated successfully")
@@ -523,7 +524,7 @@ class GitHubIntegration:
 
         try:
             # Fetch the latest commit
-            response = requests.get(commits_url, headers=self._get_headers())
+            response = requests.get(commits_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             commits_data = response.json()
 
@@ -568,7 +569,7 @@ class GitHubIntegration:
                 'ref': f'refs/tags/{tag_name}',
                 'sha': latest_sha,
                 'message': message
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             tag_data = response.json()
 
@@ -609,7 +610,7 @@ class GitHubIntegration:
                 'draft': False,
                 'prerelease': False,
                 'generate_release_notes': True
-            })
+            }, timeout=TIMEOUT)
             response.raise_for_status()
             release_data = response.json()
 
