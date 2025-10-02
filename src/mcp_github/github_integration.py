@@ -98,7 +98,7 @@ class GitHubIntegration:
             response.raise_for_status()
             pr_patch = response.text
             
-            logging.info(f"Successfully fetched PR diff/patch")
+            logging.info("Successfully fetched PR diff/patch")
             return pr_patch
             
         except Exception as e:
@@ -139,8 +139,8 @@ class GitHubIntegration:
                 'updated_at': pr_data['updated_at'],
                 'state': pr_data['state']
             }
-            
-            logging.info(f"Successfully fetched PR content")
+
+            logging.info("Successfully fetched PR content")
             return pr_info
             
         except Exception as e:
@@ -173,7 +173,7 @@ class GitHubIntegration:
             response.raise_for_status()
             comment_data = response.json()
 
-            logging.info(f"Comment added successfully")
+            logging.info("Comment added successfully")
             return comment_data
 
         except Exception as e:
@@ -221,7 +221,7 @@ class GitHubIntegration:
             response.raise_for_status()
             comment_data = response.json()
 
-            logging.info(f"Inline review comment added successfully")
+            logging.info("Inline review comment added successfully")
             return comment_data
 
         except Exception as e:
@@ -257,7 +257,7 @@ class GitHubIntegration:
             response.raise_for_status()
             pr_data = response.json()
 
-            logging.info(f"PR description updated successfully")
+            logging.info("PR description updated successfully")
             return pr_data
         except Exception as e:
             logging.error(f"Error updating PR description: {str(e)}")
@@ -353,7 +353,7 @@ class GitHubIntegration:
             response.raise_for_status()
             issue_data = response.json()
             
-            logging.info(f"Issue created successfully")
+            logging.info("Issue created successfully")
             return issue_data
 
         except Exception as e:
@@ -390,7 +390,7 @@ class GitHubIntegration:
             response.raise_for_status()
             merge_data = response.json()
 
-            logging.info(f"PR merged successfully")
+            logging.info("PR merged successfully")
             return merge_data
 
         except Exception as e:
@@ -430,7 +430,7 @@ class GitHubIntegration:
             })
             response.raise_for_status()
             issue_data = response.json()
-            logging.info(f"Issue updated successfully")
+            logging.info("Issue updated successfully")
             return issue_data
         except Exception as e:
             logging.error(f"Error updating issue: {str(e)}")
@@ -465,7 +465,7 @@ class GitHubIntegration:
             response.raise_for_status()
             review_data = response.json()
 
-            logging.info(f"Review submitted successfully")
+            logging.info("Review submitted successfully")
             return review_data
 
         except Exception as e:
@@ -497,7 +497,7 @@ class GitHubIntegration:
             })
             response.raise_for_status()
             issue_data = response.json()
-            logging.info(f"Assignees updated successfully")
+            logging.info("Assignees updated successfully")
             return issue_data
         except Exception as e:
             logging.error(f"Error updating assignees: {str(e)}")
@@ -572,7 +572,7 @@ class GitHubIntegration:
             response.raise_for_status()
             tag_data = response.json()
 
-            logging.info(f"Tag created successfully")
+            logging.info("Tag created successfully")
             return tag_data
 
         except Exception as e:
@@ -613,7 +613,7 @@ class GitHubIntegration:
             response.raise_for_status()
             release_data = response.json()
 
-            logging.info(f"Release created successfully")
+            logging.info("Release created successfully")
             return release_data
 
         except Exception as e:
