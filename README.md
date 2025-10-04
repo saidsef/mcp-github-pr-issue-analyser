@@ -1,5 +1,7 @@
 # MCP for GitHub PR, Issues, Tags and Releases
 
+[![smithery badge](https://smithery.ai/badge/@saidsef/mcp-github-pr-issue-analyser)](https://smithery.ai/server/@saidsef/mcp-github-pr-issue-analyser)
+
 The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
 
 <a href="https://glama.ai/mcp/servers/@saidsef/mcp-github-pr-issue-analyser">
@@ -76,6 +78,16 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 - MCP Client: Interacts via stdio or Server-Sent Events (SSE)
 
 ## Local Installation
+
+### Installing via Smithery
+
+To install GitHub PR and Issue Analyser automatically via [Smithery](https://smithery.ai/server/@saidsef/mcp-github-pr-issue-analyser):
+
+```bash
+npx -y @smithery/cli install @saidsef/mcp-github-pr-issue-analyser
+```
+
+### Manual Installation
 
 1. **Clone the repository:**
 ```sh
