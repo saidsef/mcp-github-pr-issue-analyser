@@ -21,12 +21,15 @@ import socket
 import logging
 import requests
 import traceback
+from os import getenv
 from typing import Dict, Any
 import requests.packages.urllib3.util.connection as urllib3_connection
 
 # Set up logging for the application
 logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
+
+TIMEOUT = int(getenv('GITHUB_API_TIMEOUT', '5'))  # seconds, configurable via env
 
 class IPIntegration:
   def __init__(self, ipv4_api_url: str = None, ipv6_api_url: str = None) -> None:
@@ -58,7 +61,7 @@ class IPIntegration:
     """
       
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=TIMEOUT)
         response.raise_for_status()
         return response.json()
     except requests.RequestException as e:
