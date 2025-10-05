@@ -31,6 +31,9 @@ from .ip_integration import IPIntegration as IP
 logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
+PORT = int(getenv("PORT", 8081))
+HOST = getenv("HOST", "localhost")
+
 class PRIssueAnalyser:
     """
     PRIssueAnalyser is a class that provides an interface for analyzing GitHub Pull Requests (PRs) and managing GitHub Issues, Tags, and Releases, as well as retrieving IP information. It integrates with GitHub and an MCP (Multi-Component Platform) server to expose a set of tools for PR and issue management, and can be run as an MCP server using either SSE or stdio transport.
@@ -92,6 +95,8 @@ class PRIssueAnalyser:
           - Use get_ipv4_info and get_ipv6_info for IP information
           - Always maintain a professional, clear and concise tone
             """,
+            host=HOST,
+            port=PORT,
         )
         logging.info("MCP Server initialized")
 
@@ -109,19 +114,13 @@ class PRIssueAnalyser:
     def run(self):
         """
         Runs the MCP server for GitHub PR analysis.
-        This method checks the 'MCP_ENABLE_REMOTE' environment variable to determine the transport mechanism for
-        the MCP server. If 'MCP_ENABLE_REMOTE' is set, it uses Server-Sent Events (SSE) transport; otherwise, it defaults to standard input/output (stdio) transport
-        Returns:
-            None
-        Error Handling:
-            Logs any exceptions that occur during server execution and prints the traceback
-            to standard error for debugging purposes.
+        Uses HTTP transport if MCP_ENABLE_REMOTE is set, otherwise uses stdio.
         """
-        MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", None)
+        MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport='sse')
+                self.mcp.run(transport='streamable-http')
             else:
                 self.mcp.run(transport='stdio')
         except Exception as e:
