@@ -73,7 +73,7 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 - PRIssueAnalyser: Main MCP server handling tool registration and requests
 - GitHub Integration: Manages all GitHub API interactions
 - IP Integration: Handles IPv4/IPv6 information retrieval
-- MCP Client: Interacts via stdio or HTTP Streaming (http)
+- MCP Client: Interacts via stdio or streamable HTTP (http)
 
 ## Local Installation
 

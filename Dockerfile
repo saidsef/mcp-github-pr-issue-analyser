@@ -16,6 +16,6 @@ RUN pip install -r requirements.txt
 
 RUN uv sync
 
-EXPOSE 8080
+EXPOSE 8000
 
 CMD ["uv", "run", "mcp-github-pr-issue-analyser"]
