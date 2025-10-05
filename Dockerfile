@@ -10,11 +10,13 @@ ENV MCP_ENABLE_REMOTE="true"
 
 WORKDIR /app
 
-COPY requirements.txt src/mcp_github/*.py /app/
+RUN pip install uv
 
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir uv
+COPY pyproject.toml .
+COPY src src
+
+RUN uv sync
 
 EXPOSE 8080
 
-CMD ["uvx", "./"]
+CMD ["uv", "run", "mcp-github-pr-issue-analyser"]
