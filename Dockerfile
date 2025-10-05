@@ -9,11 +9,10 @@ LABEL org.opencontainers.image.licenses="Apache License, Version 2.0"
 ENV MCP_ENABLE_REMOTE="true"
 
 WORKDIR /app
-
-RUN pip install uv
-
-COPY pyproject.toml .
+COPY pyproject.toml requirements.txt /app/
 COPY src src
+
+RUN pip install -r requirements.txt
 
 RUN uv sync
 
