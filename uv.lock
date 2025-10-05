@@ -230,7 +230,7 @@ cli = [
 
 [[package]]
 name = "mcp-github-pr-issue-analyser"
-version = "3.2.3"
+version = "3.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp", extra = ["cli"] },
