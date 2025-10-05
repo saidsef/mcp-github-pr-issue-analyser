@@ -38,7 +38,7 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
                                      |                        |
                                      +------------------------+
                                               |
-                                              | (stdio/SSE)
+                                              | (stdio/http)
                                               v
 +--------------------+              +------------------------+
 |                    |              |    PRIssueAnalyser     |
@@ -54,7 +54,7 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
                                               |
                                               | (REST API)
                      +-------------------------+-------------------------+
-                     |                         |                       |
+                     |                         |                         |
               +-------------+           +--------------+        +-------------+
               | GitHub PRs  |           |GitHub Issues |        |GitHub Tags/ |
               | & Releases  |           |              |        | Releases    |
@@ -73,7 +73,7 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 - PRIssueAnalyser: Main MCP server handling tool registration and requests
 - GitHub Integration: Manages all GitHub API interactions
 - IP Integration: Handles IPv4/IPv6 information retrieval
-- MCP Client: Interacts via stdio or Server-Sent Events (SSE)
+- MCP Client: Interacts via stdio or HTTP Streaming (http)
 
 ## Local Installation
 
@@ -91,13 +91,13 @@ export GITHUB_TOKEN="<github-token>"
 uvx ./
 ```
 
-Alternatively, launch MCP in `sse` mode.
+Alternatively, launch MCP in `http` mode.
 ```sh
 export GITHUB_TOKEN="<github-token>"
 export MCP_ENABLE_REMOTE=true
 uvx ./
 ```
-> You can access it via `sse` i.e. `http(s)://localhost:8080/sse`
+> You can access it via `http` i.e. `http(s)://localhost:8080/mcp`
 
 ## Local Integration with IDEs and LLMs
 

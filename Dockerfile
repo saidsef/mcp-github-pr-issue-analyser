@@ -9,12 +9,13 @@ LABEL org.opencontainers.image.licenses="Apache License, Version 2.0"
 ENV MCP_ENABLE_REMOTE="true"
 
 WORKDIR /app
+COPY pyproject.toml requirements.txt /app/
+COPY src src
 
-COPY requirements.txt src/mcp_github/*.py /app/
+RUN pip install -r requirements.txt
 
-RUN pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir uv
+RUN uv sync
 
 EXPOSE 8080
 
-CMD ["uvx", "./"]
+CMD ["uv", "run", "mcp-github-pr-issue-analyser"]

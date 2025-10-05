@@ -1,8 +1,11 @@
 # Smithery configuration file: https://smithery.ai/docs/use/session-config
 
-runtime: "python"
+runtime: "container"
+build:
+  dockerfile: "Dockerfile"           # Path to your Dockerfile
+  dockerBuildPath: "."
 env:
-  MCP_ENABLE_REMOTE: "true"
+  GITHUB_TOKEN: "your-token-here"
 
 startCommand:
   type: "http"
@@ -12,13 +15,4 @@ startCommand:
     properties:
       githubToken:
         type: string
-        description: The GitHub token to use for authentication.
-        default: "foo"
-  commandFunction: |-
-    (config) => ({
-      "command": "uvx",
-      "args": ["./"],
-      "env": {
-        "GITHUB_TOKEN": config.githubToken,
-      },
-    })
+        description: "GitHub token to use for authentication."
