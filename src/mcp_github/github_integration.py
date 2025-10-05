@@ -362,6 +362,55 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
+    def create_pr(self, repo_owner: str, repo_name: str, title: str, body: str, head_branch: str, base_branch: str, assignees: Optional[list[str]] = None) -> Dict[str, Any]:
+        """
+        Creates a new pull request in the specified GitHub repository and optionally assigns it to users.
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            title (str): The title of the pull request.
+            body (str): The body content of the pull request.
+            head_branch (str): The name of the branch where your changes are implemented.
+            base_branch (str): The name of the branch you want the changes pulled into.
+            assignees (Optional[list[str]]): A list of GitHub usernames to assign to the pull request.
+        Returns:
+            Dict[str, Any]: A dictionary containing the created pull request's data if successful.
+            None: If an error occurs during pull request creation.
+        Error Handling:
+            Logs errors and prints the traceback if the pull request creation fails, returning None.
+        """
+        logging.info(f"Creating pull request in {repo_owner}/{repo_name}")
+
+        # Construct the pulls URL
+        pulls_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
+
+        try:
+            # Create the pull request
+            response = requests.post(pulls_url, headers=self._get_headers(), json={
+                'title': title,
+                'body': body,
+                'head': head_branch,
+                'base': base_branch
+            }, timeout=TIMEOUT)
+            response.raise_for_status()
+            pr_data = response.json()
+
+            logging.info("Pull request created successfully")
+
+            # If assignees are provided, update the PR with the assignees
+            if assignees:
+                pr_number = pr_data['number']
+                self.update_assignees(repo_owner, repo_name, pr_number, assignees)
+                # We might want to refresh pr_data here if the updated data is needed
+                logging.info(f"Assigned pull request {pr_number} to {assignees}")
+
+            return pr_data
+
+        except Exception as e:
+            logging.error(f"Error creating pull request: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
     def merge_pr(self, repo_owner: str, repo_name: str, pr_number: int, commit_title: Optional[str] = None, commit_message: Optional[str] = None, merge_method: Literal['merge', 'squash', 'rebase'] = 'squash') -> Dict[str, Any]:
         """
         Merges a specific pull request in a GitHub repository using the specified merge method.

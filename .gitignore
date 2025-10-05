@@ -1,1 +1,4 @@
-.python-version .venv/ __pycache__/ build/ mcp_github_pr_issue_analyser.egg-info/
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
