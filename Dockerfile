@@ -6,7 +6,10 @@ LABEL org.opencontainers.image.documentation="https://github.com/saidsef/mcp-git
 LABEL org.opencontainers.image.source="https://github.com/saidsef/mcp-github-pr-issue-analyser.git"
 LABEL org.opencontainers.image.licenses="Apache License, Version 2.0"
 
+ARG PORT=8081
+
 ENV MCP_ENABLE_REMOTE="true"
+ENV PORT=${PORT}
 
 WORKDIR /app
 COPY pyproject.toml requirements.txt /app/
@@ -16,6 +19,6 @@ RUN pip install -r requirements.txt
 
 RUN uv sync
 
-EXPOSE 8000
+EXPOSE ${PORT}/tcp
 
 CMD ["uv", "run", "mcp-github-pr-issue-analyser"]
