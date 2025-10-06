@@ -278,7 +278,6 @@ class GitHubIntegration:
             draft (bool, optional): Whether the pull request is a draft. Defaults to False.
         Returns:
             Dict[str, Any]: The JSON response from the GitHub API containing pull request information if successful.
-            None: If an error occurs during the pull request creation process.
         Error Handling:
             Logs errors and prints the traceback if the pull request creation fails, returning None.
         """
@@ -291,7 +290,8 @@ class GitHubIntegration:
                 'title': title,
                 'body': body,
                 'head': head,
-                'base': base
+                'base': base,
+                'draft': draft
             }, timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
