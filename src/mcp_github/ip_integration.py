@@ -68,7 +68,7 @@ class IPIntegration:
         logging.error(f"Error fetching IP info: {e}")
         logging.debug(e)
         traceback.print_exc()
-        return {}
+        return {"error": str(e)}
 
   def get_ipv4_info(self) -> Dict[str, Any]:
       """
@@ -85,7 +85,7 @@ class IPIntegration:
           logging.error(f"Error fetching IPv4 info: {e}")
           logging.debug(e)
           traceback.print_exc()
-          return {}
+          return {"error": str(e)}
 
   def get_ipv6_info(self) -> Dict[str, Any]:
     """

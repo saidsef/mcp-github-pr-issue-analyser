@@ -265,6 +265,50 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
+    def create_pr(self, repo_owner: str, repo_name: str, title: str, body: str, head: str, base: str, draft: bool = False) -> Dict[str, Any]:
+        """
+        Creates a new pull request in the specified GitHub repository.
+        Args:
+            repo_owner (str): The owner of the repository.
+            repo_name (str): The name of the repository.
+            title (str): The title of the pull request.
+            body (str): The body content of the pull request.
+            head (str): The name of the branch where your changes are implemented.
+            base (str): The name of the branch you want the changes pulled into.
+            draft (bool, optional): Whether the pull request is a draft. Defaults to False.
+        Returns:
+            Dict[str, Any]: The JSON response from the GitHub API containing pull request information if successful.
+        Error Handling:
+            Logs errors and prints the traceback if the pull request creation fails, returning None.
+        """
+        logging.info(f"Creating PR in {repo_owner}/{repo_name}")
+
+        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
+
+        try:
+            response = requests.post(pr_url, headers=self._get_headers(), json={
+                'title': title,
+                'body': body,
+                'head': head,
+                'base': base,
+                'draft': draft
+            }, timeout=TIMEOUT)
+            response.raise_for_status()
+            pr_data = response.json()
+
+            logging.info("PR created successfully")
+            return {
+                "pr_url": pr_data.get('html_url'),
+                "pr_number": pr_data.get('number'),
+                "status": pr_data.get('state'),
+                "title": pr_data.get('title'),
+            }
+
+        except Exception as e:
+            logging.error(f"Error creating PR: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
     def list_open_issues_prs(
             self,
             repo_owner: str,
