@@ -1,1 +1,6 @@
-.python-version .venv/ __pycache__/ build/ mcp_github_pr_issue_analyser.egg-info/
+.python-version
+.venv/
+__pycache__/
+build/
+**/mcp_github_pr_issue_analyser.egg-info/
+
