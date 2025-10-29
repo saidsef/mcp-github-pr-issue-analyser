@@ -2,5 +2,5 @@
 .venv/
 __pycache__/
 build/
+src/mcp_github_pr_issue_analyser.egg-info/
 **/mcp_github_pr_issue_analyser.egg-info/
-
