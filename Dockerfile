@@ -1,4 +1,4 @@
-FROM docker.io/python:3.12-alpine
+FROM docker.io/python:3.14-alpine
 
 LABEL org.opencontainers.image.description="MCP for GitHub PR, Issues, Tags and Releases"
 LABEL org.opencontainers.image.authors="Said Sef"
