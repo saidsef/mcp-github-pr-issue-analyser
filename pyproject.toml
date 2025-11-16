@@ -10,7 +10,7 @@ authors = [
 dependencies = [
     "mcp[cli]==1.20.0",
     "requests==2.32.5",
-    "uv==0.9.7",
+    "uv==0.9.9",
 ]
 
 [project.scripts]
