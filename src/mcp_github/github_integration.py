@@ -668,14 +668,99 @@ class GitHubIntegration:
 
     def user_activity_query(self, variables: dict[str, Any], query: str) -> Dict[str, Any]:
         """
-        Performs a user activity query using GitHub's GraphQL API across all repositories and organisations.
+        Performs a user activity query using GitHub's GraphQL API for the authenticated user (token owner).
+
+        **Critical**: To query activities within a specific organization (e.g., "saidsef"):
+        1. Query the organization DIRECTLY using `organization(login: "saidsef")`
+        2. Do NOT use `viewer.contributionsCollection` as it excludes many private org activities
+        3. Organization name is CASE-SENSITIVE - must match exactly
+
+        **For Organization-Specific Activity** (e.g., saidsef):
+        ```graphql
+        query($orgName: String!, $from: GitTimestamp!, $to: GitTimestamp!) {
+          organization(login: $orgName) {
+            login
+            repositories(first: 100, privacy: PRIVATE, orderBy: {field: PUSHED_AT, direction: DESC}) {
+              nodes {
+                name
+                isPrivate
+                owner { login }
+                defaultBranchRef {
+                  target {
+                    ... on Commit {
+                      history(since: $from, until: $to) {
+                        totalCount
+                        nodes {
+                          author { user { login } }
+                          committedDate
+                          message
+                        }
+                      }
+                    }
+                  }
+                }
+                pullRequests(first: 100, states: [OPEN, CLOSED, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) {
+                  nodes {
+                    number
+                    title
+                    author { login }
+                    createdAt
+                    state
+                  }
+                }
+                issues(first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
+                  nodes {
+                    number
+                    title
+                    author { login }
+                    createdAt
+                    state
+                  }
+                }
+              }
+            }
+          }
+        }
+        ```
+
+        **For Authenticated User Activity Across All Orgs**:
+        ```graphql
+        query($from: DateTime!, $to: DateTime!) {
+          viewer {
+            login
+            contributionsCollection(from: $from, to: $to) {
+              commitContributionsByRepository(maxRepositories: 100) {
+                repository { name isPrivate owner { login } }
+                contributions { totalCount }
+              }
+              pullRequestContributionsByRepository(maxRepositories: 100) {
+                repository { name isPrivate owner { login } }
+                contributions { totalCount }
+              }
+            }
+            organizations(first: 100) {
+              nodes { login }
+            }
+          }
+        }
+        ```
+
         Args:
-            variables (dict[str, Any]): The variables to include in the query i.e. {"login": "username", "from": "2023-01-01", "to": "2023-12-31"}.
-            query (str): The search query string. GitHub GraphQL query summary collection that includes all activity across all orgs, public and private.
+            variables (dict[str, Any]): Query variables. Options:
+            - For org-specific with commit history: {"orgName": "saidsef", "from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
+              Note: Use GitTimestamp type (ISO 8601 format) for $from/$to when querying commit history
+            - For all activity: {"from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
+              Note: Use DateTime type for contributionsCollection queries
+            query (str): GraphQL query string. Use `organization(login: $orgName)` for specific org queries.
+              IMPORTANT: Declare variables as `GitTimestamp!` for commit history, `DateTime!` for contributionsCollection.
+
         Returns:
-            Dict[str, Any]: The JSON response from the GitHub API containing search results if successful.
+            Dict[str, Any]: The JSON response from GitHub's GraphQL API containing activity data.
+
+        Note: Organization queries require `read:org` scope. Organization name is case-sensitive.
+        GitTimestamp and DateTime both accept ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ).
         """
-        logging.info("Performing user query on GitHub")
+        logging.info(f"Performing GraphQL query with variables: {variables}")
 
         try:
             response = requests.post(
@@ -686,6 +771,10 @@ class GitHubIntegration:
             )
             response.raise_for_status()
             query_data = response.json()
+
+            if 'errors' in query_data:
+                logging.error(f"GraphQL errors: {query_data['errors']}")
+
             return query_data
         except requests.exceptions.RequestException as req_err:
             logging.error(f"Request error during user activity query: {str(req_err)}")
