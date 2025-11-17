@@ -665,3 +665,28 @@ class GitHubIntegration:
             logging.error(f"Error creating release: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
+
+    def user_activity_query(self, variables: dict[str, Any], query: str) -> Dict[str, Any]:
+        """
+        Performs a user activity query using GitHub's GraphQL API across all repositories and organisations.
+        Args:
+            variables (dict[str, Any]): The variables to include in the query i.e. {"login": "username", "from": "2023-01-01", "to": "2023-12-31"}.
+            query (str): The search query string. GitHub GraphQL query summary collection that includes all activity across all orgs, public and private.
+        Returns:
+            Dict[str, Any]: The JSON response from the GitHub API containing search results if successful.
+        """
+        logging.info("Performing user query on GitHub")
+
+        try:
+            response = requests.post('https://api.github.com/graphql', json={'query': query, 'variables': variables}, headers=self._get_headers(), timeout=TIMEOUT)
+            response.raise_for_status()
+            query_data = response.json()
+            return query_data
+        except requests.exceptions.RequestException as req_err:
+            logging.error(f"Request error during user activity query: {str(req_err)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(req_err)}
+        except Exception as e:
+            logging.error(f"Error performing user activity query: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
