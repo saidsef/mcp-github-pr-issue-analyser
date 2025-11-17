@@ -678,7 +678,12 @@ class GitHubIntegration:
         logging.info("Performing user query on GitHub")
 
         try:
-            response = requests.post('https://api.github.com/graphql', json={'query': query, 'variables': variables}, headers=self._get_headers(), timeout=TIMEOUT)
+            response = requests.post(
+                'https://api.github.com/graphql',
+                json={'query': query, 'variables': variables},
+                headers=self._get_headers(),
+                timeout=TIMEOUT
+            )
             response.raise_for_status()
             query_data = response.json()
             return query_data
