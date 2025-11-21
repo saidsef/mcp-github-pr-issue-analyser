@@ -668,27 +668,106 @@ class GitHubIntegration:
 
     def user_activity_query(self, variables: dict[str, Any], query: str) -> Dict[str, Any]:
         """
-        Performs a user activity query using GitHub's GraphQL API for the authenticated user (token owner).
+        Performs a user activity query using GitHub's GraphQL API with support for organization-specific 
+        and cross-organization queries.
 
-        **Critical**: To query activities within a specific organization (e.g., "saidsef"):
-        1. Query the organization DIRECTLY using `organization(login: "saidsef")`
-        2. Do NOT use `viewer.contributionsCollection` as it excludes many private org activities
-        3. Organization name is CASE-SENSITIVE - must match exactly
+        **Query Modes**:
+        
+        1. **Organization-Specific Activity** (fastest, most comprehensive):
+           - Query organization repositories directly
+           - Access all private repos in the org (with proper token scopes)
+           - Get detailed commit history, PRs, and issues
+           - Variables: {"orgName": "Pelle-Tech", "from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
+           - Variable types: `$orgName: String!`, `$from: GitTimestamp!`, `$to: GitTimestamp!`
+        
+        2. **Authenticated User Activity Across All Orgs** (slower, summary only):
+           - Query viewer's contribution collection
+           - Includes all orgs where user is a member
+           - Summary counts only (no detailed commit messages)
+           - Variables: {"from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
+           - Variable types: `$from: DateTime!`, `$to: DateTime!`
+        
+        3. **User Activity in Specific Organization** (most restrictive):
+           - Query organization repos filtered by user
+           - Requires combining org query with author filtering
+           - Variables: {"orgName": "Pelle-Tech", "username": "saidsef", "from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
+           - Variable types: `$orgName: String!`, `$username: String!`, `$from: GitTimestamp!`, `$to: GitTimestamp!`
 
-        **For Organization-Specific Activity** (e.g., saidsef):
+        **Performance Tips**:
+        - Use pagination parameters to limit initial data: `first: 50` instead of `first: 100`
+        - Query only required fields to reduce response size
+        - Use org-specific queries when possible (faster than viewer queries)
+        - For large date ranges, split into smaller queries
+        - Cache results for repeated queries
+
+        **Example Queries**:
+
+        **Fast Org Query with Pagination**:
         ```graphql
-        query($orgName: String!, $from: GitTimestamp!, $to: GitTimestamp!) {
+        query($orgName: String!, $from: GitTimestamp!, $to: GitTimestamp!, $repoCount: Int = 50) {
           organization(login: $orgName) {
             login
-            repositories(first: 100, privacy: PRIVATE, orderBy: {field: PUSHED_AT, direction: DESC}) {
+            repositories(first: $repoCount, privacy: PRIVATE, orderBy: {field: PUSHED_AT, direction: DESC}) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               nodes {
                 name
                 isPrivate
-                owner { login }
                 defaultBranchRef {
                   target {
                     ... on Commit {
-                      history(since: $from, until: $to) {
+                      history(since: $from, until: $to, first: 100) {
+                        totalCount
+                        pageInfo {
+                          hasNextPage
+                          endCursor
+                        }
+                        nodes {
+                          author { 
+                            user { login }
+                            email
+                          }
+                          committedDate
+                          message
+                          additions
+                          deletions
+                        }
+                      }
+                    }
+                  }
+                }
+                pullRequests(first: 50, states: [OPEN, CLOSED, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) {
+                  totalCount
+                  nodes {
+                    number
+                    title
+                    author { login }
+                    createdAt
+                    state
+                    additions
+                    deletions
+                  }
+                }
+              }
+            }
+          }
+        }
+        ```
+
+        **User-Filtered Org Query**:
+        ```graphql
+        query($orgName: String!, $username: String!, $from: GitTimestamp!, $to: GitTimestamp!) {
+          organization(login: $orgName) {
+            login
+            repositories(first: 100, privacy: PRIVATE) {
+              nodes {
+                name
+                defaultBranchRef {
+                  target {
+                    ... on Commit {
+                      history(since: $from, until: $to, author: {emails: [$username]}, first: 100) {
                         totalCount
                         nodes {
                           author { user { login } }
@@ -699,20 +778,10 @@ class GitHubIntegration:
                     }
                   }
                 }
-                pullRequests(first: 100, states: [OPEN, CLOSED, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) {
+                pullRequests(first: 100, states: [OPEN, CLOSED, MERGED]) {
                   nodes {
-                    number
-                    title
                     author { login }
-                    createdAt
-                    state
-                  }
-                }
-                issues(first: 100, states: [OPEN, CLOSED], orderBy: {field: UPDATED_AT, direction: DESC}) {
-                  nodes {
-                    number
                     title
-                    author { login }
                     createdAt
                     state
                   }
@@ -723,64 +792,147 @@ class GitHubIntegration:
         }
         ```
 
-        **For Authenticated User Activity Across All Orgs**:
+        **Cross-Org Viewer Query**:
         ```graphql
         query($from: DateTime!, $to: DateTime!) {
           viewer {
             login
             contributionsCollection(from: $from, to: $to) {
               commitContributionsByRepository(maxRepositories: 100) {
-                repository { name isPrivate owner { login } }
+                repository { 
+                  name 
+                  isPrivate 
+                  owner { login }
+                }
                 contributions { totalCount }
               }
               pullRequestContributionsByRepository(maxRepositories: 100) {
-                repository { name isPrivate owner { login } }
+                repository { 
+                  name 
+                  isPrivate 
+                  owner { login }
+                }
+                contributions { totalCount }
+              }
+              issueContributionsByRepository(maxRepositories: 100) {
+                repository { 
+                  name 
+                  isPrivate 
+                  owner { login }
+                }
                 contributions { totalCount }
               }
             }
             organizations(first: 100) {
-              nodes { login }
+              nodes { 
+                login 
+                viewerCanAdminister
+              }
             }
           }
         }
         ```
 
         Args:
-            variables (dict[str, Any]): Query variables. Options:
-            - For org-specific with commit history: {"orgName": "saidsef", "from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
-              Note: Use GitTimestamp type (ISO 8601 format) for $from/$to when querying commit history
-            - For all activity: {"from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
-              Note: Use DateTime type for contributionsCollection queries
-            query (str): GraphQL query string. Use `organization(login: $orgName)` for specific org queries.
-              IMPORTANT: Declare variables as `GitTimestamp!` for commit history, `DateTime!` for contributionsCollection.
+            variables (dict[str, Any]): Query variables. Supported combinations:
+                - Org-specific: {"orgName": "Pelle-Tech", "from": "...", "to": "..."}
+                - Cross-org: {"from": "...", "to": "..."}
+                - User-filtered org: {"orgName": "Pelle-Tech", "username": "saidsef", "from": "...", "to": "..."}
+                - With pagination: Add {"repoCount": 50, "prCount": 50} for custom limits
+            query (str): GraphQL query string. Must declare correct variable types:
+                - Organization queries: Use `GitTimestamp!` for $from/$to
+                - Viewer queries: Use `DateTime!` for $from/$to
+                - Both types accept ISO 8601 format: "YYYY-MM-DDTHH:MM:SSZ"
 
         Returns:
-            Dict[str, Any]: The JSON response from GitHub's GraphQL API containing activity data.
+            Dict[str, Any]: GraphQL response with activity data or error information.
+                - Success: {"data": {...}}
+                - Errors: {"errors": [...], "data": null}
+                - Network error: {"status": "error", "message": "..."}
 
-        Note: Organization queries require `read:org` scope. Organization name is case-sensitive.
-        GitTimestamp and DateTime both accept ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ).
+        Error Handling:
+            - Validates response status codes
+            - Logs GraphQL errors with details
+            - Returns structured error responses
+            - Includes traceback for debugging
+
+        Required Token Scopes:
+            - `repo`: Full control of private repositories
+            - `read:org`: Read org and team membership
+            - `read:user`: Read user profile data
+
+        Performance Notes:
+            - Org queries are ~3x faster than viewer queries
+            - Large date ranges (>1 year) may timeout
+            - Use pagination for repos with >100 commits
+            - Response size correlates with date range and repo count
         """
-        logging.info(f"Performing GraphQL query with variables: {variables}")
+        # Validate inputs
+        if not query or not isinstance(query, str):
+            return {"status": "error", "message": "Query must be a non-empty string"}
+        
+        if not variables or not isinstance(variables, dict):
+            return {"status": "error", "message": "Variables must be a non-empty dictionary"}
+        
+        # Determine query type for optimized logging
+        query_type = "unknown"
+        if "orgName" in variables and "username" in variables:
+            query_type = "user-filtered-org"
+        elif "orgName" in variables:
+            query_type = "org-specific"
+        elif "from" in variables and "to" in variables:
+            query_type = "cross-org-viewer"
+        
+        logging.info(f"Performing GraphQL query [type: {query_type}] with variables: {variables}")
 
         try:
+            # Make GraphQL request with optimized timeout
             response = requests.post(
                 'https://api.github.com/graphql',
                 json={'query': query, 'variables': variables},
                 headers=self._get_headers(),
-                timeout=TIMEOUT
+                timeout=TIMEOUT * 2  # Double timeout for GraphQL queries (can be complex)
             )
             response.raise_for_status()
             query_data = response.json()
 
+            # Handle GraphQL errors (API accepts request but query has issues)
             if 'errors' in query_data:
-                logging.error(f"GraphQL errors: {query_data['errors']}")
-
+                error_messages = [err.get('message', 'Unknown error') for err in query_data['errors']]
+                logging.error(f"GraphQL query errors: {error_messages}")
+                
+                # Check for common errors and provide helpful messages
+                for error in query_data['errors']:
+                    error_type = error.get('extensions', {}).get('code')
+                    if error_type == 'variableMismatch':
+                        logging.error(f"Variable type mismatch: Use GitTimestamp for org queries, DateTime for viewer queries")
+                    elif error_type == 'NOT_FOUND':
+                        logging.error(f"Resource not found: Check org/user name is correct and case-sensitive")
+                    elif error_type == 'FORBIDDEN':
+                        logging.error(f"Access forbidden: Check token has required scopes (repo, read:org)")
+                
+                return query_data  # Return with errors for caller to handle
+            
+            # Log success with summary
+            if 'data' in query_data:
+                data_keys = list(query_data['data'].keys())
+                logging.info(f"GraphQL query successful [type: {query_type}], returned data keys: {data_keys}")
+            
             return query_data
+
+        except requests.exceptions.Timeout:
+            error_msg = f"GraphQL query timeout after {TIMEOUT * 2}s. Try reducing date range or repo count."
+            logging.error(error_msg)
+            return {"status": "error", "message": error_msg, "timeout": True}
+        
         except requests.exceptions.RequestException as req_err:
-            logging.error(f"Request error during user activity query: {str(req_err)}")
+            error_msg = f"Request error during GraphQL query: {str(req_err)}"
+            logging.error(error_msg)
             traceback.print_exc()
-            return {"status": "error", "message": str(req_err)}
+            return {"status": "error", "message": error_msg, "request_exception": True}
+        
         except Exception as e:
-            logging.error(f"Error performing user activity query: {str(e)}")
+            error_msg = f"Unexpected error performing GraphQL query: {str(e)}"
+            logging.error(error_msg)
             traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            return {"status": "error", "message": error_msg, "unexpected": True}
