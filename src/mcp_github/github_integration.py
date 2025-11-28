@@ -937,17 +937,27 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": error_msg, "unexpected": True}
 
-    def get_user_org_activity(self, org_name: str, username: str, from_date: str, to_date: str) -> Dict[str, Any]:
+    def get_user_org_activity(
+        self, 
+        org_name: str, 
+        username: str, 
+        from_date: str, 
+        to_date: str,
+        page: int = 1,
+        per_page: int = 50
+    ) -> Dict[str, Any]:
         """
         Gets comprehensive activity for a SPECIFIC USER across ALL repositories in an organization.
+        
+        **PAGINATED RESULTS** - Returns a manageable subset of data to prevent context overflow.
         
         Efficiently filters by user at the GraphQL level - does NOT scan entire repos.
         Captures ALL branches, not just main/default branch.
         
         Includes:
-        - ALL commits by the user (across all branches)
-        - ALL PRs where user was: author, reviewer, merger, commenter, or assigned  
-        - ALL Issues where user was: author, assigned, commenter, or participant
+        - Commits by the user (paginated)
+        - PRs where user was: author, reviewer, merger, commenter, or assigned (paginated)
+        - Issues where user was: author, assigned, commenter, or participant (paginated)
         - Handles reviewed, open, merged, closed, and approved PRs
         
         Args:
@@ -955,9 +965,17 @@ class GitHubIntegration:
             username (str): GitHub username to query
             from_date (str): Start date ISO 8601 (e.g., "2024-01-01T00:00:00Z")
             to_date (str): End date ISO 8601 (e.g., "2024-12-31T23:59:59Z")
+            page (int): Page number (1-indexed, default: 1)
+            per_page (int): Items per page (default: 50, max: 100)
         
         Returns:
-            Dict containing: status, summary stats, commits[], prs[], issues[], pagination_info
+            Dict containing: 
+            - status: success/error
+            - summary: aggregate statistics
+            - commits[]: paginated commits (most recent first)
+            - prs[]: paginated PRs (most recent first)
+            - issues[]: paginated issues (most recent first)
+            - pagination: current_page, per_page, total_items, total_pages, has_next_page
         """
         logging.info(f"Fetching ALL activity for '{username}' in '{org_name}' from {from_date} to {to_date}")
         
@@ -979,7 +997,7 @@ class GitHubIntegration:
             logging.info(f"Found {len(org_repos)} total repositories in {org_name}")
         
         if not org_repos:
-            return self._empty_activity_response(username, org_name, from_date, to_date)
+            return self._empty_activity_response(username, org_name, from_date, to_date, page, per_page)
         
         # Step 3: Process each repo - filter by user at GraphQL level
         all_commits = []
@@ -1011,15 +1029,36 @@ class GitHubIntegration:
         all_prs.sort(key=lambda x: x["updated_at"], reverse=True)
         all_issues.sort(key=lambda x: x["updated_at"], reverse=True)
         
-        # Generate summary
+        # Calculate pagination
+        per_page = min(max(1, per_page), 100)  # Clamp between 1-100
+        page = max(1, page)  # Must be at least 1
+        
+        total_commits = len(all_commits)
+        total_prs = len(all_prs)
+        total_issues = len(all_issues)
+        
+        # Calculate pages
+        commits_total_pages = (total_commits + per_page - 1) // per_page if total_commits > 0 else 1
+        prs_total_pages = (total_prs + per_page - 1) // per_page if total_prs > 0 else 1
+        issues_total_pages = (total_issues + per_page - 1) // per_page if total_issues > 0 else 1
+        
+        # Slice data for current page
+        start_idx = (page - 1) * per_page
+        end_idx = start_idx + per_page
+        
+        paginated_commits = all_commits[start_idx:end_idx]
+        paginated_prs = all_prs[start_idx:end_idx]
+        paginated_issues = all_issues[start_idx:end_idx]
+        
+        # Generate summary (based on ALL data, not just current page)
         user_authored_prs = [pr for pr in all_prs if "Author" in pr["user_roles"]]
         
         summary = {
             "user": username,
             "organization": org_name,
             "date_range": f"{from_date} to {to_date}",
-            "total_commits": len(all_commits),
-            "total_prs_involved": len(all_prs),
+            "total_commits": total_commits,
+            "total_prs_involved": total_prs,
             "prs_authored": len(user_authored_prs),
             "prs_reviewed": len([pr for pr in all_prs if any(r in pr["user_roles"] for r in ["Approved", "Requested Changes", "Reviewed"])]),
             "prs_merged": len([pr for pr in all_prs if "Merged" in pr["user_roles"]]),
@@ -1032,20 +1071,39 @@ class GitHubIntegration:
             "total_deletions": sum(c["deletions"] for c in all_commits),
         }
         
-        logging.info(f"Activity complete: {len(all_commits)} commits, {len(all_prs)} PRs, {len(all_issues)} issues from {repos_with_activity}/{len(org_repos)} repos")
+        logging.info(f"Activity complete: Page {page}/{max(commits_total_pages, prs_total_pages, issues_total_pages)} - Returning {len(paginated_commits)} commits, {len(paginated_prs)} PRs, {len(paginated_issues)} issues from {repos_with_activity}/{len(org_repos)} repos")
         
         return {
             "status": "success",
             "summary": summary,
-            "commits": all_commits,
-            "prs": all_prs,
-            "issues": all_issues,
-            "pagination_info": {
-                "total_repos_in_org": len(org_repos),
-                "repos_with_user_activity": repos_with_activity,
-                "commits_found": len(all_commits),
-                "prs_found": len(all_prs),
-                "issues_found": len(all_issues)
+            "commits": paginated_commits,
+            "prs": paginated_prs,
+            "issues": paginated_issues,
+            "pagination": {
+                "current_page": page,
+                "per_page": per_page,
+                "commits": {
+                    "total": total_commits,
+                    "total_pages": commits_total_pages,
+                    "has_next_page": page < commits_total_pages,
+                    "returned": len(paginated_commits)
+                },
+                "prs": {
+                    "total": total_prs,
+                    "total_pages": prs_total_pages,
+                    "has_next_page": page < prs_total_pages,
+                    "returned": len(paginated_prs)
+                },
+                "issues": {
+                    "total": total_issues,
+                    "total_pages": issues_total_pages,
+                    "has_next_page": page < issues_total_pages,
+                    "returned": len(paginated_issues)
+                },
+                "repos": {
+                    "total_in_org": len(org_repos),
+                    "with_user_activity": repos_with_activity
+                }
             }
         }
     
@@ -1125,10 +1183,7 @@ class GitHubIntegration:
                 if owner.lower() == org_name.lower():  # Filter by org
                     repo_name = repo.get("name")
                     if repo_name:
-                        repos_dict[repo_name] = {
-                            "name": repo_name,
-                            "url": repo.get("url", "")
-                        }
+                        repos_dict[repo_name] = {"name": repo_name, "url": repo.get("url", "")}
             
             # Collect repos from PRs
             for item in contributions.get("pullRequestContributionsByRepository", []):
@@ -1137,10 +1192,7 @@ class GitHubIntegration:
                 if owner.lower() == org_name.lower():
                     repo_name = repo.get("name")
                     if repo_name and repo_name not in repos_dict:
-                        repos_dict[repo_name] = {
-                            "name": repo_name,
-                            "url": repo.get("url", "")
-                        }
+                        repos_dict[repo_name] = {"name": repo_name, "url": repo.get("url", "")}
             
             # Collect repos from issues
             for item in contributions.get("issueContributionsByRepository", []):
@@ -1149,10 +1201,7 @@ class GitHubIntegration:
                 if owner.lower() == org_name.lower():
                     repo_name = repo.get("name")
                     if repo_name and repo_name not in repos_dict:
-                        repos_dict[repo_name] = {
-                            "name": repo_name,
-                            "url": repo.get("url", "")
-                        }
+                        repos_dict[repo_name] = {"name": repo_name, "url": repo.get("url", "")}
         
         return list(repos_dict.values())
     
@@ -1226,15 +1275,11 @@ class GitHubIntegration:
         }, check_query)
         
         # Skip if no commits found (user has no activity in default branch)
-        commit_count = 0
         if "data" in check_result and check_result.get("data", {}).get("repository"):
-            repo_check = check_result["data"]["repository"]
-            if repo_check.get("defaultBranchRef"):
-                commit_count = repo_check["defaultBranchRef"]["target"]["history"]["totalCount"]
-        
-        # If no commits, still check PRs/Issues but with quick check
-        if commit_count == 0:
-            logging.info(f"  No commits by {username} in {repo_name}, checking PRs/Issues only")
+            if check_result["data"]["repository"].get("defaultBranchRef"):
+                commit_count = check_result["data"]["repository"]["defaultBranchRef"]["target"]["history"]["totalCount"]
+                if commit_count == 0:
+                    logging.info(f"  No commits by {username} in {repo_name}, checking PRs/Issues only")
         
         # Query with user filtering at GraphQL level
         query = """
@@ -1438,8 +1483,8 @@ class GitHubIntegration:
             "has_activity": len(commits) > 0 or len(prs) > 0 or len(issues) > 0
         }
     
-    def _empty_activity_response(self, username: str, org_name: str, from_date: str, to_date: str) -> Dict:
-        """Return empty activity response."""
+    def _empty_activity_response(self, username: str, org_name: str, from_date: str, to_date: str, page: int = 1, per_page: int = 50) -> Dict:
+        """Return empty activity response with pagination info."""
         return {
             "status": "success",
             "summary": {
@@ -1457,11 +1502,12 @@ class GitHubIntegration:
             "commits": [],
             "prs": [],
             "issues": [],
-            "pagination_info": {
-                "total_repos_in_org": 0,
-                "repos_with_user_activity": 0,
-                "commits_found": 0,
-                "prs_found": 0,
-                "issues_found": 0
+            "pagination": {
+                "current_page": page,
+                "per_page": per_page,
+                "commits": {"total": 0, "total_pages": 1, "has_next_page": False, "returned": 0},
+                "prs": {"total": 0, "total_pages": 1, "has_next_page": False, "returned": 0},
+                "issues": {"total": 0, "total_pages": 1, "has_next_page": False, "returned": 0},
+                "repos": {"total_in_org": 0, "with_user_activity": 0}
             }
         }
