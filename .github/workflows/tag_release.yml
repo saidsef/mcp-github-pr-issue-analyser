@@ -153,7 +153,7 @@ jobs:
 
           function getDiffSinceTag(lastTag) {
             const command = lastTag === 'v0.0.0'
-              ? 'git diff HEAD'
+              ? 'git diff $(git hash-object -t tree /dev/null)..HEAD'
               : `git diff ${lastTag}..HEAD`;
             try {
               return execSync(command, { encoding: 'utf8' });
