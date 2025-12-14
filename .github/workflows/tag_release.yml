@@ -7,6 +7,9 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: tag-release-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   release:
     runs-on: ubuntu-latest
