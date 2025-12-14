@@ -1,0 +1,331 @@
+name: Auto Tag and Release
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Setup NodeJS
+        uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Create and run release script
+        run: |
+          cat > release.js << 'EOF'
+          const { execSync } = require('child_process');
+          const fs = require('fs');
+
+          // Fetch all tags from the remote
+          execSync('git fetch --tags');
+
+          function getLatestTag() {
+            try {
+              // Get the latest tag from the current branch's history
+              return execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
+            } catch {
+              return 'v0.0.0'; // No tags found, start from v0.0.0
+            }
+          }
+
+          function getAllTags() {
+            try {
+              const tags = execSync('git tag', { encoding: 'utf8' }).trim().split('\n');
+              return tags.filter(tag => tag.match(/^v\d+\.\d+\.\d+$/));
+            } catch {
+              return [];
+            }
+          }
+
+          function incrementVersion(version, type) {
+            let [major, minor, patch] = version.replace('v', '').split('.').map(Number);
+            if (type === 'major') {
+              major += 1;
+              minor = 0;
+              patch = 0;
+            } else if (type === 'minor') {
+              minor += 1;
+              patch = 0;
+            } else {
+              patch += 1;
+            }
+            return `v${major}.${minor}.${patch}`;
+          }
+
+          function getCommitsSinceTag(lastTag) {
+            const command = lastTag === 'v0.0.0'
+              ? 'git log --oneline --format="%H|%an|%ae|%s"'
+              : `git log ${lastTag}..HEAD --oneline --format="%H|%an|%ae|%s"`;
+            try {
+              const output = execSync(command, { encoding: 'utf8' }).trim();
+              if (!output) return [];
+              
+              const commits = output.split('\n').map(line => {
+                const [hash, author, email, ...messageParts] = line.split('|');
+                const message = messageParts.join('|');
+                
+                // Extract PR number from commit message
+                const prMatch = message.match(/#(\d+)/);
+                const prNumber = prMatch ? prMatch[1] : null;
+                
+                return {
+                  hash: hash.substring(0, 7),
+                  fullHash: hash,
+                  author,
+                  email,
+                  message,
+                  prNumber
+                };
+              });
+              
+              return commits;
+            } catch {
+              return [];
+            }
+          }
+
+          function getNewContributors(commits, lastTag) {
+            try {
+              // Get all authors before lastTag
+              const oldAuthorsCommand = lastTag === 'v0.0.0'
+                ? 'echo ""'
+                : `git log --format="%ae" ${lastTag}`;
+              const oldAuthorsOutput = execSync(oldAuthorsCommand, { encoding: 'utf8' }).trim();
+              const oldAuthors = new Set(oldAuthorsOutput.split('\n').filter(e => e));
+              
+              // Get new unique authors from current commits
+              const newAuthors = [];
+              const seenEmails = new Set();
+              
+              for (const commit of commits) {
+                if (!oldAuthors.has(commit.email) && !seenEmails.has(commit.email)) {
+                  seenEmails.add(commit.email);
+                  // Extract username from email, handling GitHub bot emails like "123456+bot[name]@users.noreply.github.com"
+                  let username = commit.email.split('@')[0];
+                  const plusIndex = username.indexOf('+');
+                  if (plusIndex !== -1) {
+                    // If there's a +, take everything after it (the bot name)
+                    username = username.substring(plusIndex + 1);
+                  }
+                  newAuthors.push({
+                    name: commit.author,
+                    username: username,
+                    email: commit.email
+                  });
+                }
+              }
+              
+              return newAuthors;
+            } catch (error) {
+              console.error('Error getting new contributors:', error.message);
+              return [];
+            }
+          }
+
+          function formatCommitsForRelease(commits) {
+            if (commits.length === 0) return '- Initial release';
+            
+            return commits.map(commit => {
+              // Extract username from email, handling GitHub bot emails like "123456+bot[name]@users.noreply.github.com"
+              let username = commit.email.split('@')[0];
+              const plusIndex = username.indexOf('+');
+              if (plusIndex !== -1) {
+                // If there's a +, take everything after it (the bot name)
+                username = username.substring(plusIndex + 1);
+              }
+              let line = `- ${commit.message} (${commit.hash})`;
+              if (commit.prNumber) {
+                line += ` ([#${commit.prNumber}](https://github.com/${process.env.GITHUB_REPOSITORY}/pull/${commit.prNumber}))`;
+              }
+              line += ` by @${username}`;
+              return line;
+            }).join('\n');
+          }
+
+          function getDiffSinceTag(lastTag) {
+            const command = lastTag === 'v0.0.0'
+              ? 'git diff HEAD'
+              : `git diff ${lastTag}..HEAD`;
+            try {
+              return execSync(command, { encoding: 'utf8' });
+            } catch {
+              return '';
+            }
+          }
+
+          function classifyVersion(diff) {
+            const lines = diff.split('\n');
+            let hasMajorChange = false;
+            let hasMinorChange = false;
+            
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              
+              // MAJOR: Breaking changes
+              // Terraform: Resource deletion or destructive changes
+              if (line.startsWith('-resource "') || 
+                  (line.startsWith('-') && (
+                    trimmedLine.includes('destroy') ||
+                    trimmedLine.includes('delete_protection = false') ||
+                    trimmedLine.includes('force_destroy = true')
+                  ))) {
+                hasMajorChange = true;
+              }
+              
+              // Python: Breaking API changes
+              if (line.includes('def ') && line.startsWith('-')) {
+                hasMajorChange = true;
+              }
+              if (line.includes('class ') && line.startsWith('-')) {
+                hasMajorChange = true;
+              }
+              
+              // Node.js/TypeScript: Breaking changes in package.json or exports
+              if (trimmedLine.includes('"main":') && line.startsWith('-')) {
+                hasMajorChange = true;
+              }
+              if (trimmedLine.includes('"exports":') && line.startsWith('-')) {
+                hasMajorChange = true;
+              }
+              if (line.includes('export ') && line.startsWith('-')) {
+                hasMajorChange = true;
+              }
+              
+              // MINOR: New features
+              // Terraform: New resources, variables, outputs
+              if (line.startsWith('+resource "') || 
+                  line.startsWith('+variable "') || 
+                  line.startsWith('+output "')) {
+                hasMinorChange = true;
+              }
+              
+              // Python: New functions, classes, methods
+              if ((line.includes('def ') || line.includes('class ')) && line.startsWith('+')) {
+                hasMinorChange = true;
+              }
+              
+              // Node.js/TypeScript: New exports, dependencies
+              if (line.includes('export ') && line.startsWith('+')) {
+                hasMinorChange = true;
+              }
+              if (trimmedLine.includes('"dependencies":') && line.startsWith('+')) {
+                hasMinorChange = true;
+              }
+              
+              // Package.json version updates (dependencies)
+              if (line.includes('package.json') || (
+                line.startsWith('+') && trimmedLine.match(/"[^"]+": "[\^~]?\d+\.\d+\.\d+"/))) {
+                hasMinorChange = true;
+              }
+            }
+
+            // Priority: Major > Minor > Patch
+            if (hasMajorChange) return 'major';
+            if (hasMinorChange) return 'minor';
+            return 'patch';
+          }
+
+          function createReleaseNotes(newTag, commits, lastTag, newContributors) {
+            const date = new Date().toISOString().split('T')[0];
+            const compareUrl = lastTag === 'v0.0.0'
+              ? `https://github.com/${process.env.GITHUB_REPOSITORY}/commits/${newTag}`
+              : `https://github.com/${process.env.GITHUB_REPOSITORY}/compare/${lastTag}...${newTag}`;
+            
+            const formattedCommits = formatCommitsForRelease(commits);
+            
+            let notes = `## Release ${newTag} - ${date}
+
+          ### What Changed
+          ${formattedCommits}
+          `;
+            
+            if (newContributors.length > 0) {
+              notes += `\n### New Contributors\n`;
+              newContributors.forEach(contributor => {
+                notes += `- @${contributor.username}\n`;
+              });
+            }
+            
+            notes += `\n**Full Changelog**: ${compareUrl}`;
+            
+            return notes;
+          }
+
+          // Main execution
+          const lastTag = getLatestTag();
+          const allTags = getAllTags();
+          const allTagsSet = new Set(allTags);
+
+          const diff = getDiffSinceTag(lastTag);
+          const releaseType = classifyVersion(diff);
+
+          let newTag = incrementVersion(lastTag, releaseType);
+
+          // If the new tag already exists, increment from the highest known tag
+          while (allTagsSet.has(newTag)) {
+              console.log(`Tag ${newTag} already exists. Recalculating...`);
+              const highestTag = allTags.sort((a, b) => {
+                  const aParts = a.replace('v', '').split('.').map(Number);
+                  const bParts = b.replace('v', '').split('.').map(Number);
+                  if (aParts[0] !== bParts[0]) return bParts[0] - aParts[0];
+                  if (aParts[1] !== bParts[1]) return bParts[1] - aParts[1];
+                  return bParts[2] - aParts[2];
+              })[0];
+              newTag = incrementVersion(highestTag, releaseType);
+          }
+
+          const commits = getCommitsSinceTag(lastTag);
+          const newContributors = getNewContributors(commits, lastTag);
+
+          console.log(`Creating release ${newTag} from ${lastTag} (type: ${releaseType})`);
+          console.log(`Found ${commits.length} commits and ${newContributors.length} new contributors`);
+
+          // Configure git
+          execSync('git config user.name "github-actions[bot]"');
+          execSync('git config user.email "github-actions[bot]@users.noreply.github.com"');
+
+          // Create and push tag
+          execSync(`git tag -a ${newTag} -m "Release ${newTag}"`);
+          execSync(`git push origin ${newTag}`);
+
+          // Generate local release notes (to be discarded after job)
+          const releaseNotes = createReleaseNotes(newTag, commits, lastTag, newContributors);
+          fs.writeFileSync('release-notes.md', releaseNotes);
+
+          console.log(`Tag ${newTag} created and pushed`);
+          console.log('Release notes:', releaseNotes);
+          EOF
+
+          node release.js
+
+      - name: Create GitHub Release
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const fs = require('fs');
+            const { execSync } = require('child_process');
+
+            const newTag = execSync('git describe --tags --abbrev=0', { encoding: 'utf8' }).trim();
+            const releaseNotes = fs.readFileSync('release-notes.md', 'utf8');
+
+            const release = await github.rest.repos.createRelease({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag_name: newTag,
+              name: newTag,
+              body: releaseNotes,
+              draft: false,
+              prerelease: false,
+              make_latest: 'true'
+            });
+
+            console.log(`Release created: ${release.data.html_url}`);
