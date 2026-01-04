@@ -625,7 +625,18 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def create_release(self, repo_owner: str, repo_name: str, tag_name: str, release_name: str, body: str) -> Dict[str, Any]:
+    def create_release(
+            self,
+            repo_owner: str,
+            repo_name: str,
+            tag_name: str,
+            release_name: str,
+            body: str,
+            draft: bool = False,
+            prerelease: bool = False,
+            generate_release_notes: bool = True,
+            make_latest: Literal['true', 'false', 'legacy'] = 'true'
+        ) -> Dict[str, Any]:
         """
         Creates a new release in the specified GitHub repository.
         Args:
@@ -634,6 +645,10 @@ class GitHubIntegration:
             tag_name (str): The tag name for the release.
             release_name (str): The name of the release.
             body (str): The description or body content of the release.
+            draft (bool, optional): Whether the release is a draft. Defaults to False.
+            prerelease (bool, optional): Whether the release is a prerelease. Defaults to False.
+            generate_release_notes (bool, optional): Whether to generate release notes automatically. Defaults to True.
+            make_latest (Literal['true', 'false', 'legacy'], optional): Whether to mark the release as the latest. Defaults to 'true'.
         Returns:
             Dict[str, Any]: The JSON response from the GitHub API containing release information if successful.
             None: If an error occurs during the release creation process.
@@ -651,9 +666,10 @@ class GitHubIntegration:
                 'tag_name': tag_name,
                 'name': release_name,
                 'body': body,
-                'draft': False,
-                'prerelease': False,
-                'generate_release_notes': True
+                'draft': draft,
+                'prerelease': prerelease,
+                'generate_release_notes': generate_release_notes,
+                'make_latest': make_latest
             }, timeout=TIMEOUT)
             response.raise_for_status()
             release_data = response.json()
