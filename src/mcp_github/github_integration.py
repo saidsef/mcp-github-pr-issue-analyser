@@ -683,71 +683,54 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def user_activity_query(self, variables: dict[str, Any], query: str) -> Dict[str, Any]:
+    def get_user_activity(self, org_name: str, username: str, repo_name: str = None) -> Dict[str, Any]:
         """
-        Performs a user activity query using GitHub's GraphQL API with support for organization-specific 
-        and cross-organization queries.
-
-        **Query Modes**:
-        
-        1. **Organization-Specific Activity** (fastest, most comprehensive):
-           - Query organization repositories directly
-           - Access all private repos in the org (with proper token scopes)
-           - Get detailed commit history, PRs, and issues
-           - Variables: {"orgName": "Pelle-Tech", "from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
-           - Variable types: `$orgName: String!`, `$from: GitTimestamp!`, `$to: GitTimestamp!`
-        
-        2. **Authenticated User Activity Across All Orgs** (slower, summary only):
-           - Query viewer's contribution collection
-           - Includes all orgs where user is a member
-           - Summary counts only (no detailed commit messages)
-           - Variables: {"from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
-           - Variable types: `$from: DateTime!`, `$to: DateTime!`
-        
-        3. **User Activity in Specific Organization** (most restrictive):
-           - Query organization repos filtered by user
-           - Requires combining org query with author filtering
-           - Variables: {"orgName": "Pelle-Tech", "username": "saidsef", "from": "2024-10-01T00:00:00Z", "to": "2024-10-31T23:59:59Z"}
-           - Variable types: `$orgName: String!`, `$username: String!`, `$from: GitTimestamp!`, `$to: GitTimestamp!`
-
-        **Performance Tips**:
-        - Use pagination parameters to limit initial data: `first: 50` instead of `first: 100`
-        - Query only required fields to reduce response size
-        - Use org-specific queries when possible (faster than viewer queries)
-        - For large date ranges, split into smaller queries
-        - Cache results for repeated queries
-
-        **Example Queries**:
-
-        **Fast Org Query with Pagination**:
-        ```graphql
-        query($orgName: String!, $from: GitTimestamp!, $to: GitTimestamp!, $repoCount: Int = 50) {
-          organization(login: $orgName) {
-            login
-            repositories(first: $repoCount, privacy: PRIVATE, orderBy: {field: PUSHED_AT, direction: DESC}) {
-              pageInfo {
-                hasNextPage
-                endCursor
-              }
+        Get user activity in an organization or specific repository.
+        Args:
+            org_name (str): The name of the GitHub organization.
+            username (str): The GitHub username to fetch activity for.
+            repo_name (str, optional): The name of the repository. If provided, fetches activity for that repository only. Defaults to None.
+        Returns:
+            Dict[str, Any]: A dictionary containing user activity data.
+        Error Handling:
+            Logs errors and returns an error message if the GraphQL query fails.
+        """
+        if repo_name:
+            return self._get_repo_activity(org_name, repo_name, username)
+        else:
+            return self._get_org_activity(org_name, username)
+    
+    def _graphql_query(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
+        """Simple GraphQL query executor."""
+        try:
+            response = requests.post(
+                'https://api.github.com/graphql',
+                json={'query': query, 'variables': variables},
+                headers=self._get_headers(),
+                timeout=TIMEOUT
+            )
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logging.error(f"GraphQL query failed: {str(e)}")
+            return {"errors": [{"message": str(e)}]}
+    
+    def _get_org_activity(self, org_name: str, username: str) -> Dict[str, Any]:
+        """Get user activity across all repositories in an organization."""
+        query = """
+        query($org: String!, $user: String!) {
+          organization(login: $org) {
+            repositories(first: 50) {
               nodes {
                 name
-                isPrivate
                 defaultBranchRef {
                   target {
                     ... on Commit {
-                      history(since: $from, until: $to, first: 100) {
-                        totalCount
-                        pageInfo {
-                          hasNextPage
-                          endCursor
-                        }
+                      history(author: {login: $user}, first: 20) {
                         nodes {
-                          author { 
-                            user { login }
-                            email
-                          }
+                          messageHeadline
                           committedDate
-                          message
+                          url
                           additions
                           deletions
                         }
@@ -755,808 +738,165 @@ class GitHubIntegration:
                     }
                   }
                 }
-                pullRequests(first: 50, states: [OPEN, CLOSED, MERGED], orderBy: {field: UPDATED_AT, direction: DESC}) {
-                  totalCount
+                pullRequests(first: 20, states: [OPEN, CLOSED, MERGED]) {
                   nodes {
                     number
                     title
+                    state
                     author { login }
                     createdAt
-                    state
-                    additions
-                    deletions
+                    url
                   }
                 }
-              }
-            }
-          }
-        }
-        ```
-
-        **User-Filtered Org Query**:
-        ```graphql
-        query($orgName: String!, $username: String!, $from: GitTimestamp!, $to: GitTimestamp!) {
-          organization(login: $orgName) {
-            login
-            repositories(first: 100, privacy: PRIVATE) {
-              nodes {
-                name
-                defaultBranchRef {
-                  target {
-                    ... on Commit {
-                      history(since: $from, until: $to, author: {login: $username}, first: 100) {
-                        totalCount
-                        nodes {
-                          author { user { login } }
-                          committedDate
-                          message
-                        }
-                      }
-                    }
-                  }
-                }
-                pullRequests(first: 100, states: [OPEN, CLOSED, MERGED]) {
+                issues(first: 20) {
                   nodes {
-                    author { login }
+                    number
                     title
-                    createdAt
                     state
+                    author { login }
+                    createdAt
+                    url
                   }
                 }
               }
             }
           }
         }
-        ```
-
-        **Cross-Org Viewer Query**:
-        ```graphql
-        query($from: DateTime!, $to: DateTime!) {
-          viewer {
-            login
-            contributionsCollection(from: $from, to: $to) {
-              commitContributionsByRepository(maxRepositories: 100) {
-                repository { 
-                  name 
-                  isPrivate 
-                  owner { login }
-                }
-                contributions { totalCount }
-              }
-              pullRequestContributionsByRepository(maxRepositories: 100) {
-                repository { 
-                  name 
-                  isPrivate 
-                  owner { login }
-                }
-                contributions { totalCount }
-              }
-              issueContributionsByRepository(maxRepositories: 100) {
-                repository { 
-                  name 
-                  isPrivate 
-                  owner { login }
-                }
-                contributions { totalCount }
-              }
-            }
-            organizations(first: 100) {
-              nodes { 
-                login 
-                viewerCanAdminister
-              }
-            }
-          }
-        }
-        ```
-
-        Args:
-            variables (dict[str, Any]): Query variables. Supported combinations:
-                - Org-specific: {"orgName": "Pelle-Tech", "from": "...", "to": "..."}
-                - Cross-org: {"from": "...", "to": "..."}
-                - User-filtered org: {"orgName": "Pelle-Tech", "username": "saidsef", "from": "...", "to": "..."}
-                - With pagination: Add {"repoCount": 50, "prCount": 50} for custom limits
-            query (str): GraphQL query string. Must declare correct variable types:
-                - Organization queries: Use `GitTimestamp!` for $from/$to
-                - Viewer queries: Use `DateTime!` for $from/$to
-                - Both types accept ISO 8601 format: "YYYY-MM-DDTHH:MM:SSZ"
-
-        Returns:
-            Dict[str, Any]: GraphQL response with activity data or error information.
-                - Success: {"data": {...}}
-                - Errors: {"errors": [...], "data": null}
-                - Network error: {"status": "error", "message": "..."}
-
-        Error Handling:
-            - Validates response status codes
-            - Logs GraphQL errors with details
-            - Returns structured error responses
-            - Includes traceback for debugging
-
-        Required Token Scopes:
-            - `repo`: Full control of private repositories
-            - `read:org`: Read org and team membership
-            - `read:user`: Read user profile data
-
-        Performance Notes:
-            - Org queries are ~3x faster than viewer queries
-            - Large date ranges (>1 year) may timeout
-            - Use pagination for repos with >100 commits
-            - Response size correlates with date range and repo count
         """
-        # Validate inputs
-        if not query or not isinstance(query, str):
-            return {"status": "error", "message": "Query must be a non-empty string"}
         
-        if not variables or not isinstance(variables, dict):
-            return {"status": "error", "message": "Variables must be a non-empty dictionary"}
+        result = self._graphql_query(query, {"org": org_name, "user": username})
         
-        # Determine query type for optimized logging
-        query_type = "unknown"
-        if "orgName" in variables and "username" in variables:
-            query_type = "user-filtered-org"
-        elif "orgName" in variables:
-            query_type = "org-specific"
-        elif "from" in variables and "to" in variables:
-            query_type = "cross-org-viewer"
+        if "errors" in result:
+            return {"status": "error", "message": result["errors"]}
         
-        logging.info(f"Performing GraphQL query [type: {query_type}] with variables: {variables}")
-
-        # Retry logic for server errors with exponential backoff
-        max_retries = 3
-        query_data = None
+        activity = {"commits": [], "prs": [], "issues": []}
         
-        for attempt in range(max_retries):
-            try:
-                # Make GraphQL request with optimized timeout
-                response = requests.post(
-                    'https://api.github.com/graphql',
-                    json={'query': query, 'variables': variables},
-                    headers=self._get_headers(),
-                    timeout=TIMEOUT * 2  # Reduce timeout to avoid server overload
-                )
-                response.raise_for_status()
-                query_data = response.json()
-                break  # Success, exit retry loop
+        org_data = result.get("data", {}).get("organization", {})
+        for repo in org_data.get("repositories", {}).get("nodes", []):
+            repo_name = repo["name"]
             
-            except requests.exceptions.HTTPError as http_err:
-                if hasattr(response, 'status_code') and response.status_code in [502, 503, 504] and attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + 1  # Exponential backoff: 2s, 5s, 9s
-                    logging.warning(f"GraphQL server error {response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    # Re-raise if not retryable or max retries reached
-                    error_msg = f"Request error during GraphQL query: {str(http_err)}"
-                    logging.error(error_msg)
-                    traceback.print_exc()
-                    return {"status": "error", "message": error_msg, "request_exception": True}
+            # Process commits
+            if repo.get("defaultBranchRef"):
+                for commit in repo["defaultBranchRef"]["target"]["history"]["nodes"]:
+                    activity["commits"].append({
+                        "repo": repo_name,
+                        "message": commit["messageHeadline"],
+                        "date": commit["committedDate"],
+                        "url": commit["url"],
+                        "additions": commit.get("additions", 0),
+                        "deletions": commit.get("deletions", 0)
+                    })
             
-            except requests.exceptions.RequestException as req_err:
-                if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + 1
-                    logging.warning(f"Request error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    error_msg = f"Request error during GraphQL query: {str(req_err)}"
-                    logging.error(error_msg)
-                    traceback.print_exc()
-                    return {"status": "error", "message": error_msg, "request_exception": True}
+            # Process PRs where user is involved
+            for pr in repo["pullRequests"]["nodes"]:
+                if pr["author"]["login"] == username:
+                    activity["prs"].append({
+                        "repo": repo_name,
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "state": pr["state"],
+                        "created": pr["createdAt"],
+                        "url": pr["url"]
+                    })
             
-            except requests.exceptions.Timeout:
-                if attempt < max_retries - 1:
-                    wait_time = (2 ** attempt) + 1
-                    logging.warning(f"Request timeout, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    error_msg = f"GraphQL query timeout after {TIMEOUT * 2}s. Try reducing date range or repo count."
-                    logging.error(error_msg)
-                    return {"status": "error", "message": error_msg, "timeout": True}
-            
-            except Exception as e:
-                error_msg = f"Unexpected error performing GraphQL query: {str(e)}"
-                logging.error(error_msg)
-                traceback.print_exc()
-                return {"status": "error", "message": error_msg, "unexpected": True}
+            # Process issues where user is author
+            for issue in repo["issues"]["nodes"]:
+                if issue["author"]["login"] == username:
+                    activity["issues"].append({
+                        "repo": repo_name,
+                        "number": issue["number"],
+                        "title": issue["title"],
+                        "state": issue["state"],
+                        "created": issue["createdAt"],
+                        "url": issue["url"]
+                    })
         
-        else:
-            # This runs if we exhausted all retries without success
-            return {"status": "error", "message": "Maximum retries exceeded for GraphQL query"}
-        
-        # Handle GraphQL errors (API accepts request but query has issues)
-        if query_data and 'errors' in query_data:
-            error_messages = [err.get('message', 'Unknown error') for err in query_data['errors']]
-            logging.error(f"GraphQL query errors: {error_messages}")
-            
-            # Check for common errors and provide helpful messages
-            for error in query_data['errors']:
-                error_type = error.get('extensions', {}).get('code')
-                if error_type == 'variableMismatch':
-                    logging.error(f"Variable type mismatch: Use GitTimestamp for org queries, DateTime for viewer queries")
-                elif error_type == 'NOT_FOUND':
-                    logging.error(f"Resource not found: Check org/user name is correct and case-sensitive")
-                elif error_type == 'FORBIDDEN':
-                    logging.error(f"Access forbidden: Check token has required scopes (repo, read:org)")
-            
-            return query_data  # Return with errors for caller to handle
-        
-        # Log success with summary
-        if query_data and 'data' in query_data:
-            data_keys = list(query_data['data'].keys())
-            logging.info(f"GraphQL query successful [type: {query_type}], returned data keys: {data_keys}")
-        
-        return query_data or {"status": "error", "message": "No response received"}
-
-    def get_user_org_activity(
-        self, 
-        org_name: str, 
-        username: str, 
-        from_date: str, 
-        to_date: str,
-        page: int = 1,
-        per_page: int = 50
-    ) -> Dict[str, Any]:
-        """
-        Gets comprehensive activity for a SPECIFIC USER across ALL repositories in an organization.
-        
-        **PAGINATED RESULTS** - Returns a manageable subset of data to prevent context overflow.
-        
-        Efficiently filters by user at the GraphQL level - does NOT scan entire repos.
-        Captures ALL branches, not just main/default branch.
-        
-        Includes:
-        - Commits by the user (paginated)
-        - PRs where user was: author, reviewer, merger, commenter, or assigned (paginated)
-        - Issues where user was: author, assigned, commenter, or participant (paginated)
-        - Handles reviewed, open, merged, closed, and approved PRs
-        
-        Args:
-            org_name (str): GitHub organization name
-            username (str): GitHub username to query
-            from_date (str): Start date ISO 8601 (e.g., "2024-01-01T00:00:00Z")
-            to_date (str): End date ISO 8601 (e.g., "2024-12-31T23:59:59Z")
-            page (int): Page number (1-indexed, default: 1)
-            per_page (int): Items per page (default: 50, max: 100)
-        
-        Returns:
-            Dict containing: 
-            - status: success/error
-            - summary: aggregate statistics
-            - commits[]: paginated commits (most recent first)
-            - prs[]: paginated PRs (most recent first)
-            - issues[]: paginated issues (most recent first)
-            - pagination: current_page, per_page, total_items, total_pages, has_next_page
-        """
-        logging.info(f"Fetching ALL activity for '{username}' in '{org_name}' from {from_date} to {to_date}")
-        
-        # Step 1: Get user's email addresses for efficient commit filtering
-        user_emails = self._get_user_emails(username)
-        logging.info(f"Found {len(user_emails)} email(s) for filtering commits")
-        
-        # Step 2: Get repositories where user actually contributed (optimized approach)
-        # First try to get repos from user's contribution collection
-        contributed_repos = self._get_user_contributed_repos(username, org_name, from_date, to_date)
-        
-        if contributed_repos:
-            logging.info(f"Found {len(contributed_repos)} repos with user contributions via contributionsCollection")
-            org_repos = contributed_repos
-        else:
-            # Fallback: Get ALL repositories in organization
-            logging.info(f"Fallback: Scanning all org repos (contributionsCollection returned no results)")
-            org_repos = self._get_all_org_repos(org_name)
-            logging.info(f"Found {len(org_repos)} total repositories in {org_name}")
-        
-        if not org_repos:
-            return self._empty_activity_response(username, org_name, from_date, to_date, page, per_page)
-        
-        # Step 3: Process each repo - filter by user at GraphQL level
-        all_commits = []
-        all_prs = []
-        all_issues = []
-        repos_with_activity = 0
-        
-        for repo_info in org_repos:
-            repo_name = repo_info.get("name")
-            repo_url = repo_info.get("url")
-            
-            logging.info(f"Scanning {org_name}/{repo_name} for {username}")
-            
-            # Fetch user-specific data from this repo
-            repo_activity = self._fetch_repo_user_activity(
-                org_name, repo_name, repo_url, username, user_emails, from_date, to_date
-            )
-            
-            if repo_activity:
-                all_commits.extend(repo_activity.get("commits", []))
-                all_prs.extend(repo_activity.get("prs", []))
-                all_issues.extend(repo_activity.get("issues", []))
-                
-                if repo_activity.get("has_activity"):
-                    repos_with_activity += 1
-        
-        # Sort by date (most recent first)
-        all_commits.sort(key=lambda x: x["date"], reverse=True)
-        all_prs.sort(key=lambda x: x["updated_at"], reverse=True)
-        all_issues.sort(key=lambda x: x["updated_at"], reverse=True)
-        
-        # Calculate pagination
-        per_page = min(max(1, per_page), 100)  # Clamp between 1-100
-        page = max(1, page)  # Must be at least 1
-        
-        total_commits = len(all_commits)
-        total_prs = len(all_prs)
-        total_issues = len(all_issues)
-        
-        # Calculate pages
-        commits_total_pages = (total_commits + per_page - 1) // per_page if total_commits > 0 else 1
-        prs_total_pages = (total_prs + per_page - 1) // per_page if total_prs > 0 else 1
-        issues_total_pages = (total_issues + per_page - 1) // per_page if total_issues > 0 else 1
-        
-        # Slice data for current page
-        start_idx = (page - 1) * per_page
-        end_idx = start_idx + per_page
-        
-        paginated_commits = all_commits[start_idx:end_idx]
-        paginated_prs = all_prs[start_idx:end_idx]
-        paginated_issues = all_issues[start_idx:end_idx]
-        
-        # Generate summary (based on ALL data, not just current page)
-        user_authored_prs = [pr for pr in all_prs if "Author" in pr["user_roles"]]
-        
-        summary = {
-            "user": username,
-            "organization": org_name,
-            "date_range": f"{from_date} to {to_date}",
-            "total_commits": total_commits,
-            "total_prs_involved": total_prs,
-            "prs_authored": len(user_authored_prs),
-            "prs_reviewed": len([pr for pr in all_prs if any(r in pr["user_roles"] for r in ["Approved", "Requested Changes", "Reviewed"])]),
-            "prs_merged": len([pr for pr in all_prs if "Merged" in pr["user_roles"]]),
-            "prs_commented": len([pr for pr in all_prs if "Commented" in pr["user_roles"]]),
-            "total_issues_involved": len(all_issues),
-            "issues_authored": len([issue for issue in all_issues if "Author" in issue["user_roles"]]),
-            "issues_assigned": len([issue for issue in all_issues if "Assigned" in issue["user_roles"]]),
-            "issues_commented": len([issue for issue in all_issues if "Commented" in issue["user_roles"]]),
-            "total_additions": sum(c["additions"] for c in all_commits),
-            "total_deletions": sum(c["deletions"] for c in all_commits),
-        }
-        
-        logging.info(f"Activity complete: Page {page}/{max(commits_total_pages, prs_total_pages, issues_total_pages)} - Returning {len(paginated_commits)} commits, {len(paginated_prs)} PRs, {len(paginated_issues)} issues from {repos_with_activity}/{len(org_repos)} repos")
-        
-        return {
-            "status": "success",
-            "summary": summary,
-            "commits": paginated_commits,
-            "prs": paginated_prs,
-            "issues": paginated_issues,
-            "pagination": {
-                "current_page": page,
-                "per_page": per_page,
-                "commits": {
-                    "total": total_commits,
-                    "total_pages": commits_total_pages,
-                    "has_next_page": page < commits_total_pages,
-                    "returned": len(paginated_commits)
-                },
-                "prs": {
-                    "total": total_prs,
-                    "total_pages": prs_total_pages,
-                    "has_next_page": page < prs_total_pages,
-                    "returned": len(paginated_prs)
-                },
-                "issues": {
-                    "total": total_issues,
-                    "total_pages": issues_total_pages,
-                    "has_next_page": page < issues_total_pages,
-                    "returned": len(paginated_issues)
-                },
-                "repos": {
-                    "total_in_org": len(org_repos),
-                    "with_user_activity": repos_with_activity
-                }
-            }
-        }
+        return {"status": "success", "activity": activity}
     
-    def _get_user_emails(self, username: str) -> list:
-        """Get user's email addresses for commit filtering."""
+    def _get_repo_activity(self, org_name: str, repo_name: str, username: str) -> Dict[str, Any]:
+        """Get user activity in a specific repository."""
         query = """
-        query($username: String!) {
-          user(login: $username) {
-            login
-            name
-          }
-        }
-        """
-        
-        result = self.user_activity_query({"username": username}, query)
-        emails = []
-        
-        if "data" in result:
-            user_data = result.get("data", {}).get("user", {})
-            if user_data.get("login"):
-                emails.append(user_data["login"])
-            if user_data.get("name") and user_data["name"] not in emails:
-                emails.append(user_data["name"])
-        
-        return emails
-    
-    def _get_user_contributed_repos(self, username: str, org_name: str, from_date: str, to_date: str) -> list:
-        """Get repositories where user actually contributed within date range."""
-        # Note: from_date/to_date need to be in DateTime format for contributionsCollection
-        query = """
-        query($username: String!, $from: DateTime!, $to: DateTime!) {
-          user(login: $username) {
-            contributionsCollection(from: $from, to: $to, organizationID: null) {
-              commitContributionsByRepository(maxRepositories: 100) {
-                repository {
-                  name
-                  url
-                  owner { login }
-                }
-                contributions { totalCount }
-              }
-              pullRequestContributionsByRepository(maxRepositories: 100) {
-                repository {
-                  name
-                  url
-                  owner { login }
-                }
-                contributions { totalCount }
-              }
-              issueContributionsByRepository(maxRepositories: 100) {
-                repository {
-                  name
-                  url
-                  owner { login }
-                }
-                contributions { totalCount }
-              }
-            }
-          }
-        }
-        """
-        
-        result = self.user_activity_query({"username": username, "from": from_date, "to": to_date}, query)
-        
-        repos_dict = {}  # Use dict to deduplicate by repo name
-        
-        if "data" in result and result.get("data", {}).get("user"):
-            contributions = result["data"]["user"]["contributionsCollection"]
-            
-            # Collect repos from commits
-            for item in contributions.get("commitContributionsByRepository", []):
-                repo = item.get("repository", {})
-                owner = repo.get("owner", {}).get("login", "")
-                if owner.lower() == org_name.lower():  # Filter by org
-                    repo_name = repo.get("name")
-                    if repo_name:
-                        repos_dict[repo_name] = {"name": repo_name, "url": repo.get("url", "")}
-            
-            # Collect repos from PRs
-            for item in contributions.get("pullRequestContributionsByRepository", []):
-                repo = item.get("repository", {})
-                owner = repo.get("owner", {}).get("login", "")
-                if owner.lower() == org_name.lower():
-                    repo_name = repo.get("name")
-                    if repo_name and repo_name not in repos_dict:
-                        repos_dict[repo_name] = {"name": repo_name, "url": repo.get("url", "")}
-            
-            # Collect repos from issues
-            for item in contributions.get("issueContributionsByRepository", []):
-                repo = item.get("repository", {})
-                owner = repo.get("owner", {}).get("login", "")
-                if owner.lower() == org_name.lower():
-                    repo_name = repo.get("name")
-                    if repo_name and repo_name not in repos_dict:
-                        repos_dict[repo_name] = {"name": repo_name, "url": repo.get("url", "")}
-        
-        return list(repos_dict.values())
-    
-    def _get_all_org_repos(self, org_name: str) -> list:
-        """Get ALL repositories in organization with pagination."""
-        all_repos = []
-        has_next_page = True
-        cursor = None
-        
-        while has_next_page:
-            cursor_arg = f', after: "{cursor}"' if cursor else ''
-            query = f"""
-            query($orgName: String!) {{
-              organization(login: $orgName) {{
-                repositories(first: 100{cursor_arg}, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
-                  pageInfo {{ hasNextPage endCursor }}
-                  nodes {{ name url }}
-                }}
-              }}
-            }}
-            """
-            
-            result = self.user_activity_query({"orgName": org_name}, query)
-            
-            if "data" not in result or "errors" in result:
-                break
-            
-            repos_data = result.get("data", {}).get("organization", {}).get("repositories", {})
-            all_repos.extend(repos_data.get("nodes", []))
-            
-            page_info = repos_data.get("pageInfo", {})
-            has_next_page = page_info.get("hasNextPage", False)
-            cursor = page_info.get("endCursor")
-        
-        return all_repos
-    
-    def _fetch_repo_user_activity(self, org_name: str, repo_name: str, repo_url: str, 
-                                   username: str, user_emails: list, from_date: str, to_date: str) -> Dict:
-        """Fetch user-specific activity from a single repo - FILTERED at GraphQL level."""
-        
-        # Build email filter for commits (server-side filtering)
-        if user_emails:
-            emails_json = str(user_emails).replace("'", '"')
-            author_filter = f'author: {{emails: {emails_json}}}, '
-        else:
-            author_filter = ""
-        
-        # First, check if user has ANY activity in this repo within date range
-        # This prevents fetching from repos where user has no contributions
-        check_query = """
-        query($orgName: String!, $repoName: String!, $from: GitTimestamp!, $to: GitTimestamp!) {
-          repository(owner: $orgName, name: $repoName) {
+        query($org: String!, $repo: String!, $user: String!) {
+          repository(owner: $org, name: $repo) {
             defaultBranchRef {
               target {
                 ... on Commit {
-                  history(since: $from, until: $to, """ + author_filter + """first: 1) {
-                    totalCount
-                  }
-                }
-              }
-            }
-          }
-        }
-        """
-        
-        check_result = self.user_activity_query({
-            "orgName": org_name,
-            "repoName": repo_name,
-            "from": from_date,
-            "to": to_date
-        }, check_query)
-        
-        # Skip if no commits found (user has no activity in default branch)
-        if "data" in check_result and check_result.get("data", {}).get("repository"):
-            if check_result["data"]["repository"].get("defaultBranchRef"):
-                commit_count = check_result["data"]["repository"]["defaultBranchRef"]["target"]["history"]["totalCount"]
-                if commit_count == 0:
-                    logging.info(f"  No commits by {username} in {repo_name}, checking PRs/Issues only")
-        
-        # Query with user filtering at GraphQL level
-        query = """
-        query($orgName: String!, $repoName: String!, $from: GitTimestamp!, $to: GitTimestamp!) {
-          repository(owner: $orgName, name: $repoName) {
-            refs(refPrefix: "refs/heads/", first: 100) {
-              nodes {
-                name
-                target {
-                  ... on Commit {
-                    history(since: $from, until: $to, """ + author_filter + """first: 100) {
-                      nodes {
-                        oid
-                        messageHeadline
-                        author {
-                          user { login }
-                          email
-                          name
-                        }
-                        committedDate
-                        additions
-                        deletions
-                        url
-                      }
+                  history(author: {login: $user}, first: 50) {
+                    nodes {
+                      messageHeadline
+                      committedDate
+                      url
+                      additions
+                      deletions
                     }
                   }
                 }
               }
             }
-            pullRequests(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+            pullRequests(first: 50, states: [OPEN, CLOSED, MERGED]) {
               nodes {
                 number
                 title
-                url
                 state
-                isDraft
                 author { login }
                 createdAt
-                updatedAt
-                mergedAt
-                closedAt
-                commits { totalCount }
-                additions
-                deletions
-                changedFiles
-                mergedBy { login }
-                assignees(first: 10) { nodes { login } }
-                reviews(first: 50) {
-                  nodes {
-                    author { login }
-                    state
-                    submittedAt
-                  }
-                }
-                comments(first: 50) { nodes { author { login } } }
-                labels(first: 10) { nodes { name } }
+                url
               }
             }
-            issues(first: 100, orderBy: {field: UPDATED_AT, direction: DESC}) {
+            issues(first: 50) {
               nodes {
                 number
                 title
-                url
                 state
                 author { login }
                 createdAt
-                updatedAt
-                closedAt
-                assignees(first: 10) { nodes { login } }
-                participants(first: 50) { nodes { login } }
-                comments(first: 50) { nodes { author { login } } }
-                labels(first: 10) { nodes { name } }
+                url
               }
             }
           }
         }
         """
         
-        variables = {
-            "orgName": org_name,
-            "repoName": repo_name,
-            "from": from_date,
-            "to": to_date
-        }
+        result = self._graphql_query(query, {"org": org_name, "repo": repo_name, "user": username})
         
-        result = self.user_activity_query(variables, query)
+        if "errors" in result:
+            return {"status": "error", "message": result["errors"]}
         
-        if "data" not in result or "errors" in result:
-            return None
+        activity = {"commits": [], "prs": [], "issues": []}
         
         repo_data = result.get("data", {}).get("repository", {})
-        if not repo_data:
-            return None
         
-        # Parse commits (deduplicate by OID across branches)
-        commits = []
-        seen_oids = set()
-        for ref in repo_data.get("refs", {}).get("nodes", []):
-            branch = ref.get("name")
-            for commit in ref.get("target", {}).get("history", {}).get("nodes", []):
-                oid = commit.get("oid")
-                if oid not in seen_oids:
-                    seen_oids.add(oid)
-                    commits.append({
-                        "repo": repo_name,
-                        "repo_url": repo_url,
-                        "branch": branch,
-                        "oid": oid[:7],
-                        "full_oid": oid,
-                        "message": commit.get("messageHeadline", ""),
-                        "author": commit.get("author", {}).get("name", "Unknown"),
-                        "date": commit.get("committedDate", ""),
-                        "additions": commit.get("additions", 0),
-                        "deletions": commit.get("deletions", 0),
-                        "url": commit.get("url", "")
-                    })
-        
-        # Parse PRs (filter by user involvement)
-        prs = []
-        for pr in repo_data.get("pullRequests", {}).get("nodes", []):
-            pr_author = pr.get("author", {}).get("login", "") if pr.get("author") else ""
-            merged_by = pr.get("mergedBy", {}).get("login", "") if pr.get("mergedBy") else ""
-            assignees = [a.get("login") for a in pr.get("assignees", {}).get("nodes", [])]
-            reviewers = [r.get("author", {}).get("login") for r in pr.get("reviews", {}).get("nodes", []) if r.get("author")]
-            commenters = [c.get("author", {}).get("login") for c in pr.get("comments", {}).get("nodes", []) if c.get("author")]
-            
-            if username in [pr_author, merged_by] + assignees + reviewers + commenters:
-                roles = []
-                if pr_author == username: roles.append("Author")
-                if merged_by == username: roles.append("Merged")
-                if username in assignees: roles.append("Assigned")
-                
-                if username in reviewers:
-                    user_reviews = [r for r in pr.get("reviews", {}).get("nodes", []) if r.get("author", {}).get("login") == username]
-                    states = set(r.get("state") for r in user_reviews)
-                    if "APPROVED" in states: roles.append("Approved")
-                    elif "CHANGES_REQUESTED" in states: roles.append("Requested Changes")
-                    elif "COMMENTED" in states: roles.append("Reviewed")
-                
-                if username in commenters and "Author" not in roles:
-                    roles.append("Commented")
-                
-                prs.append({
-                    "repo": repo_name,
-                    "repo_url": repo_url,
-                    "number": pr.get("number", 0),
-                    "title": pr.get("title", ""),
-                    "author": pr_author,
-                    "state": pr.get("state", ""),
-                    "is_draft": pr.get("isDraft", False),
-                    "created_at": pr.get("createdAt", ""),
-                    "updated_at": pr.get("updatedAt", ""),
-                    "merged_at": pr.get("mergedAt", ""),
-                    "merged_by": merged_by,
-                    "additions": pr.get("additions", 0),
-                    "deletions": pr.get("deletions", 0),
-                    "changed_files": pr.get("changedFiles", 0),
-                    "commits_count": pr.get("commits", {}).get("totalCount", 0),
-                    "url": pr.get("url", ""),
-                    "user_roles": ", ".join(roles),
-                    "labels": [l.get("name") for l in pr.get("labels", {}).get("nodes", [])]
+        # Process commits
+        if repo_data.get("defaultBranchRef"):
+            for commit in repo_data["defaultBranchRef"]["target"]["history"]["nodes"]:
+                activity["commits"].append({
+                    "message": commit["messageHeadline"],
+                    "date": commit["committedDate"],
+                    "url": commit["url"],
+                    "additions": commit.get("additions", 0),
+                    "deletions": commit.get("deletions", 0)
                 })
         
-        # Parse issues (filter by user involvement)
-        issues = []
-        for issue in repo_data.get("issues", {}).get("nodes", []):
-            issue_author = issue.get("author", {}).get("login", "") if issue.get("author") else ""
-            assignees = [a.get("login") for a in issue.get("assignees", {}).get("nodes", [])]
-            participants = [p.get("login") for p in issue.get("participants", {}).get("nodes", [])]
-            commenters = [c.get("author", {}).get("login") for c in issue.get("comments", {}).get("nodes", []) if c.get("author")]
-            
-            if username in [issue_author] + assignees + participants + commenters:
-                roles = []
-                if issue_author == username: roles.append("Author")
-                if username in assignees: roles.append("Assigned")
-                if username in commenters and "Author" not in roles:
-                    count = len([c for c in issue.get("comments", {}).get("nodes", []) if c.get("author", {}).get("login") == username])
-                    roles.append(f"Commented ({count})")
-                if username in participants and not roles:
-                    roles.append("Participant")
-                
-                issues.append({
-                    "repo": repo_name,
-                    "repo_url": repo_url,
-                    "number": issue.get("number", 0),
-                    "title": issue.get("title", ""),
-                    "author": issue_author,
-                    "state": issue.get("state", ""),
-                    "created_at": issue.get("createdAt", ""),
-                    "updated_at": issue.get("updatedAt", ""),
-                    "closed_at": issue.get("closedAt", ""),
-                    "url": issue.get("url", ""),
-                    "user_roles": ", ".join(roles),
-                    "labels": [l.get("name") for l in issue.get("labels", {}).get("nodes", [])]
+        # Process PRs where user is involved
+        for pr in repo_data["pullRequests"]["nodes"]:
+            if pr["author"]["login"] == username:
+                activity["prs"].append({
+                    "number": pr["number"],
+                    "title": pr["title"],
+                    "state": pr["state"],
+                    "created": pr["createdAt"],
+                    "url": pr["url"]
                 })
         
-        return {
-            "commits": commits,
-            "prs": prs,
-            "issues": issues,
-            "has_activity": len(commits) > 0 or len(prs) > 0 or len(issues) > 0
-        }
-    
-    def _empty_activity_response(self, username: str, org_name: str, from_date: str, to_date: str, page: int = 1, per_page: int = 50) -> Dict:
-        """Return empty activity response with pagination info."""
-        return {
-            "status": "success",
-            "summary": {
-                "user": username,
-                "organization": org_name,
-                "date_range": f"{from_date} to {to_date}",
-                "total_commits": 0,
-                "total_prs_involved": 0,
-                "prs_authored": 0,
-                "prs_reviewed": 0,
-                "prs_merged": 0,
-                "total_additions": 0,
-                "total_deletions": 0,
-            },
-            "commits": [],
-            "prs": [],
-            "issues": [],
-            "pagination": {
-                "current_page": page,
-                "per_page": per_page,
-                "commits": {"total": 0, "total_pages": 1, "has_next_page": False, "returned": 0},
-                "prs": {"total": 0, "total_pages": 1, "has_next_page": False, "returned": 0},
-                "issues": {"total": 0, "total_pages": 1, "has_next_page": False, "returned": 0},
-                "repos": {"total_in_org": 0, "with_user_activity": 0}
-            }
-        }
+        # Process issues where user is author
+        for issue in repo_data["issues"]["nodes"]:
+            if issue["author"]["login"] == username:
+                activity["issues"].append({
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "state": issue["state"],
+                    "created": issue["createdAt"],
+                    "url": issue["url"]
+                })
+        
+        return {"status": "success", "activity": activity}
