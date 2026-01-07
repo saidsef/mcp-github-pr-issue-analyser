@@ -684,7 +684,17 @@ class GitHubIntegration:
             return {"status": "error", "message": str(e)}
 
     def get_user_activity(self, org_name: str, username: str, repo_name: str = None) -> Dict[str, Any]:
-        """Get user activity in an organization or specific repository."""
+        """
+        Get user activity in an organization or specific repository.
+        Args:
+            org_name (str): The name of the GitHub organization.
+            username (str): The GitHub username to fetch activity for.
+            repo_name (str, optional): The name of the repository. If provided, fetches activity for that repository only. Defaults to None.
+        Returns:
+            Dict[str, Any]: A dictionary containing user activity data.
+        Error Handling:
+            Logs errors and returns an error message if the GraphQL query fails.
+        """
         if repo_name:
             return self._get_repo_activity(org_name, repo_name, username)
         else:
