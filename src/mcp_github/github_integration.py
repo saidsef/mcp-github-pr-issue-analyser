@@ -783,7 +783,7 @@ class GitHubIntegration:
                 defaultBranchRef {
                   target {
                     ... on Commit {
-                      history(since: $from, until: $to, author: {emails: [$username]}, first: 100) {
+                      history(since: $from, until: $to, author: {login: $username}, first: 100) {
                         totalCount
                         nodes {
                           author { user { login } }
@@ -1128,10 +1128,8 @@ class GitHubIntegration:
         query = """
         query($username: String!) {
           user(login: $username) {
-            email
-            emails(first: 10) {
-              nodes { email }
-            }
+            login
+            name
           }
         }
         """
@@ -1141,11 +1139,10 @@ class GitHubIntegration:
         
         if "data" in result:
             user_data = result.get("data", {}).get("user", {})
-            if user_data.get("email"):
-                emails.append(user_data["email"])
-            for node in user_data.get("emails", {}).get("nodes", []):
-                if node.get("email") and node["email"] not in emails:
-                    emails.append(node["email"])
+            if user_data.get("login"):
+                emails.append(user_data["login"])
+            if user_data.get("name") and user_data["name"] not in emails:
+                emails.append(user_data["name"])
         
         return emails
     
