@@ -907,7 +907,7 @@ class GitHubIntegration:
                 'https://api.github.com/graphql',
                 json={'query': query, 'variables': variables},
                 headers=self._get_headers(),
-                timeout=TIMEOUT * 2  # Double timeout for GraphQL queries (can be complex)
+                timeout=TIMEOUT * 4  # Double timeout for GraphQL queries (can be complex)
             )
             response.raise_for_status()
             query_data = response.json()
