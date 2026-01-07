@@ -19,6 +19,7 @@
 
 import logging
 import requests
+import time
 import traceback
 from os import getenv
 from pydantic import BaseModel, conint
@@ -901,57 +902,92 @@ class GitHubIntegration:
         
         logging.info(f"Performing GraphQL query [type: {query_type}] with variables: {variables}")
 
-        try:
-            # Make GraphQL request with optimized timeout
-            response = requests.post(
-                'https://api.github.com/graphql',
-                json={'query': query, 'variables': variables},
-                headers=self._get_headers(),
-                timeout=TIMEOUT * 4  # Double timeout for GraphQL queries (can be complex)
-            )
-            response.raise_for_status()
-            query_data = response.json()
-
-            # Handle GraphQL errors (API accepts request but query has issues)
-            if 'errors' in query_data:
-                error_messages = [err.get('message', 'Unknown error') for err in query_data['errors']]
-                logging.error(f"GraphQL query errors: {error_messages}")
-                
-                # Check for common errors and provide helpful messages
-                for error in query_data['errors']:
-                    error_type = error.get('extensions', {}).get('code')
-                    if error_type == 'variableMismatch':
-                        logging.error(f"Variable type mismatch: Use GitTimestamp for org queries, DateTime for viewer queries")
-                    elif error_type == 'NOT_FOUND':
-                        logging.error(f"Resource not found: Check org/user name is correct and case-sensitive")
-                    elif error_type == 'FORBIDDEN':
-                        logging.error(f"Access forbidden: Check token has required scopes (repo, read:org)")
-                
-                return query_data  # Return with errors for caller to handle
-            
-            # Log success with summary
-            if 'data' in query_data:
-                data_keys = list(query_data['data'].keys())
-                logging.info(f"GraphQL query successful [type: {query_type}], returned data keys: {data_keys}")
-            
-            return query_data
-
-        except requests.exceptions.Timeout:
-            error_msg = f"GraphQL query timeout after {TIMEOUT * 2}s. Try reducing date range or repo count."
-            logging.error(error_msg)
-            return {"status": "error", "message": error_msg, "timeout": True}
+        # Retry logic for server errors with exponential backoff
+        max_retries = 3
+        query_data = None
         
-        except requests.exceptions.RequestException as req_err:
-            error_msg = f"Request error during GraphQL query: {str(req_err)}"
-            logging.error(error_msg)
-            traceback.print_exc()
-            return {"status": "error", "message": error_msg, "request_exception": True}
+        for attempt in range(max_retries):
+            try:
+                # Make GraphQL request with optimized timeout
+                response = requests.post(
+                    'https://api.github.com/graphql',
+                    json={'query': query, 'variables': variables},
+                    headers=self._get_headers(),
+                    timeout=TIMEOUT * 2  # Reduce timeout to avoid server overload
+                )
+                response.raise_for_status()
+                query_data = response.json()
+                break  # Success, exit retry loop
+            
+            except requests.exceptions.HTTPError as http_err:
+                if hasattr(response, 'status_code') and response.status_code in [502, 503, 504] and attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + 1  # Exponential backoff: 2s, 5s, 9s
+                    logging.warning(f"GraphQL server error {response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    # Re-raise if not retryable or max retries reached
+                    error_msg = f"Request error during GraphQL query: {str(http_err)}"
+                    logging.error(error_msg)
+                    traceback.print_exc()
+                    return {"status": "error", "message": error_msg, "request_exception": True}
+            
+            except requests.exceptions.RequestException as req_err:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + 1
+                    logging.warning(f"Request error, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    error_msg = f"Request error during GraphQL query: {str(req_err)}"
+                    logging.error(error_msg)
+                    traceback.print_exc()
+                    return {"status": "error", "message": error_msg, "request_exception": True}
+            
+            except requests.exceptions.Timeout:
+                if attempt < max_retries - 1:
+                    wait_time = (2 ** attempt) + 1
+                    logging.warning(f"Request timeout, retrying in {wait_time}s (attempt {attempt + 1}/{max_retries})")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    error_msg = f"GraphQL query timeout after {TIMEOUT * 2}s. Try reducing date range or repo count."
+                    logging.error(error_msg)
+                    return {"status": "error", "message": error_msg, "timeout": True}
+            
+            except Exception as e:
+                error_msg = f"Unexpected error performing GraphQL query: {str(e)}"
+                logging.error(error_msg)
+                traceback.print_exc()
+                return {"status": "error", "message": error_msg, "unexpected": True}
         
-        except Exception as e:
-            error_msg = f"Unexpected error performing GraphQL query: {str(e)}"
-            logging.error(error_msg)
-            traceback.print_exc()
-            return {"status": "error", "message": error_msg, "unexpected": True}
+        else:
+            # This runs if we exhausted all retries without success
+            return {"status": "error", "message": "Maximum retries exceeded for GraphQL query"}
+        
+        # Handle GraphQL errors (API accepts request but query has issues)
+        if query_data and 'errors' in query_data:
+            error_messages = [err.get('message', 'Unknown error') for err in query_data['errors']]
+            logging.error(f"GraphQL query errors: {error_messages}")
+            
+            # Check for common errors and provide helpful messages
+            for error in query_data['errors']:
+                error_type = error.get('extensions', {}).get('code')
+                if error_type == 'variableMismatch':
+                    logging.error(f"Variable type mismatch: Use GitTimestamp for org queries, DateTime for viewer queries")
+                elif error_type == 'NOT_FOUND':
+                    logging.error(f"Resource not found: Check org/user name is correct and case-sensitive")
+                elif error_type == 'FORBIDDEN':
+                    logging.error(f"Access forbidden: Check token has required scopes (repo, read:org)")
+            
+            return query_data  # Return with errors for caller to handle
+        
+        # Log success with summary
+        if query_data and 'data' in query_data:
+            data_keys = list(query_data['data'].keys())
+            logging.info(f"GraphQL query successful [type: {query_type}], returned data keys: {data_keys}")
+        
+        return query_data or {"status": "error", "message": "No response received"}
 
     def get_user_org_activity(
         self, 
