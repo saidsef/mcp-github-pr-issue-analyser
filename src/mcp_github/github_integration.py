@@ -718,7 +718,7 @@ class GitHubIntegration:
     def _get_org_activity(self, org_name: str, username: str) -> Dict[str, Any]:
         """Get user activity across all repositories in an organization."""
         query = """
-        query($org: String!, $user: String!) {
+        query($org: String!) {
           organization(login: $org) {
             repositories(first: 50) {
               nodes {
@@ -726,13 +726,16 @@ class GitHubIntegration:
                 defaultBranchRef {
                   target {
                     ... on Commit {
-                      history(author: {login: $user}, first: 20) {
+                      history(first: 20) {
                         nodes {
                           messageHeadline
                           committedDate
                           url
                           additions
                           deletions
+                          author { 
+                            user { login }
+                          }
                         }
                       }
                     }
@@ -764,7 +767,7 @@ class GitHubIntegration:
         }
         """
         
-        result = self._graphql_query(query, {"org": org_name, "user": username})
+        result = self._graphql_query(query, {"org": org_name})
         
         if "errors" in result:
             return {"status": "error", "message": result["errors"]}
@@ -775,17 +778,20 @@ class GitHubIntegration:
         for repo in org_data.get("repositories", {}).get("nodes", []):
             repo_name = repo["name"]
             
-            # Process commits
+            # Process commits - filter by user
             if repo.get("defaultBranchRef"):
                 for commit in repo["defaultBranchRef"]["target"]["history"]["nodes"]:
-                    activity["commits"].append({
-                        "repo": repo_name,
-                        "message": commit["messageHeadline"],
-                        "date": commit["committedDate"],
-                        "url": commit["url"],
-                        "additions": commit.get("additions", 0),
-                        "deletions": commit.get("deletions", 0)
-                    })
+                    # Check if this commit is by the target user
+                    author_login = commit.get("author", {}).get("user", {}).get("login") if commit.get("author", {}).get("user") else None
+                    if author_login == username:
+                        activity["commits"].append({
+                            "repo": repo_name,
+                            "message": commit["messageHeadline"],
+                            "date": commit["committedDate"],
+                            "url": commit["url"],
+                            "additions": commit.get("additions", 0),
+                            "deletions": commit.get("deletions", 0)
+                        })
             
             # Process PRs where user is involved
             for pr in repo["pullRequests"]["nodes"]:
@@ -816,18 +822,21 @@ class GitHubIntegration:
     def _get_repo_activity(self, org_name: str, repo_name: str, username: str) -> Dict[str, Any]:
         """Get user activity in a specific repository."""
         query = """
-        query($org: String!, $repo: String!, $user: String!) {
+        query($org: String!, $repo: String!) {
           repository(owner: $org, name: $repo) {
             defaultBranchRef {
               target {
                 ... on Commit {
-                  history(author: {login: $user}, first: 50) {
+                  history(first: 50) {
                     nodes {
                       messageHeadline
                       committedDate
                       url
                       additions
                       deletions
+                      author { 
+                        user { login }
+                      }
                     }
                   }
                 }
@@ -857,7 +866,7 @@ class GitHubIntegration:
         }
         """
         
-        result = self._graphql_query(query, {"org": org_name, "repo": repo_name, "user": username})
+        result = self._graphql_query(query, {"org": org_name, "repo": repo_name})
         
         if "errors" in result:
             return {"status": "error", "message": result["errors"]}
@@ -866,16 +875,19 @@ class GitHubIntegration:
         
         repo_data = result.get("data", {}).get("repository", {})
         
-        # Process commits
+        # Process commits - filter by user
         if repo_data.get("defaultBranchRef"):
             for commit in repo_data["defaultBranchRef"]["target"]["history"]["nodes"]:
-                activity["commits"].append({
-                    "message": commit["messageHeadline"],
-                    "date": commit["committedDate"],
-                    "url": commit["url"],
-                    "additions": commit.get("additions", 0),
-                    "deletions": commit.get("deletions", 0)
-                })
+                # Check if this commit is by the target user
+                author_login = commit.get("author", {}).get("user", {}).get("login") if commit.get("author", {}).get("user") else None
+                if author_login == username:
+                    activity["commits"].append({
+                        "message": commit["messageHeadline"],
+                        "date": commit["committedDate"],
+                        "url": commit["url"],
+                        "additions": commit.get("additions", 0),
+                        "deletions": commit.get("deletions", 0)
+                    })
         
         # Process PRs where user is involved
         for pr in repo_data["pullRequests"]["nodes"]:
