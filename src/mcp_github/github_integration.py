@@ -35,7 +35,6 @@ logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 class GitHubIntegration:
-    PerPage = conint(ge=1, le=100)
 
     def __init__(self):
         """
@@ -317,7 +316,7 @@ class GitHubIntegration:
             repo_owner: str,
             issue: Literal['pr', 'issue'] = 'pr',
             filtering: Literal['user', 'owner', 'involves'] = 'involves',
-            per_page: Annotated[PerPage, "Number of results per page (1-100)"] = 50,
+            per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
             page: int = 1
     ) -> Dict[str, Any]:
         """
@@ -326,7 +325,7 @@ class GitHubIntegration:
             repo_owner (str): The owner of the repository.
             issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
             filtering (Literal['user', 'owner', 'involves']): The filtering criteria for the search. Defaults to 'involves'.
-            per_page (Annotated[int, PerPage]): The number of results to return per page, range 1-100. Defaults to 50.
+            per_page (Annotated[int, "Number of results per page (1-100)"]): The number of results to return per page, range 1-100. Defaults to 50.
             page (int): The page number to retrieve. Defaults to 1.
         Returns:
             Dict[str, Any]: A dictionary containing the list of open pull requests or issues, depending on the value of the `issue` parameter.
