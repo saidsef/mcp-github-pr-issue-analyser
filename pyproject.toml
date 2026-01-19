@@ -1,6 +1,6 @@
 [project]
 name = "mcp-github-pr-issue-analyser"
-version = "3.5.0"
+version = "3.5.1"
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -10,7 +10,7 @@ authors = [
 dependencies = [
     "mcp[cli]==1.25.0",
     "requests==2.32.5",
-    "uv==0.9.24",
+    "uv==0.9.26",
 ]
 
 [project.scripts]

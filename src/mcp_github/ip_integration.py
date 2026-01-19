@@ -17,6 +17,8 @@
 #  * limitations under the License.
 #  */
 
+from __future__ import annotations
+
 import socket
 import logging
 import requests
