@@ -71,7 +71,7 @@ jobs:
         scan-ref: "."
 
     - name: Login to DockerHub
-      uses: docker/login-action@v3
+      uses: docker/login-action@v4
       with:
         registry: ${{ env.REGISTRY }}
         username: ${{ env.OWNER }}
