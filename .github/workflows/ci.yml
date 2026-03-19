@@ -77,7 +77,7 @@ jobs:
         username: ${{ env.OWNER }}
         password: ${{ github.token }}
     - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
+      uses: docker/setup-qemu-action@v4
       with:
         platforms: all
     - name: Set up Docker Buildx
