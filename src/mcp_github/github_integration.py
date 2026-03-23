@@ -21,21 +21,113 @@ from __future__ import annotations
 
 import logging
 import requests
-import time
 import traceback
 from os import getenv
-from pydantic import BaseModel, conint
-from typing import Annotated, Any, Dict, Optional, Literal
+from typing import Annotated, Any, Dict, Optional, Literal, TypedDict
 
-GITHUB_TOKEN = getenv('GITHUB_TOKEN')
-TIMEOUT = int(getenv('GITHUB_API_TIMEOUT', '5'))  # seconds, configurable via env
+from .exceptions import (
+    GitHubAPIError,
+    GitHubAuthError,
+    GitHubRateLimitError,
+    GitHubNotFoundError,
+    GitHubValidationError,
+)
+from .graphql_client import GraphQLClient
+from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
+
+
+# TypedDict definitions for common return types
+class PRContent(TypedDict):
+    """Structure of PR content data."""
+
+    title: str
+    description: str | None
+    author: str
+    created_at: str
+    updated_at: str
+    state: str
+
+
+class CommentData(TypedDict):
+    """Structure of comment data from GitHub API."""
+
+    id: int
+    body: str
+    user: dict[str, Any]
+    created_at: str
+    updated_at: str
+
+
+class IssueData(TypedDict):
+    """Structure of issue data from GitHub API."""
+
+    id: int
+    number: int
+    title: str
+    body: str | None
+    state: str
+    user: dict[str, Any]
+    created_at: str
+    updated_at: str
+    labels: list[dict[str, Any]]
+
+
+class ActivityData(TypedDict):
+    """Structure of user activity data."""
+
+    commits: list[dict[str, Any]]
+    prs: list[dict[str, Any]]
+    issues: list[dict[str, Any]]
+
+
+class ActivityResult(TypedDict):
+    """Structure of activity query result."""
+
+    status: str
+    activity: ActivityData
+
+
+class UserSearchResult(TypedDict):
+    """Structure of user search result."""
+
+    login: str
+    name: Optional[str]
+    email: Optional[str]
+    company: Optional[str]
+    location: Optional[str]
+    bio: Optional[str]
+    url: str
+    avatar_url: Optional[str]
+    created_at: str
+    updated_at: str
+    followers: int
+    following: int
+    public_repos: int
+    recent_repos: list[dict[str, Any]]
+    organizations: list[dict[str, Any]]
+
+
+class UserActivityResult(TypedDict):
+    """Structure of user activity query result from GraphQL."""
+
+    username: str
+    date_range: Optional[dict[str, str]]
+    total_contributions: dict[str, int]
+    commits: list[dict[str, Any]]
+    pull_requests: list[dict[str, Any]]
+    issues: list[dict[str, Any]]
+    reviews: list[dict[str, Any]]
+
+
+GITHUB_TOKEN = getenv("GITHUB_TOKEN")
+TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
 
 # Set up logging for the application
 logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
-class GitHubIntegration:
 
+class GitHubIntegration:
     def __init__(self):
         """
         Initializes the GitHubIntegration instance by setting up the GitHub token from environment variables.
@@ -45,10 +137,74 @@ class GitHubIntegration:
             Raises ValueError if the GITHUB_TOKEN environment variable is not set.
         """
         self.github_token = GITHUB_TOKEN
+        self.base_url = "https://api.github.com"
         if not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
-        
+
+        # Initialize GraphQL client
+        self.graphql = GraphQLClient(self.github_token, timeout=TIMEOUT)
+
         logging.info("GitHub Integration Initialised")
+
+    def _handle_response_error(self, response: requests.Response, context: str = ""):
+        """
+        Handle HTTP errors from GitHub API with specific exceptions.
+
+        Args:
+            response: The requests Response object
+            context: Additional context for error messages
+
+        Raises:
+            GitHubAuthError: For 401 responses
+            GitHubRateLimitError: For 403 rate limit responses
+            GitHubNotFoundError: For 404 responses
+            GitHubValidationError: For 422 responses
+            GitHubAPIError: For other error responses
+        """
+        try:
+            response_body = response.json()
+        except Exception:
+            response_body = None
+
+        message = "GitHub API error"
+        if context:
+            message = f"{message} ({context})"
+
+        if response.status_code == 401:
+            raise GitHubAuthError(
+                "Authentication failed. Check your GitHub token.",
+                response_body=response_body,
+            )
+        elif response.status_code == 403:
+            # Check if it's a rate limit error
+            error_text = response.text.lower()
+            if "rate limit" in error_text or "api rate limit" in error_text:
+                reset_header = response.headers.get("X-RateLimit-Reset")
+                raise GitHubRateLimitError(
+                    "GitHub API rate limit exceeded. Please wait before making more requests.",
+                    response_body=response_body,
+                    reset_timestamp=int(reset_header) if reset_header else None,
+                )
+            raise GitHubAPIError(
+                "Permission denied. Check your token permissions.",
+                status_code=403,
+                response_body=response_body,
+            )
+        elif response.status_code == 404:
+            raise GitHubNotFoundError(
+                f"{context}: Resource not found" if context else "Resource not found",
+                response_body=response_body,
+            )
+        elif response.status_code == 422:
+            raise GitHubValidationError(
+                "Validation failed. Check your input data.", response_body=response_body
+            )
+        else:
+            raise GitHubAPIError(
+                f"GitHub API error: {response.status_code} - {response.reason}",
+                status_code=response.status_code,
+                response_body=response_body,
+            )
 
     def _get_headers(self):
         """
@@ -61,11 +217,11 @@ class GitHubIntegration:
         if not self.github_token:
             raise ValueError("GitHub token is missing for API requests")
         headers = {
-            'Authorization': f'token {self.github_token}',
-            'Accept': 'application/vnd.github.v3+json'
+            "Authorization": f"token {self.github_token}",
+            "Accept": "application/vnd.github.v3+json",
         }
         return headers
-    
+
     def _get_pr_url(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
         Construct the GitHub API URL for a specific pull request.
@@ -80,7 +236,7 @@ class GitHubIntegration:
         """
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
         return url
-    
+
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
         Fetches the diff/patch of a specific pull request from a GitHub repository.
@@ -89,27 +245,31 @@ class GitHubIntegration:
             repo_name (str): The name of the GitHub repository.
             pr_number (int): The pull request number.
         Returns:
-            str: The raw patch/diff text of the pull request if successful, otherwise None.
-        Error Handling:
-            Logs an error message and prints the traceback if the request fails or an exception occurs.
+            str: The raw patch/diff text of the pull request if successful.
+        Raises:
+            GitHubNotFoundError: If the PR is not found.
+            GitHubAPIError: If the API request fails.
         """
         logging.info(f"Fetching PR diff for {repo_owner}/{repo_name}#{pr_number}")
-        
-        try:
-            # Fetch PR details
-            response = requests.get(f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch", headers=self._get_headers(), timeout=TIMEOUT)
-            response.raise_for_status()
-            pr_patch = response.text
-            
-            logging.info("Successfully fetched PR diff/patch")
-            return pr_patch
-            
-        except Exception as e:
-            logging.error(f"Error fetching PR diff: {str(e)}")
-            traceback.print_exc()
-            return str(e)
 
-    def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> Dict[str, Any]:
+        try:
+            response = requests.get(
+                f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch",
+                headers=self._get_headers(),
+                timeout=TIMEOUT,
+            )
+            if not response.ok:
+                self._handle_response_error(response, f"PR #{pr_number} diff")
+
+            logging.info("Successfully fetched PR diff/patch")
+            return response.text
+
+        except requests.RequestException as e:
+            raise GitHubAPIError(f"Request failed: {e}") from e
+
+    def get_pr_content(
+        self, repo_owner: str, repo_name: str, pr_number: int
+    ) -> PRContent:
         """
         Fetches the content/details of a specific pull request from a GitHub repository.
         Args:
@@ -118,40 +278,41 @@ class GitHubIntegration:
             pr_number (int): The pull request number.
         Returns:
             Dict[str, Any]: A dictionary containing the pull request's title, description, author, creation and update timestamps, and state.
-            Returns None if an error occurs during the fetch operation.
-        Error Handling:
-            Logs an error message and prints the traceback if the request fails or an exception is raised during processing.
+        Raises:
+            GitHubNotFoundError: If the PR is not found.
+            GitHubAPIError: If the API request fails.
         """
         logging.info(f"Fetching PR content for {repo_owner}/{repo_name}#{pr_number}")
-        
-        # Construct the PR URL
+
         pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
-        
+
         try:
-            # Fetch PR details
-            response = requests.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
-            response.raise_for_status()
+            response = requests.get(
+                pr_url, headers=self._get_headers(), timeout=TIMEOUT
+            )
+            if not response.ok:
+                self._handle_response_error(response, f"PR #{pr_number}")
+
             pr_data = response.json()
-            
-            # Extract relevant information
+
             pr_info = {
-                'title': pr_data['title'],
-                'description': pr_data['body'],
-                'author': pr_data['user']['login'],
-                'created_at': pr_data['created_at'],
-                'updated_at': pr_data['updated_at'],
-                'state': pr_data['state']
+                "title": pr_data["title"],
+                "description": pr_data["body"],
+                "author": pr_data["user"]["login"],
+                "created_at": pr_data["created_at"],
+                "updated_at": pr_data["updated_at"],
+                "state": pr_data["state"],
             }
 
             logging.info("Successfully fetched PR content")
             return pr_info
-            
-        except Exception as e:
-            logging.error(f"Error fetching PR content: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
 
-    def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> Dict[str, Any]:
+        except requests.RequestException as e:
+            raise GitHubAPIError(f"Request failed: {e}") from e
+
+    def add_pr_comments(
+        self, repo_owner: str, repo_name: str, pr_number: int, comment: str
+    ) -> CommentData:
         """
         Adds a comment to a specific pull request on GitHub.
         Args:
@@ -161,30 +322,40 @@ class GitHubIntegration:
             comment (str): The content of the comment to add.
         Returns:
             Dict[str, Any]: The JSON response from the GitHub API containing the comment data if successful.
-            None: If an error occurs while adding the comment.
-        Error Handling:
-            Logs an error message and prints the traceback if the request fails or an exception is raised.
+        Raises:
+            GitHubNotFoundError: If the PR is not found.
+            GitHubValidationError: If the comment data is invalid.
+            GitHubAPIError: If the API request fails.
         """
         logging.info(f"Adding comment to PR {repo_owner}/{repo_name}#{pr_number}")
 
-        # Construct the comments URL
         comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{pr_number}/comments"
 
         try:
-            # Add the comment
-            response = requests.post(comments_url, headers=self._get_headers(), json={'body': comment}, timeout=TIMEOUT)
-            response.raise_for_status()
-            comment_data = response.json()
+            response = requests.post(
+                comments_url,
+                headers=self._get_headers(),
+                json={"body": comment},
+                timeout=TIMEOUT,
+            )
+            if not response.ok:
+                self._handle_response_error(response, f"PR #{pr_number} comment")
 
             logging.info("Comment added successfully")
-            return comment_data
+            return response.json()
 
-        except Exception as e:
-            logging.error(f"Error adding comment: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+        except requests.RequestException as e:
+            raise GitHubAPIError(f"Request failed: {e}") from e
 
-    def add_inline_pr_comment(self, repo_owner: str, repo_name: str, pr_number: int, path: str, line: int, comment_body: str) -> Dict[str, Any]:
+    def add_inline_pr_comment(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        path: str,
+        line: int,
+        comment_body: str,
+    ) -> CommentData:
         """
         Adds an inline review comment to a specific line in a file within a pull request on GitHub.
         Args:
@@ -200,27 +371,36 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}")
+        logging.info(
+            f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}"
+        )
 
         # Construct the review comments URL
         review_comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
 
         try:
             pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
-            pr_response = requests.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
+            pr_response = requests.get(
+                pr_url, headers=self._get_headers(), timeout=TIMEOUT
+            )
             pr_response.raise_for_status()
             pr_data = pr_response.json()
-            commit_id = pr_data['head']['sha']
+            commit_id = pr_data["head"]["sha"]
 
             payload = {
                 "body": comment_body,
                 "commit_id": commit_id,
                 "path": path,
                 "line": line,
-                "side": "RIGHT"
+                "side": "RIGHT",
             }
 
-            response = requests.post(review_comments_url, headers=self._get_headers(), json=payload, timeout=TIMEOUT)
+            response = requests.post(
+                review_comments_url,
+                headers=self._get_headers(),
+                json=payload,
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             comment_data = response.json()
 
@@ -232,7 +412,14 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def update_pr_description(self, repo_owner: str, repo_name: str, pr_number: int, new_title: str, new_description: str) -> Dict[str, Any]:
+    def update_pr_description(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        new_title: str,
+        new_description: str,
+    ) -> PRContent:
         """
         Updates the title and description (body) of a specific pull request on GitHub.
         Args:
@@ -247,16 +434,20 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the update fails due to an exception (e.g., network issues, invalid credentials, or API errors).
         """
-        logging.info(f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}")
+        logging.info(
+            f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}"
+        )
 
         # Construct the PR URL
         pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
         try:
             # Update the PR description
-            response = requests.patch(pr_url, headers=self._get_headers(), json={
-                'title': new_title,
-                'body': new_description
-            }, timeout=TIMEOUT)
+            response = requests.patch(
+                pr_url,
+                headers=self._get_headers(),
+                json={"title": new_title, "body": new_description},
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             pr_data = response.json()
 
@@ -267,7 +458,16 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def create_pr(self, repo_owner: str, repo_name: str, title: str, body: str, head: str, base: str, draft: bool = False) -> Dict[str, Any]:
+    def create_pr(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        title: str,
+        body: str,
+        head: str,
+        base: str,
+        draft: bool = False,
+    ) -> PRContent:
         """
         Creates a new pull request in the specified GitHub repository.
         Args:
@@ -288,22 +488,27 @@ class GitHubIntegration:
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
 
         try:
-            response = requests.post(pr_url, headers=self._get_headers(), json={
-                'title': title,
-                'body': body,
-                'head': head,
-                'base': base,
-                'draft': draft
-            }, timeout=TIMEOUT)
+            response = requests.post(
+                pr_url,
+                headers=self._get_headers(),
+                json={
+                    "title": title,
+                    "body": body,
+                    "head": head,
+                    "base": base,
+                    "draft": draft,
+                },
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             pr_data = response.json()
 
             logging.info("PR created successfully")
             return {
-                "pr_url": pr_data.get('html_url'),
-                "pr_number": pr_data.get('number'),
-                "status": pr_data.get('state'),
-                "title": pr_data.get('title'),
+                "pr_url": pr_data.get("html_url"),
+                "pr_number": pr_data.get("number"),
+                "status": pr_data.get("state"),
+                "title": pr_data.get("title"),
             }
 
         except Exception as e:
@@ -312,12 +517,12 @@ class GitHubIntegration:
             return {"status": "error", "message": str(e)}
 
     def list_open_issues_prs(
-            self,
-            repo_owner: str,
-            issue: Literal['pr', 'issue'] = 'pr',
-            filtering: Literal['user', 'owner', 'involves'] = 'involves',
-            per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-            page: int = 1
+        self,
+        repo_owner: str,
+        issue: Literal["pr", "issue"] = "pr",
+        filtering: Literal["user", "owner", "involves"] = "involves",
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: int = 1,
     ) -> Dict[str, Any]:
         """
         Lists open pull requests or issues for a specified GitHub repository owner.
@@ -339,25 +544,29 @@ class GitHubIntegration:
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
-            response = requests.get(search_url, headers=self._get_headers(), timeout=TIMEOUT)
+            response = requests.get(
+                search_url, headers=self._get_headers(), timeout=TIMEOUT
+            )
             response.raise_for_status()
             pr_data = response.json()
             open_prs = {
-                "total": pr_data['total_count'],
+                "total": pr_data["total_count"],
                 f"open_{issue}s": [
                     {
-                        "url": item['html_url'],
-                        "title": item['title'],
-                        "number": item['number'],
-                        "state": item['state'],
-                        "created_at": item['created_at'],
-                        "updated_at": item['updated_at'],
-                        "author": item['user']['login'],
-                        "label_names": [label['name'] for label in item.get('labels', [])],
-                        "is_draft": item.get('draft', False),
+                        "url": item["html_url"],
+                        "title": item["title"],
+                        "number": item["number"],
+                        "state": item["state"],
+                        "created_at": item["created_at"],
+                        "updated_at": item["updated_at"],
+                        "author": item["user"]["login"],
+                        "label_names": [
+                            label["name"] for label in item.get("labels", [])
+                        ],
+                        "is_draft": item.get("draft", False),
                     }
-                    for item in pr_data['items']
-                ]
+                    for item in pr_data["items"]
+                ],
             }
 
             logging.info(f"Open {issue}s listed successfully")
@@ -368,7 +577,9 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> Dict[str, Any]:
+    def create_issue(
+        self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]
+    ) -> IssueData:
         """
         Creates a new issue in the specified GitHub repository.
         If the issue is created successfully, a link to the issue must be appended in the PR's description.
@@ -385,21 +596,22 @@ class GitHubIntegration:
             Logs errors and prints the traceback if the issue creation fails, returning None.
         """
         logging.info(f"Creating issue in {repo_owner}/{repo_name}")
-        
+
         # Construct the issues URL
         issues_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
 
         try:
             # Create the issue
-            issue_labels = ['mcp'] if not labels else labels + ['mcp']
-            response = requests.post(issues_url, headers=self._get_headers(), json={
-                'title': title,
-                'body': body,
-                'labels': issue_labels
-            }, timeout=TIMEOUT)
+            issue_labels = ["mcp"] if not labels else labels + ["mcp"]
+            response = requests.post(
+                issues_url,
+                headers=self._get_headers(),
+                json={"title": title, "body": body, "labels": issue_labels},
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             issue_data = response.json()
-            
+
             logging.info("Issue created successfully")
             return issue_data
 
@@ -408,7 +620,15 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def merge_pr(self, repo_owner: str, repo_name: str, pr_number: int, commit_title: Optional[str] = None, commit_message: Optional[str] = None, merge_method: Literal['merge', 'squash', 'rebase'] = 'squash') -> Dict[str, Any]:
+    def merge_pr(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        commit_title: Optional[str] = None,
+        commit_message: Optional[str] = None,
+        merge_method: Literal["merge", "squash", "rebase"] = "squash",
+    ) -> Dict[str, Any]:
         """
         Merges a specific pull request in a GitHub repository using the specified merge method.
         Args:
@@ -429,11 +649,16 @@ class GitHubIntegration:
         merge_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
 
         try:
-            response = requests.put(merge_url, headers=self._get_headers(), json={
-                'commit_title': commit_title,
-                'commit_message': commit_message,
-                'merge_method': merge_method
-            }, timeout=TIMEOUT)
+            response = requests.put(
+                merge_url,
+                headers=self._get_headers(),
+                json={
+                    "commit_title": commit_title,
+                    "commit_message": commit_message,
+                    "merge_method": merge_method,
+                },
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             merge_data = response.json()
 
@@ -445,7 +670,16 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def update_issue(self, repo_owner: str, repo_name: str, issue_number: int, title: str, body: str, labels: list[str] = [], state: Literal['open', 'closed'] = 'open') -> Dict[str, Any]:
+    def update_issue(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        issue_number: int,
+        title: str,
+        body: str,
+        labels: list[str] = [],
+        state: Literal["open", "closed"] = "open",
+    ) -> IssueData:
         """
         Updates an existing issue in the specified GitHub repository.
         Args:
@@ -469,12 +703,12 @@ class GitHubIntegration:
 
         try:
             # Update the issue
-            response = requests.patch(issue_url, headers=self._get_headers(), json={
-                'title': title,
-                'body': body,
-                'labels': labels,
-                'state': state
-            }, timeout=TIMEOUT)
+            response = requests.patch(
+                issue_url,
+                headers=self._get_headers(),
+                json={"title": title, "body": body, "labels": labels, "state": state},
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             issue_data = response.json()
             logging.info("Issue updated successfully")
@@ -484,7 +718,14 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def update_reviews(self, repo_owner: str, repo_name: str, pr_number: int, event: Literal['APPROVE', 'REQUEST_CHANGES', 'COMMENT'], body: Optional[str] = None) -> Dict[str, Any]:
+    def update_reviews(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        event: Literal["APPROVE", "REQUEST_CHANGES", "COMMENT"],
+        body: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Submits a review for a specific pull request in a GitHub repository.
         Args:
@@ -505,10 +746,12 @@ class GitHubIntegration:
         reviews_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
 
         try:
-            response = requests.post(reviews_url, headers=self._get_headers(), json={
-                'body': body,
-                'event': event
-            }, timeout=TIMEOUT)
+            response = requests.post(
+                reviews_url,
+                headers=self._get_headers(),
+                json={"body": body, "event": event},
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             review_data = response.json()
 
@@ -520,7 +763,9 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def update_assignees(self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]) -> Dict[str, Any]:
+    def update_assignees(
+        self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
+    ) -> Dict[str, Any]:
         """
         Updates the assignees for a specific issue or pull request in a GitHub repository.
         Args:
@@ -534,14 +779,19 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}")
+        logging.info(
+            f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}"
+        )
         # Construct the issue URL
         issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         try:
             # Update the assignees
-            response = requests.patch(issue_url, headers=self._get_headers(), json={
-                'assignees': assignees
-            }, timeout=TIMEOUT)
+            response = requests.patch(
+                issue_url,
+                headers=self._get_headers(),
+                json={"assignees": assignees},
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             issue_data = response.json()
             logging.info("Assignees updated successfully")
@@ -563,23 +813,37 @@ class GitHubIntegration:
             Logs errors and warnings if the request fails, the response is invalid, or no commits are found.
             Returns None in case of exceptions or if the repository has no commits.
         """
-        logging.info({"status": "info", "message": f"Fetching latest commit SHA for {repo_owner}/{repo_name}"})
+        logging.info(
+            {
+                "status": "info",
+                "message": f"Fetching latest commit SHA for {repo_owner}/{repo_name}",
+            }
+        )
 
         # Construct the commits URL
         commits_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
 
         try:
             # Fetch the latest commit
-            response = requests.get(commits_url, headers=self._get_headers(), timeout=TIMEOUT)
+            response = requests.get(
+                commits_url, headers=self._get_headers(), timeout=TIMEOUT
+            )
             response.raise_for_status()
             commits_data = response.json()
 
             if commits_data:
-                latest_sha = commits_data[0]['sha']
-                logging.info({"status": "info", "message": f"Latest commit SHA: {latest_sha}"})
+                latest_sha = commits_data[0]["sha"]
+                logging.info(
+                    {"status": "info", "message": f"Latest commit SHA: {latest_sha}"}
+                )
                 return latest_sha
             else:
-                logging.warning({"status": "warning", "message": "No commits found in the repository"})
+                logging.warning(
+                    {
+                        "status": "warning",
+                        "message": "No commits found in the repository",
+                    }
+                )
                 return "No commits found in the repository"
 
         except Exception as e:
@@ -587,7 +851,9 @@ class GitHubIntegration:
             traceback.print_exc()
             return str(e)
 
-    def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> Dict[str, Any]:
+    def create_tag(
+        self, repo_owner: str, repo_name: str, tag_name: str, message: str
+    ) -> Dict[str, Any]:
         """
         Creates a new tag in the specified GitHub repository.
         Args:
@@ -611,11 +877,16 @@ class GitHubIntegration:
                 raise ValueError("Failed to fetch the latest commit SHA")
 
             # Create the tag
-            response = requests.post(tags_url, headers=self._get_headers(), json={
-                'ref': f'refs/tags/{tag_name}',
-                'sha': latest_sha,
-                'message': message
-            }, timeout=TIMEOUT)
+            response = requests.post(
+                tags_url,
+                headers=self._get_headers(),
+                json={
+                    "ref": f"refs/tags/{tag_name}",
+                    "sha": latest_sha,
+                    "message": message,
+                },
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             tag_data = response.json()
 
@@ -628,17 +899,17 @@ class GitHubIntegration:
             return {"status": "error", "message": str(e)}
 
     def create_release(
-            self,
-            repo_owner: str,
-            repo_name: str,
-            tag_name: str,
-            release_name: str,
-            body: str,
-            draft: bool = False,
-            prerelease: bool = False,
-            generate_release_notes: bool = True,
-            make_latest: Literal['true', 'false', 'legacy'] = 'true'
-        ) -> Dict[str, Any]:
+        self,
+        repo_owner: str,
+        repo_name: str,
+        tag_name: str,
+        release_name: str,
+        body: str,
+        draft: bool = False,
+        prerelease: bool = False,
+        generate_release_notes: bool = True,
+        make_latest: Literal["true", "false", "legacy"] = "true",
+    ) -> Dict[str, Any]:
         """
         Creates a new release in the specified GitHub repository.
         Args:
@@ -664,15 +935,20 @@ class GitHubIntegration:
 
         try:
             # Create the release
-            response = requests.post(releases_url, headers=self._get_headers(), json={
-                'tag_name': tag_name,
-                'name': release_name,
-                'body': body,
-                'draft': draft,
-                'prerelease': prerelease,
-                'generate_release_notes': generate_release_notes,
-                'make_latest': make_latest
-            }, timeout=TIMEOUT)
+            response = requests.post(
+                releases_url,
+                headers=self._get_headers(),
+                json={
+                    "tag_name": tag_name,
+                    "name": release_name,
+                    "body": body,
+                    "draft": draft,
+                    "prerelease": prerelease,
+                    "generate_release_notes": generate_release_notes,
+                    "make_latest": make_latest,
+                },
+                timeout=TIMEOUT,
+            )
             response.raise_for_status()
             release_data = response.json()
 
@@ -684,232 +960,308 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def get_user_activity(self, org_name: str, username: str, repo_name: str = None) -> Dict[str, Any]:
+    def search_user(self, username: str) -> UserSearchResult:
         """
-        Get user activity in an organization or specific repository.
+        Search for a GitHub user by username using GraphQL API.
+
         Args:
-            org_name (str): The name of the GitHub organization.
-            username (str): The GitHub username to fetch activity for.
-            repo_name (str, optional): The name of the repository. If provided, fetches activity for that repository only. Defaults to None.
+            username: GitHub username to search for
+
         Returns:
-            Dict[str, Any]: A dictionary containing user activity data.
-        Error Handling:
-            Logs errors and returns an error message if the GraphQL query fails.
+            UserSearchResult: Dictionary containing user profile information including:
+                - login: GitHub username
+                - name: Full name
+                - email: Email address
+                - company: Company name
+                - location: Location
+                - bio: Bio/description
+                - url: Profile URL
+                - avatar_url: Avatar image URL
+                - created_at: Account creation date
+                - updated_at: Last update date
+                - followers: Number of followers
+                - following: Number of users following
+                - public_repos: Total public repositories count
+                - recent_repos: List of recent repositories
+                - organizations: List of organizations the user belongs to
+
+        Raises:
+            GitHubNotFoundError: If the user is not found
+            GitHubAPIError: If the API request fails
         """
-        if repo_name:
-            return self._get_repo_activity(org_name, repo_name, username)
-        else:
-            return self._get_org_activity(org_name, username)
-    
-    def _graphql_query(self, query: str, variables: Dict[str, Any]) -> Dict[str, Any]:
-        """Simple GraphQL query executor."""
+        logging.info(f"Searching for GitHub user: {username}")
+
         try:
-            response = requests.post(
-                'https://api.github.com/graphql',
-                json={'query': query, 'variables': variables},
-                headers=self._get_headers(),
-                timeout=TIMEOUT
+            result = self.graphql.execute_query(
+                SEARCH_USER_QUERY, variables={"username": username}
             )
-            response.raise_for_status()
-            return response.json()
+
+            user_data = result.get("user")
+            if not user_data:
+                raise GitHubNotFoundError(f"User '{username}' not found")
+
+            # Transform GraphQL response to our TypedDict format
+            user_info: UserSearchResult = {
+                "login": user_data["login"],
+                "name": user_data.get("name"),
+                "email": user_data.get("email"),
+                "company": user_data.get("company"),
+                "location": user_data.get("location"),
+                "bio": user_data.get("bio"),
+                "url": user_data["url"],
+                "avatar_url": user_data.get("avatarUrl"),
+                "created_at": user_data["createdAt"],
+                "updated_at": user_data["updatedAt"],
+                "followers": user_data["followers"]["totalCount"],
+                "following": user_data["following"]["totalCount"],
+                "public_repos": user_data["repositories"]["totalCount"],
+                "recent_repos": [
+                    {
+                        "name": repo["name"],
+                        "owner": repo["owner"]["login"],
+                        "description": repo.get("description"),
+                        "url": repo["url"],
+                        "updated_at": repo["updatedAt"],
+                    }
+                    for repo in user_data["repositories"]["nodes"]
+                ],
+                "organizations": [
+                    {
+                        "login": org["login"],
+                        "name": org.get("name"),
+                        "url": org["url"],
+                    }
+                    for org in user_data["organizations"]["nodes"]
+                ],
+            }
+
+            logging.info(f"Successfully found user: {username}")
+            return user_info
+
+        except GitHubNotFoundError:
+            raise
         except Exception as e:
-            logging.error(f"GraphQL query failed: {str(e)}")
-            return {"errors": [{"message": str(e)}]}
-    
-    def _get_org_activity(self, org_name: str, username: str) -> Dict[str, Any]:
-        """Get user activity across all repositories in an organization."""
-        query = """
-        query($org: String!) {
-          organization(login: $org) {
-            repositories(first: 50) {
-              nodes {
-                name
-                defaultBranchRef {
-                  target {
-                    ... on Commit {
-                      history(first: 20) {
-                        nodes {
-                          messageHeadline
-                          committedDate
-                          url
-                          additions
-                          deletions
-                          author { 
-                            user { login }
-                          }
-                        }
-                      }
-                    }
-                  }
-                }
-                pullRequests(first: 20, states: [OPEN, CLOSED, MERGED]) {
-                  nodes {
-                    number
-                    title
-                    state
-                    author { login }
-                    createdAt
-                    url
-                  }
-                }
-                issues(first: 20) {
-                  nodes {
-                    number
-                    title
-                    state
-                    author { login }
-                    createdAt
-                    url
-                  }
-                }
-              }
-            }
-          }
-        }
+            logging.error(f"Error searching for user {username}: {e}")
+            raise GitHubAPIError(f"Failed to search for user: {e}") from e
+
+    def get_user_activities(
+        self,
+        username: str,
+        org: str = "",
+        repo: str = "",
+        since: str = "",
+        until: str = "",
+        max_results: int = 50,
+    ) -> UserActivityResult:
         """
-        
-        result = self._graphql_query(query, {"org": org_name})
-        
-        if "errors" in result:
-            return {"status": "error", "message": result["errors"]}
-        
-        activity = {"commits": [], "prs": [], "issues": []}
-        
-        org_data = result.get("data", {}).get("organization", {})
-        for repo in org_data.get("repositories", {}).get("nodes", []):
-            repo_name = repo["name"]
-            
-            # Process commits - filter by user
-            if repo.get("defaultBranchRef"):
-                for commit in repo["defaultBranchRef"]["target"]["history"]["nodes"]:
-                    # Check if this commit is by the target user
-                    author_login = commit.get("author", {}).get("user", {}).get("login") if commit.get("author", {}).get("user") else None
-                    if author_login == username:
-                        activity["commits"].append({
+        Get user activities with optional filtering by org, repo, and date range using GraphQL API.
+
+        This method provides a drill-down capability:
+        - username only: Get activities across all repos/orgs
+        - username + org: Filter activities to specific organization
+        - username + org + repo: Drill down to specific repository
+        - + date range: Filter by time period (ISO 8601 format: "2024-01-01T00:00:00Z")
+
+        Args:
+            username: GitHub username to fetch activities for
+            org: Optional organization name to filter by
+            repo: Optional repository name to filter by (requires org)
+            since: Optional start date in ISO 8601 format
+            until: Optional end date in ISO 8601 format
+            max_results: Maximum number of results per category (default: 50)
+
+        Returns:
+            UserActivityResult: Dictionary containing:
+                - username: The GitHub username
+                - date_range: Applied date filter (since/until) if any
+                - total_contributions: Summary counts for commits, PRs, issues, reviews
+                - commits: List of commit contributions
+                - pull_requests: List of PR contributions
+                - issues: List of issue contributions
+                - reviews: List of PR review contributions
+
+        Raises:
+            GitHubNotFoundError: If the user, org, or repo is not found
+            GitHubAPIError: If the API request fails
+        """
+        logging.info(
+            f"Fetching user activities for {username} "
+            f"(org={org}, repo={repo}, since={since}, until={until})"
+        )
+
+        try:
+            variables: dict[str, Any] = {"username": username}
+            if since:
+                variables["since"] = since
+            if until:
+                variables["until"] = until
+
+            # Execute the contributions query
+            result = self.graphql.execute_query(
+                USER_CONTRIBUTIONS_QUERY,
+                variables=variables,
+            )
+
+            user_data = result.get("user")
+            if not user_data:
+                raise GitHubNotFoundError(f"User '{username}' not found")
+
+            collection = user_data.get("contributionsCollection", {})
+
+            # Build date_range info
+            date_range = None
+            if since or until:
+                date_range = {
+                    "since": since if since else collection.get("startedAt", ""),
+                    "until": until if until else collection.get("endedAt", ""),
+                }
+
+            # Process contributions and apply org/repo filters
+            commits = []
+            pull_requests = []
+            issues = []
+            reviews = []
+
+            # Process commit contributions
+            for repo_contrib in collection.get("commitContributionsByRepository", []):
+                repo_info = repo_contrib["repository"]
+                owner = repo_info["owner"]["login"]
+                repo_name = repo_info["name"]
+
+                # Apply org filter
+                if org and owner.lower() != org.lower():
+                    continue
+                # Apply repo filter
+                if repo and repo_name.lower() != repo.lower():
+                    continue
+
+                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
+                    if len(commits) >= max_results:
+                        break
+                    commits.append(
+                        {
                             "repo": repo_name,
-                            "message": commit["messageHeadline"],
-                            "date": commit["committedDate"],
-                            "url": commit["url"],
-                            "additions": commit.get("additions", 0),
-                            "deletions": commit.get("deletions", 0)
-                        })
-            
-            # Process PRs where user is involved
-            for pr in repo["pullRequests"]["nodes"]:
-                if pr["author"]["login"] == username:
-                    activity["prs"].append({
-                        "repo": repo_name,
-                        "number": pr["number"],
-                        "title": pr["title"],
-                        "state": pr["state"],
-                        "created": pr["createdAt"],
-                        "url": pr["url"]
-                    })
-            
-            # Process issues where user is author
-            for issue in repo["issues"]["nodes"]:
-                if issue["author"]["login"] == username:
-                    activity["issues"].append({
-                        "repo": repo_name,
-                        "number": issue["number"],
-                        "title": issue["title"],
-                        "state": issue["state"],
-                        "created": issue["createdAt"],
-                        "url": issue["url"]
-                    })
-        
-        return {"status": "success", "activity": activity}
-    
-    def _get_repo_activity(self, org_name: str, repo_name: str, username: str) -> Dict[str, Any]:
-        """Get user activity in a specific repository."""
-        query = """
-        query($org: String!, $repo: String!) {
-          repository(owner: $org, name: $repo) {
-            defaultBranchRef {
-              target {
-                ... on Commit {
-                  history(first: 50) {
-                    nodes {
-                      messageHeadline
-                      committedDate
-                      url
-                      additions
-                      deletions
-                      author { 
-                        user { login }
-                      }
-                    }
-                  }
-                }
-              }
+                            "owner": owner,
+                            "commit_count": contrib.get("commitCount", 0),
+                            "url": contrib.get("url", ""),
+                            "date": contrib.get("occurredAt", ""),
+                        }
+                    )
+
+            # Process PR contributions
+            for repo_contrib in collection.get(
+                "pullRequestContributionsByRepository", []
+            ):
+                repo_info = repo_contrib["repository"]
+                owner = repo_info["owner"]["login"]
+                repo_name = repo_info["name"]
+
+                # Apply filters
+                if org and owner.lower() != org.lower():
+                    continue
+                if repo and repo_name.lower() != repo.lower():
+                    continue
+
+                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
+                    if len(pull_requests) >= max_results:
+                        break
+                    pr = contrib["pullRequest"]
+                    pull_requests.append(
+                        {
+                            "repo": repo_name,
+                            "owner": owner,
+                            "number": pr["number"],
+                            "title": pr["title"],
+                            "state": pr["state"],
+                            "url": pr["url"],
+                            "created": pr["createdAt"],
+                            "merged": pr.get("merged", False),
+                        }
+                    )
+
+            # Process issue contributions
+            for repo_contrib in collection.get("issueContributionsByRepository", []):
+                repo_info = repo_contrib["repository"]
+                owner = repo_info["owner"]["login"]
+                repo_name = repo_info["name"]
+
+                # Apply filters
+                if org and owner.lower() != org.lower():
+                    continue
+                if repo and repo_name.lower() != repo.lower():
+                    continue
+
+                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
+                    if len(issues) >= max_results:
+                        break
+                    issue = contrib["issue"]
+                    issues.append(
+                        {
+                            "repo": repo_name,
+                            "owner": owner,
+                            "number": issue["number"],
+                            "title": issue["title"],
+                            "state": issue["state"],
+                            "url": issue["url"],
+                            "created": issue["createdAt"],
+                        }
+                    )
+
+            # Process review contributions
+            for repo_contrib in collection.get(
+                "pullRequestReviewContributionsByRepository", []
+            ):
+                repo_info = repo_contrib["repository"]
+                owner = repo_info["owner"]["login"]
+                repo_name = repo_info["name"]
+
+                # Apply filters
+                if org and owner.lower() != org.lower():
+                    continue
+                if repo and repo_name.lower() != repo.lower():
+                    continue
+
+                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
+                    if len(reviews) >= max_results:
+                        break
+                    review = contrib["pullRequestReview"]
+                    pr = contrib["pullRequest"]
+                    reviews.append(
+                        {
+                            "repo": repo_name,
+                            "owner": owner,
+                            "pr_number": pr["number"],
+                            "pr_title": pr["title"],
+                            "pr_url": pr["url"],
+                            "review_state": review["state"],
+                            "review_url": review["url"],
+                            "date": contrib["occurredAt"],
+                        }
+                    )
+
+            activity_result: UserActivityResult = {
+                "username": username,
+                "date_range": date_range,
+                "total_contributions": {
+                    "commits": collection.get("totalCommitContributions", 0),
+                    "pull_requests": collection.get("totalPullRequestContributions", 0),
+                    "issues": collection.get("totalIssueContributions", 0),
+                    "reviews": collection.get("totalPullRequestReviewContributions", 0),
+                },
+                "commits": commits,
+                "pull_requests": pull_requests,
+                "issues": issues,
+                "reviews": reviews,
             }
-            pullRequests(first: 50, states: [OPEN, CLOSED, MERGED]) {
-              nodes {
-                number
-                title
-                state
-                author { login }
-                createdAt
-                url
-              }
-            }
-            issues(first: 50) {
-              nodes {
-                number
-                title
-                state
-                author { login }
-                createdAt
-                url
-              }
-            }
-          }
-        }
-        """
-        
-        result = self._graphql_query(query, {"org": org_name, "repo": repo_name})
-        
-        if "errors" in result:
-            return {"status": "error", "message": result["errors"]}
-        
-        activity = {"commits": [], "prs": [], "issues": []}
-        
-        repo_data = result.get("data", {}).get("repository", {})
-        
-        # Process commits - filter by user
-        if repo_data.get("defaultBranchRef"):
-            for commit in repo_data["defaultBranchRef"]["target"]["history"]["nodes"]:
-                # Check if this commit is by the target user
-                author_login = commit.get("author", {}).get("user", {}).get("login") if commit.get("author", {}).get("user") else None
-                if author_login == username:
-                    activity["commits"].append({
-                        "message": commit["messageHeadline"],
-                        "date": commit["committedDate"],
-                        "url": commit["url"],
-                        "additions": commit.get("additions", 0),
-                        "deletions": commit.get("deletions", 0)
-                    })
-        
-        # Process PRs where user is involved
-        for pr in repo_data["pullRequests"]["nodes"]:
-            if pr["author"]["login"] == username:
-                activity["prs"].append({
-                    "number": pr["number"],
-                    "title": pr["title"],
-                    "state": pr["state"],
-                    "created": pr["createdAt"],
-                    "url": pr["url"]
-                })
-        
-        # Process issues where user is author
-        for issue in repo_data["issues"]["nodes"]:
-            if issue["author"]["login"] == username:
-                activity["issues"].append({
-                    "number": issue["number"],
-                    "title": issue["title"],
-                    "state": issue["state"],
-                    "created": issue["createdAt"],
-                    "url": issue["url"]
-                })
-        
-        return {"status": "success", "activity": activity}
+
+            logging.info(
+                f"Successfully fetched activities: {len(commits)} commits, "
+                f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews"
+            )
+            return activity_result
+
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logging.error(f"Error fetching user activities for {username}: {e}")
+            raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e

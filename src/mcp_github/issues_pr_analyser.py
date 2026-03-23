@@ -36,6 +36,7 @@ logging.basicConfig(level=logging.WARNING)
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
 
+
 class PRIssueAnalyser:
     """
     PRIssueAnalyser is a class that provides an interface for analyzing GitHub Pull Requests (PRs) and managing GitHub Issues, Tags, and Releases, as well as retrieving IP information. It integrates with GitHub and an MCP (Multi-Component Platform) server to expose a set of tools for PR and issue management, and can be run as an MCP server using either SSE or stdio transport.
@@ -56,6 +57,7 @@ class PRIssueAnalyser:
         Runs the MCP server for GitHub PR analysis, selecting the transport mechanism based on the 'MCP_ENABLE_REMOTE' environment variable.
             Logs and prints any exceptions that occur during server execution, including a fatal error message and traceback.
     """
+
     def __init__(self):
         """
         Initialises the main components required for the Issue and PR Analyser.
@@ -110,7 +112,9 @@ class PRIssueAnalyser:
 
     def register_tools(self, methods: Any = None) -> None:
         for name, method in inspect.getmembers(methods):
-            if (inspect.isfunction(method) or inspect.ismethod(method)) and not name.startswith("_"):
+            if (
+                inspect.isfunction(method) or inspect.ismethod(method)
+            ) and not name.startswith("_"):
                 self.mcp.add_tool(method)
 
     def run(self):
@@ -122,12 +126,13 @@ class PRIssueAnalyser:
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport='streamable-http')
+                self.mcp.run(transport="streamable-http")
             else:
-                self.mcp.run(transport='stdio')
+                self.mcp.run(transport="stdio")
         except Exception as e:
             logging.error(f"Fatal Error in MCP Server: {str(e)}")
             traceback.print_exc(file=sys.stderr)
+
 
 def main():
     """
@@ -146,6 +151,7 @@ def main():
         logging.error(f"Error running main analyzer: {str(e)}")
         traceback.print_exc()
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

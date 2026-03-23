@@ -27,6 +27,21 @@ package-dir = {"" = "src"}
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_ignores = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+warn_redundant_casts = true
+warn_unused_configs = true
+show_error_codes = true
+
 [build-system]
 requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.3",
+]
