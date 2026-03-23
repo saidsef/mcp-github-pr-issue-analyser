@@ -87,7 +87,7 @@ jobs:
         DOCKER_BUILDKIT: 1
     - name: Docker meta
       id: meta
-      uses: docker/metadata-action@v5
+      uses: docker/metadata-action@v6
       with:
         images: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}
     - name: Build and push Docker image
