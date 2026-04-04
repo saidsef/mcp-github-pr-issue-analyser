@@ -18,7 +18,8 @@ COPY src src
 ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-RUN uv pip install --system -v -U -r requirements.txt
+RUN apk add -U curl py3-uv && \
+    uv pip install --system -v -r requirements.txt
 
 EXPOSE ${PORT}/tcp
 
