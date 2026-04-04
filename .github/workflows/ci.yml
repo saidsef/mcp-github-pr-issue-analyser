@@ -36,7 +36,9 @@ jobs:
     steps:
     - name: Checkout repository
       uses: actions/checkout@v6
-    - name: Initialize CodeQL
+      with:
+        fetch-depth: 0
+    - name: Initialise CodeQL
       uses: github/codeql-action/init@v4
       with:
         languages: ${{ matrix.language }}
@@ -102,6 +104,7 @@ jobs:
         platforms: linux/amd64,linux/arm64
         build-args: |
           BUILD_ID=${{ env.DATE }}
+          SETUPTOOLS_SCM_PRETEND_VERSION=${{ env.DATE }}
         pull: true
         push: true
         sbom: true
