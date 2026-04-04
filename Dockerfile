@@ -15,9 +15,11 @@ WORKDIR /app
 COPY pyproject.toml requirements.txt /app/
 COPY src src
 
-RUN pip install -r requirements.txt
+ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
+ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-RUN uv sync
+RUN apk add -U curl py3-uv && \
+    uv pip install --system -v -r requirements.txt
 
 EXPOSE ${PORT}/tcp
 

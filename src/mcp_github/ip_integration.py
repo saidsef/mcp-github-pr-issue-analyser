@@ -38,7 +38,7 @@ TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via en
 class IPIntegration:
     def __init__(self, ipv4_api_url: str = None, ipv6_api_url: str = None) -> None:
         """
-        Initialize the IPIntegration class.
+        Initialise the IPIntegration class.
 
         :param ipv4_api_url: Optional custom API URL for IPv4 information.
         :param ipv6_api_url: Optional custom API URL for IPv6 information.

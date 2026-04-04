@@ -25,7 +25,9 @@ import inspect
 import traceback
 from os import getenv
 from typing import Any
-from mcp.server.fastmcp import FastMCP
+from fastmcp import FastMCP
+from fastmcp.apps.choice import Choice
+from fastmcp.apps.generative import GenerativeUI
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
 
@@ -71,7 +73,7 @@ class PRIssueAnalyser:
         self.gi = GI()
         self.ip = IP()
 
-        # Initialize MCP Server
+        # Initialise MCP Server
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
             instructions="""
@@ -98,11 +100,11 @@ class PRIssueAnalyser:
           - Use create_tag and create_release for release management
           - Use get_ipv4_info and get_ipv6_info for IP information
           - Always maintain a professional, clear and concise tone
-            """,
-            host=HOST,
-            port=PORT,
+            """
         )
-        logging.info("MCP Server initialized")
+        self.mcp.add_provider(Choice())
+        self.mcp.add_provider(GenerativeUI())
+        logging.info("MCP Server initialised")
 
         self._register_tools()
 
@@ -126,7 +128,7 @@ class PRIssueAnalyser:
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport="streamable-http")
+                self.mcp.run(transport="http", host=HOST, port=PORT,)
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
@@ -137,7 +139,7 @@ class PRIssueAnalyser:
 def main():
     """
     Main function to run the PRIssueAnalyser.
-    This function initializes the PRIssueAnalyser and starts the MCP server.
+    This function Initialises the PRIssueAnalyser and starts the MCP server.
     Returns:
         None
     Error Handling:

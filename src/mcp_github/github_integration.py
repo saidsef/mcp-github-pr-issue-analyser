@@ -130,7 +130,7 @@ logging.basicConfig(level=logging.WARNING)
 class GitHubIntegration:
     def __init__(self):
         """
-        Initializes the GitHubIntegration instance by setting up the GitHub token from environment variables.
+        Initialises the GitHubIntegration instance by setting up the GitHub token from environment variables.
         Returns:
             None
         Error Handling:
@@ -141,7 +141,7 @@ class GitHubIntegration:
         if not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
 
-        # Initialize GraphQL client
+        # Initialise GraphQL client
         self.graphql = GraphQLClient(self.github_token, timeout=TIMEOUT)
 
         logging.info("GitHub Integration Initialised")

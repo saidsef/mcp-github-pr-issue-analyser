@@ -42,7 +42,7 @@ class GraphQLClient:
 
     def __init__(self, token: str, timeout: int = 10):
         """
-        Initialize the GraphQL client.
+        Initialise the GraphQL client.
 
         Args:
             token: GitHub personal access token
