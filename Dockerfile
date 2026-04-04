@@ -18,9 +18,7 @@ COPY src src
 ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-RUN pip install -r requirements.txt
-
-RUN uv sync
+RUN uv pip install --system -v -U -r requirements.txt
 
 EXPOSE ${PORT}/tcp
 
