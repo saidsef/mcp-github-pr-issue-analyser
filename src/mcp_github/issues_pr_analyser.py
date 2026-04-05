@@ -76,6 +76,7 @@ class PRIssueAnalyser:
         # Initialise MCP Server
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
+            auth=self.gi.verifier,
             instructions="""
           # GitHub PR and Issue Analyser
 
@@ -100,7 +101,7 @@ class PRIssueAnalyser:
           - Use create_tag and create_release for release management
           - Use get_ipv4_info and get_ipv6_info for IP information
           - Always maintain a professional, clear and concise tone
-            """
+            """,
         )
         self.mcp.add_provider(Choice())
         self.mcp.add_provider(GenerativeUI())
@@ -128,7 +129,11 @@ class PRIssueAnalyser:
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport="http", host=HOST, port=PORT,)
+                self.mcp.run(
+                    transport="http",
+                    host=HOST,
+                    port=PORT,
+                )
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
