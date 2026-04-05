@@ -37,6 +37,7 @@ logging.basicConfig(level=logging.WARNING)
 
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
+MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
 
 
 class PRIssueAnalyser:
@@ -76,7 +77,7 @@ class PRIssueAnalyser:
         # Initialise MCP Server
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
-            auth=self.gi.verifier,
+            auth=self.gi.verifier if MCP_ENABLE_REMOTE else None,
             instructions="""
           # GitHub PR and Issue Analyser
 
@@ -125,7 +126,6 @@ class PRIssueAnalyser:
         Runs the MCP server for GitHub PR analysis.
         Uses HTTP transport if MCP_ENABLE_REMOTE is set, otherwise uses stdio.
         """
-        MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
         try:
             logging.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
