@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import requests
 import traceback
+from fastmcp.server.auth import TokenVerifier, AccessToken
 from os import getenv
 from typing import Annotated, Any, Dict, Optional, Literal, TypedDict
 
@@ -34,6 +35,22 @@ from .exceptions import (
 )
 from .graphql_client import GraphQLClient
 from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
+
+
+class APIKeyVerifier(TokenVerifier):
+    def __init__(self, valid_api_keys: str):
+        self.valid_api_keys = valid_api_keys
+
+    async def verify_token(self, token: str) -> Optional[AccessToken]:
+        if token == self.valid_api_keys:
+            return AccessToken(
+                token=token,
+                client_id="github_token",
+                expires_at=None,  # API keys don't expire
+                scopes=["api:read", "api:write"],
+                claims={"api_key": token},
+            )
+        return None
 
 
 # TypedDict definitions for common return types
@@ -137,6 +154,7 @@ class GitHubIntegration:
             Raises ValueError if the GITHUB_TOKEN environment variable is not set.
         """
         self.github_token = GITHUB_TOKEN
+        self.verifier = APIKeyVerifier(self.github_token)
         self.base_url = "https://api.github.com"
         if not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
