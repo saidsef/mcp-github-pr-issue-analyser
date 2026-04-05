@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 import requests
 import traceback
@@ -42,13 +43,13 @@ class APIKeyVerifier(TokenVerifier):
         self.valid_api_keys = valid_api_keys
 
     async def verify_token(self, token: str) -> Optional[AccessToken]:
-        if token == self.valid_api_keys:
+        if hmac.compare_digest(token, self.valid_api_keys):
             return AccessToken(
                 token=token,
                 client_id="github_token",
                 expires_at=None,  # API keys don't expire
                 scopes=["api:read", "api:write"],
-                claims={"api_key": token},
+                claims={"authenticated": True},
             )
         return None
 
