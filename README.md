@@ -16,17 +16,23 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 |------------------------------------------|---------------------------------------------------------------------------------------------------|
 | Analyse GitHub Pull Requests and fetch diffs         | Retrieve the diff/patch for any PR in a repository.                                                |
 | Fetch content and metadata for specific PRs          | Get PR title, description, author, timestamps, and state.                                          |
+| Create Pull Requests                                 | Open new PRs with title, body, head/base branch, and draft option.                                 |
 | Update PR title and description                      | Change the title and body of any PR.                                                               |
+| Merge Pull Requests                                  | Merge a PR using merge, squash, or rebase method.                                                  |
 | Add comments to PRs                                  | Post general comments to a PR thread.                                                              |
 | Add inline review comments to PRs                    | Comment on specific lines in PR files for code review.                                             |
+| Submit PR Reviews                                    | Approve, request changes, or comment on a PR review.                                               |
+| Update PR Assignees                                  | Assign or update users on a PR or issue.                                                           |
 | Create and update GitHub Issues                      | Open new issues or update existing ones with title, body, labels, and state.                       |
-| Create tags and releases                             | Tag repository commits and publish releases with changelogs.                                       |
-| Retrieve IPv4 and IPv6 information                   | Get public IP address details for both IPv4 and IPv6.                                              |
 | List all open Issues or Pull Requests                | View all open PRs or issues for any user or organisation.                                          |
+| Create tags and releases                             | Tag repository commits and publish releases with changelogs.                                       |
+| Search GitHub Users                                  | Retrieve user profile information via GraphQL.                                                     |
+| Get User Activity                                    | Fetch commit, PR, issue, and review contributions with org/repo/date filtering.                    |
+| Retrieve IPv4 and IPv6 information                   | Get public IP address details for both IPv4 and IPv6.                                              |
 
 ## Requirements
 
-- Python 3.11+
+- Python 3.12+
 - GitHub Personal Access Token (with `repo` scope)
 
 ## Architecture Diagram
@@ -52,26 +58,29 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
                                    |   GitHub Integration   |
                                    +------------------------+
                                               |
-                                              | (REST API)
-                     +-------------------------+-------------------------+
-                     |                         |                         |
-              +-------------+           +--------------+        +-------------+
-              | GitHub PRs  |           |GitHub Issues |        |GitHub Tags/ |
-              | & Releases  |           |              |        | Releases    |
-              +-------------+           +--------------+        +-------------+
+                          +-------------------+-------------------+
+                          | (REST API)                            | (GraphQL API)
+                          v                                       v
+         +-----------------------------------+     +-----------------------------+
+         |                                   |     |                             |
+   +-------------+  +--------------+  +------+     |   User Search & Activity   |
+   | GitHub PRs  |  |GitHub Issues |  | Tags/|     |   (contributions, profile) |
+   | & Reviews   |  |              |  |Rels  |     |                             |
+   +-------------+  +--------------+  +------+     +-----------------------------+
 ```
 
 ### Features:
 
-1. PR Management: Fetch, analyze, and update
-2. Issue Tracking: Create and update
+1. PR Management: Fetch, analyse, create, merge, review, and update
+2. Issue Tracking: Create, update, list, and assign
 3. Release Management: Tags and releases
-4. Network Info: IPv4/IPv6 details
+4. User Search: Profile lookup and activity tracking via GraphQL
+5. Network Info: IPv4/IPv6 details
 
 ### Main Flows:
 
 - PRIssueAnalyser: Main MCP server handling tool registration and requests
-- GitHub Integration: Manages all GitHub API interactions
+- GitHub Integration: Manages all GitHub API interactions (REST + GraphQL)
 - IP Integration: Handles IPv4/IPv6 information retrieval
 - MCP Client: Interacts via stdio or streamable HTTP (http)
 
@@ -97,7 +106,15 @@ export GITHUB_TOKEN="<github-token>"
 export MCP_ENABLE_REMOTE=true
 uvx ./
 ```
-> You can access it via `http` i.e. `http(s)://localhost:8080/mcp`
+> You can access it via `http` i.e. `http(s)://localhost:8081/mcp`
+> In HTTP mode, clients must authenticate with `Authorization: Bearer <GITHUB_TOKEN>`.
+
+Alternatively, run via Docker using the published image.
+```sh
+docker run -e GITHUB_TOKEN="<github-token>" \
+  -p 8081:8081 \
+  ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest
+```
 
 ## Local Integration with IDEs and LLMs
 
