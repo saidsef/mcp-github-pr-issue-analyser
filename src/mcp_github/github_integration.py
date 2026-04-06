@@ -40,6 +40,7 @@ from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
 
 class APIKeyVerifier(TokenVerifier):
     def __init__(self, valid_api_keys: str):
+        super().__init__()
         self.valid_api_keys = valid_api_keys
 
     async def verify_token(self, token: str) -> Optional[AccessToken]:
