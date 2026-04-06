@@ -298,9 +298,9 @@ pathable==0.5.0 \
 platformdirs==4.9.4 \
     --hash=sha256:1ec356301b7dc906d83f371c8f487070e99d3ccf9e501686456394622a01a934 \
     --hash=sha256:68a9a4619a666ea6439f2ff250c12a853cd1cbd5158d258bd824a7df6be2f868
-prefab-ui==0.18.1 \
-    --hash=sha256:7d91d03ff0baed532b642cbfa162e041a5c232ab94e713482bec4258139d4068 \
-    --hash=sha256:cc01022cec2b511c68965df8b40a6b695c485009c8e71088d2c5ba887301347d
+prefab-ui==0.18.2 \
+    --hash=sha256:1be6c386fafd12f595faeddccc74601c7f50a5b3079acf437b51a36d74f37f1a \
+    --hash=sha256:de7416ed8e24b3a3880e9a7571f8a3ba693b1d0bedd0638cfa01c27a7e45cceb
 py-key-value-aio==0.4.4 \
     --hash=sha256:18e17564ecae61b987f909fc2cd41ee2012c84b4b1dcb8c055cf8b4bc1bf3f5d \
     --hash=sha256:e3012e6243ed7cc09bb05457bd4d03b1ba5c2b1ca8700096b3927db79ffbbe55
