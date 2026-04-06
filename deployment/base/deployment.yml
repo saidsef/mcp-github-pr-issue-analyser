@@ -1,0 +1,82 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-github
+  namespace: web
+  labels:
+    app.kubernetes.io/name: mcp-github
+  annotations:
+    argocd.argoproj.io/sync-options: PruneLast=true
+spec:
+  revisionHistoryLimit: 1
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-github
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-github
+      annotations:
+        prometheus.io/port: "8081"
+        prometheus.io/scrape: "true"
+        filter.by.port.name: "true"
+    spec:
+      enableServiceLinks: false
+      automountServiceAccountToken: false
+      containers:
+      - name: mcp-github
+        image: ghcr.io/saidsef/mcp-github-pr-issue-analyser:feat-fastmcp-api-key-auth
+        imagePullPolicy: Always
+        env:
+        - name: GITHUB_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: github-token
+              key: token
+        ports:
+        - name: http
+          containerPort: 8081
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: 8081
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          failureThreshold: 3
+          timeoutSeconds: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 2Gi
+          limits:
+            cpu: 150m
+            memory: 2Gi
+        securityContext:
+          allowPrivilegeEscalation: false
+          privileged: false
+          readOnlyRootFilesystem: true
+          runAsGroup: 1000
+          runAsUser: 1000
+          capabilities:
+            drop:
+              - ALL
+        volumeMounts:
+          - name: data
+            mountPath: /tmp
+            subPath: tmp
+            readOnly: false
+          - name: data
+            mountPath: /.cache
+            subPath: cache
+            readOnly: false
+          - name: data
+            mountPath: /app/.venv
+            subPath: venv
+            readOnly: false
+      volumes:
+        - name: data
+          emptyDir:
+            sizeLimit: 1Gi
