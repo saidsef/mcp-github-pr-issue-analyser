@@ -19,8 +19,10 @@ ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 RUN apk add -U curl py3-uv && \
-    uv pip install --system -v -r requirements.txt
+    grep -v "^-e " requirements.txt > /tmp/requirements.txt && \
+    uv pip install --system -v -r /tmp/requirements.txt && \
+    uv pip install --system --no-deps .
 
 EXPOSE ${PORT}/tcp
 
-CMD ["uv", "run", "mcp-github-pr-issue-analyser"]
+CMD ["mcp-github-pr-issue-analyser"]
