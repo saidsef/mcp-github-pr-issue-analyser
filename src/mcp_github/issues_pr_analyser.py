@@ -27,6 +27,7 @@ from os import getenv
 from pathlib import Path
 from typing import Any
 from fastmcp import FastMCP
+from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.server.middleware.caching import (
     CallToolSettings,
@@ -122,7 +123,8 @@ class PRIssueAnalyser:
           - skill://ip-lookup/SKILL.md — retrieve IPv4/IPv6 network information
             """,
         )
-        self.mcp.add_provider(GenerativeUI())
+        self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
+        self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
         self.mcp.add_middleware(
             ResponseCachingMiddleware(
                 list_tools_settings=ListToolsSettings(ttl=None),
