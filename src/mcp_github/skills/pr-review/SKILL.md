@@ -22,6 +22,7 @@ Post targeted inline comments on specific lines and submit a formal review (appr
 ## Tool Parameters
 
 ### `add_inline_pr_comment`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -32,6 +33,7 @@ Post targeted inline comments on specific lines and submit a formal review (appr
 | `comment_body` | str | Markdown comment text |
 
 ### `add_pr_comments`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -40,6 +42,7 @@ Post targeted inline comments on specific lines and submit a formal review (appr
 | `comment` | str | Markdown comment text for the overall PR thread |
 
 ### `update_reviews`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |

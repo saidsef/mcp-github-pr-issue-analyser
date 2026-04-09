@@ -14,20 +14,24 @@ Create new issues, update existing ones, and list open issues or PRs with filter
 ## Workflow
 
 ### Creating an Issue
+
 1. Call `list_open_issues_prs` to check for existing duplicates before creating
 2. Call `create_issue` with title, body, and any additional labels
    - Note: the `mcp` label is automatically added to every created issue
 
 ### Updating an Issue
+
 1. Call `update_issue` to change the title, body, state, or labels
 2. Use `state="closed"` to close a resolved issue
 
 ### Listing Issues/PRs
+
 1. Call `list_open_issues_prs` with filtering options to search for relevant items
 
 ## Tool Parameters
 
 ### `create_issue`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | — | GitHub organisation or username |
@@ -37,6 +41,7 @@ Create new issues, update existing ones, and list open issues or PRs with filter
 | `labels` | list[str] | `[]` | Additional labels (the `mcp` label is always added) |
 
 ### `update_issue`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | — | GitHub organisation or username |
@@ -48,6 +53,7 @@ Create new issues, update existing ones, and list open issues or PRs with filter
 | `state` | str | `open` | `open` or `closed` |
 
 ### `list_open_issues_prs`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | — | GitHub organisation or username |

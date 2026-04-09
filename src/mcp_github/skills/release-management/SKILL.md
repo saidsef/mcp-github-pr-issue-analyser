@@ -21,6 +21,7 @@ Tag a commit and publish a GitHub release with generated or custom release notes
 ## Tool Parameters
 
 ### `get_latest_sha`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -29,6 +30,7 @@ Tag a commit and publish a GitHub release with generated or custom release notes
 Returns: SHA string of the HEAD commit on the default branch.
 
 ### `create_tag`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -37,6 +39,7 @@ Returns: SHA string of the HEAD commit on the default branch.
 | `message` | str | Annotated tag message describing the release |
 
 ### `create_release`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | — | GitHub organisation or username |

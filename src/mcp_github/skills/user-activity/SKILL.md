@@ -19,6 +19,7 @@ Retrieve a GitHub user's profile information and their contribution history (com
 ## Tool Parameters
 
 ### `search_user`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `username` | str | GitHub username to look up |
@@ -26,6 +27,7 @@ Retrieve a GitHub user's profile information and their contribution history (com
 Returns: `UserSearchResult` — login, name, bio, company, location, public repos count, followers/following, organisation memberships, pinned repositories.
 
 ### `get_user_activities`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `username` | str | — | GitHub username |
