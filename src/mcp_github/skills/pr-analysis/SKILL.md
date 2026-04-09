@@ -42,6 +42,7 @@ Returns: raw patch string (unified diff format). Each file section starts with `
 ## Analysis Output Structure
 
 When summarising a PR, cover:
+
 - **What**: short summary of the change
 - **Why**: inferred from description and commit context
 - **Scope**: files changed, lines added/removed
