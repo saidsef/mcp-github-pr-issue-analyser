@@ -20,6 +20,7 @@ Retrieve and synthesise PR metadata and code changes to understand what a pull r
 ## Tool Parameters
 
 ### `get_pr_content`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -29,6 +30,7 @@ Retrieve and synthesise PR metadata and code changes to understand what a pull r
 Returns: `PRContent` — title, body, author, state, draft status, base/head refs, labels, mergeable state.
 
 ### `get_pr_diff`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |

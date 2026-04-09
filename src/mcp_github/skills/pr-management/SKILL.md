@@ -15,14 +15,17 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 ## Workflow
 
 ### Opening a PR
+
 1. Call `create_pr` with title, body, head branch, and base branch
 2. Optionally mark as `draft=True` if not ready for review
 
 ### Updating a PR
+
 1. Call `update_pr_description` to revise the title or body
 2. Call `update_assignees` to assign or reassign users
 
 ### Merging a PR
+
 1. Confirm the PR is approved and all checks pass (check `mergeable` via `get_pr_content`)
 2. Call `merge_pr` with the appropriate merge method
 3. **Always confirm with the user before merging**
@@ -30,6 +33,7 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 ## Tool Parameters
 
 ### `create_pr`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | — | GitHub organisation or username |
@@ -41,6 +45,7 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 | `draft` | bool | `False` | Open as draft PR |
 
 ### `update_pr_description`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -50,6 +55,7 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 | `new_description` | str | Updated PR body (Markdown) |
 
 ### `update_assignees`
+
 | Parameter | Type | Description |
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
@@ -58,6 +64,7 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 | `assignees` | list[str] | GitHub usernames to assign |
 
 ### `merge_pr`
+
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | — | GitHub organisation or username |

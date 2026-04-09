@@ -21,9 +21,11 @@ Fetch network and geolocation metadata for the MCP server's public IP addresses.
 Both tools take no parameters.
 
 ### `get_ipv4_info`
+
 Returns: JSON object from `https://ipinfo.io/json`
 
 ### `get_ipv6_info`
+
 Returns: JSON object from `https://v6.ipinfo.io/json`
 
 > **Note**: `get_ipv6_info` temporarily monkey-patches the socket family to `AF_INET6` to force an IPv6 connection. This is reverted automatically after the call. Do not call this concurrently with other network operations.
