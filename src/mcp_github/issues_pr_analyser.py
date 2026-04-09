@@ -138,6 +138,7 @@ class PRIssueAnalyser:
     def _register_tools(self):
         self.register_tools(self.gi)
         self.register_tools(self.ip)
+        self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def register_tools(self, methods: Any = None) -> None:
         for name, method in inspect.getmembers(methods):
@@ -145,9 +146,6 @@ class PRIssueAnalyser:
                 inspect.isfunction(method) or inspect.ismethod(method)
             ) and not name.startswith("_"):
                 self.mcp.add_tool(method)
-
-        skills_path = Path(__file__).parent / "skills"
-        self.mcp.add_provider(SkillsDirectoryProvider(skills_path))
 
     def run(self):
         """
