@@ -8,9 +8,8 @@ authors = [
     { name = "saidsef" }
 ]
 dependencies = [
-    "fastmcp[apps]==3.2.0",
+    "fastmcp[apps]==3.2.3",
     "requests==2.33.1",
-    "uv==0.11.6",
 ]
 
 [project.scripts]
@@ -49,5 +48,6 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.3",
+    "ruff>=0.15.10",
+    "uv==0.11.6",
 ]
