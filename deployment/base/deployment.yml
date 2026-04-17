@@ -30,6 +30,8 @@ spec:
         image: ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest
         imagePullPolicy: Always
         env:
+        - name: FASTMCP_HOME
+          value: /tmp
         - name : HOST
           valueFrom:
             fieldRef:

@@ -62,6 +62,7 @@ class GraphQLClient:
         self,
         query: str,
         variables: Optional[dict[str, Any]] = None,
+        token: Optional[str] = None,
     ) -> dict[str, Any]:
         """
         Execute a GraphQL query against the GitHub API.
@@ -83,11 +84,14 @@ class GraphQLClient:
         if variables:
             payload["variables"] = variables
 
+        per_call_headers = {"Authorization": f"Bearer {token}"} if token else {}  # empty string is falsy → no override
+
         try:
             logger.debug(f"Executing GraphQL query with variables: {variables}")
             response = self.session.post(
                 self.GRAPHQL_URL,
                 json=payload,
+                headers=per_call_headers,
                 timeout=self.timeout,
             )
 
