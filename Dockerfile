@@ -10,6 +10,7 @@ ARG PORT=8081
 
 ENV MCP_ENABLE_REMOTE="true"
 ENV PORT=${PORT}
+ENV FASTMCP_HOME=/tmp
 
 WORKDIR /app
 COPY pyproject.toml requirements.txt /app/

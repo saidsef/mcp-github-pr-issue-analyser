@@ -37,6 +37,7 @@ from fastmcp.server.middleware.caching import (
     ResponseCachingMiddleware,
 )
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
+from .auth import GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
 
@@ -84,9 +85,16 @@ class PRIssueAnalyser:
         self.ip = IP()
 
         # Initialise MCP Server
+        def _select_auth():
+            if not MCP_ENABLE_REMOTE:
+                return None
+            if GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL:
+                return self.gi._oauth_verifier  # OAuth2 path
+            return self.gi.verifier  # Default: API key / Bearer token
+
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
-            auth=self.gi.verifier if MCP_ENABLE_REMOTE else None,
+            auth=_select_auth(),
             instructions="""
           # GitHub PR and Issue Analyser
 
@@ -143,10 +151,11 @@ class PRIssueAnalyser:
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def register_tools(self, methods: Any = None) -> None:
-        for name, method in inspect.getmembers(methods):
-            if (
-                inspect.isfunction(method) or inspect.ismethod(method)
-            ) and not name.startswith("_"):
+        for name in dir(methods):
+            if name.startswith("_"):
+                continue
+            method = getattr(methods, name)
+            if inspect.isfunction(method) or inspect.ismethod(method):
                 self.mcp.add_tool(method)
 
     def run(self):

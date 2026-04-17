@@ -19,14 +19,20 @@
 
 from __future__ import annotations
 
-import hmac
 import logging
 import requests
 import traceback
-from fastmcp.server.auth import TokenVerifier, AccessToken
 from os import getenv
 from typing import Annotated, Any, Dict, Optional, Literal, TypedDict
 
+from .auth import (
+    APIKeyVerifier,
+    get_oauth_verifier,
+    resolve_token,
+    GITHUB_OAUTH_CLIENT_ID,
+    GITHUB_OAUTH_CLIENT_SECRET,
+    GITHUB_OAUTH_BASE_URL,
+)
 from .exceptions import (
     GitHubAPIError,
     GitHubAuthError,
@@ -36,23 +42,6 @@ from .exceptions import (
 )
 from .graphql_client import GraphQLClient
 from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
-
-
-class APIKeyVerifier(TokenVerifier):
-    def __init__(self, valid_api_keys: str):
-        super().__init__()
-        self.valid_api_keys = valid_api_keys
-
-    async def verify_token(self, token: str) -> Optional[AccessToken]:
-        if hmac.compare_digest(token, self.valid_api_keys):
-            return AccessToken(
-                token=token,
-                client_id="github_token",
-                expires_at=None,  # API keys don't expire
-                scopes=["api:read", "api:write"],
-                claims={"authenticated": True},
-            )
-        return None
 
 
 # TypedDict definitions for common return types
@@ -149,22 +138,45 @@ logging.basicConfig(level=logging.WARNING)
 class GitHubIntegration:
     def __init__(self):
         """
-        Initialises the GitHubIntegration instance by setting up the GitHub token from environment variables.
+        Initialises the GitHubIntegration instance.
+
+        In static-token mode, GITHUB_TOKEN must be set.
+        In OAuth2 mode (all three GITHUB_OAUTH_* vars set), GITHUB_TOKEN is optional —
+        per-request tokens are resolved from the OAuth2 flow via _resolve_token().
+
         Returns:
             None
         Error Handling:
-            Raises ValueError if the GITHUB_TOKEN environment variable is not set.
+            Raises ValueError if neither OAuth2 mode is active nor GITHUB_TOKEN is set.
         """
         self.github_token = GITHUB_TOKEN
-        self.verifier = APIKeyVerifier(self.github_token)
         self.base_url = "https://api.github.com"
-        if not self.github_token:
+
+        # Detect OAuth2 mode first so the token check can be conditional
+        self._oauth_mode = bool(
+            GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL
+        )
+
+        # GITHUB_TOKEN is required only in static-token (non-OAuth2) mode
+        if not self._oauth_mode and not self.github_token:
             raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
 
-        # Initialise GraphQL client
-        self.graphql = GraphQLClient(self.github_token, timeout=TIMEOUT)
+        # APIKeyVerifier only used in static-token mode
+        self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
+
+        # GraphQL client: token overridden per-call in OAuth2 mode via _resolve_token()
+        self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT)
 
         logging.info("GitHub Integration Initialised")
+
+    @property
+    def _oauth_verifier(self):
+        """Returns a GitHubProvider instance for OAuth2 authentication."""
+        return get_oauth_verifier()
+
+    def _resolve_token(self) -> str:
+        """Return the token for the current request."""
+        return resolve_token(self.github_token, self._oauth_mode)
 
     def _handle_response_error(self, response: requests.Response, context: str = ""):
         """
@@ -234,10 +246,11 @@ class GitHubIntegration:
         Error Handling:
             Raises ValueError if the GitHub token is not set.
         """
-        if not self.github_token:
+        token = self._resolve_token()
+        if not token:
             raise ValueError("GitHub token is missing for API requests")
         headers = {
-            "Authorization": f"token {self.github_token}",
+            "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json",
         }
         return headers
@@ -1013,7 +1026,9 @@ class GitHubIntegration:
 
         try:
             result = self.graphql.execute_query(
-                SEARCH_USER_QUERY, variables={"username": username}
+                SEARCH_USER_QUERY,
+                variables={"username": username},
+                token=self._resolve_token(),
             )
 
             user_data = result.get("user")
@@ -1120,6 +1135,7 @@ class GitHubIntegration:
             result = self.graphql.execute_query(
                 USER_CONTRIBUTIONS_QUERY,
                 variables=variables,
+                token=self._resolve_token(),
             )
 
             user_data = result.get("user")
