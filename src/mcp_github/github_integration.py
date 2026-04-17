@@ -292,7 +292,7 @@ class GitHubIntegration:
                 timeout=TIMEOUT,
             )
             if not response.ok:
-                self._handle_response_error(response, f"PR #{pr_number} diff")
+                self._handle_response_error(response, f"PR #{pr_number} diff in {repo_owner}/{repo_name}")
 
             logging.info("Successfully fetched PR diff/patch")
             return response.text
@@ -324,7 +324,7 @@ class GitHubIntegration:
                 pr_url, headers=self._get_headers(), timeout=TIMEOUT
             )
             if not response.ok:
-                self._handle_response_error(response, f"PR #{pr_number}")
+                self._handle_response_error(response, f"PR #{pr_number} in {repo_owner}/{repo_name}")
 
             pr_data = response.json()
 
@@ -372,7 +372,7 @@ class GitHubIntegration:
                 timeout=TIMEOUT,
             )
             if not response.ok:
-                self._handle_response_error(response, f"PR #{pr_number} comment")
+                self._handle_response_error(response, f"PR #{pr_number} comment in {repo_owner}/{repo_name}")
 
             logging.info("Comment added successfully")
             return response.json()
@@ -553,7 +553,7 @@ class GitHubIntegration:
         self,
         repo_owner: str,
         issue: Literal["pr", "issue"] = "pr",
-        filtering: Literal["user", "owner", "involves"] = "involves",
+        filtering: Literal["user", "org", "repo", "involves"] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
     ) -> Dict[str, Any]:
@@ -562,7 +562,7 @@ class GitHubIntegration:
         Args:
             repo_owner (str): The owner of the repository.
             issue (Literal['pr', 'issue']): The type of items to list, either 'pr' for pull requests or 'issue' for issues. Defaults to 'pr'.
-            filtering (Literal['user', 'owner', 'involves']): The filtering criteria for the search. Defaults to 'involves'.
+            filtering (Literal['user', 'org', 'repo', 'involves']): The filtering criteria for the search. Use 'user' for a GitHub username, 'org' for an organisation, 'repo' for an owner/repo string (e.g. 'jlowin/fastmcp'), or 'involves' for a username. Defaults to 'involves'.
             per_page (Annotated[int, "Number of results per page (1-100)"]): The number of results to return per page, range 1-100. Defaults to 50.
             page (int): The page number to retrieve. Defaults to 1.
         Returns:
@@ -682,24 +682,35 @@ class GitHubIntegration:
         merge_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
 
         try:
+            payload: Dict[str, Any] = {"merge_method": merge_method}
+            if commit_title is not None:
+                payload["commit_title"] = commit_title
+            if commit_message is not None:
+                payload["commit_message"] = commit_message
+
             response = requests.put(
                 merge_url,
                 headers=self._get_headers(),
-                json={
-                    "commit_title": commit_title,
-                    "commit_message": commit_message,
-                    "merge_method": merge_method,
-                },
+                json=payload,
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            if not response.ok:
+                self._handle_response_error(
+                    response,
+                    f"PR #{pr_number} merge in {repo_owner}/{repo_name}",
+                )
             merge_data = response.json()
 
             logging.info("PR merged successfully")
             return merge_data
 
-        except Exception as e:
-            logging.error({"status": "error", "message": str(e)})
+        except GitHubAPIError as e:
+            github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
+            detail = github_msg or e.message
+            logging.error(f"Error merging PR: {detail}")
+            return {"status": "error", "message": detail, "details": e.response_body}
+        except requests.RequestException as e:
+            logging.error(f"Error merging PR: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -827,6 +838,23 @@ class GitHubIntegration:
             )
             response.raise_for_status()
             issue_data = response.json()
+
+            # GitHub silently drops assignees it cannot apply (non-collaborators, unknown users).
+            # Compare requested vs actually assigned and surface any discrepancy.
+            actual_logins = {u["login"] for u in issue_data.get("assignees", [])}
+            requested = set(assignees)
+            missing = requested - actual_logins
+
+            if missing:
+                logging.warning(f"Some assignees were not applied: {missing}")
+                return {
+                    "status": "partial",
+                    "message": f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}",
+                    "assignees_requested": sorted(requested),
+                    "assignees_applied": sorted(actual_logins),
+                    "issue": issue_data,
+                }
+
             logging.info("Assignees updated successfully")
             return issue_data
         except Exception as e:
@@ -846,12 +874,7 @@ class GitHubIntegration:
             Logs errors and warnings if the request fails, the response is invalid, or no commits are found.
             Returns None in case of exceptions or if the repository has no commits.
         """
-        logging.info(
-            {
-                "status": "info",
-                "message": f"Fetching latest commit SHA for {repo_owner}/{repo_name}",
-            }
-        )
+        logging.info(f"Fetching latest commit SHA for {repo_owner}/{repo_name}")
 
         # Construct the commits URL
         commits_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
@@ -866,17 +889,10 @@ class GitHubIntegration:
 
             if commits_data:
                 latest_sha = commits_data[0]["sha"]
-                logging.info(
-                    {"status": "info", "message": f"Latest commit SHA: {latest_sha}"}
-                )
+                logging.info(f"Latest commit SHA: {latest_sha}")
                 return latest_sha
             else:
-                logging.warning(
-                    {
-                        "status": "warning",
-                        "message": "No commits found in the repository",
-                    }
-                )
+                logging.warning("No commits found in the repository")
                 return "No commits found in the repository"
 
         except Exception as e:
