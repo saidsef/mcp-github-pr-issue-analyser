@@ -33,7 +33,31 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 ## Requirements
 
 - Python 3.12+
-- GitHub Personal Access Token (with `repo` scope)
+- GitHub Personal Access Token (with `repo` scope) **or** a GitHub OAuth App (client ID, secret, and a public base URL)
+
+## Authentication
+
+Two auth modes are supported. The active mode is selected automatically from environment variables.
+
+| Mode | When active | Token used for API calls |
+|------|-------------|--------------------------|
+| **Static token** (default) | `GITHUB_TOKEN` set; no `GITHUB_OAUTH_*` vars | Server's `GITHUB_TOKEN` for all calls |
+| **GitHub OAuth2** | `GITHUB_TOKEN` + all three `GITHUB_OAUTH_*` vars set | Each user's own `gho_*` token |
+
+### Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `GITHUB_TOKEN` | Yes | GitHub PAT with `repo` scope; used as the Bearer token in static-token HTTP mode |
+| `MCP_ENABLE_REMOTE` | No | Any non-empty value enables HTTP mode (required for OAuth2) |
+| `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
+| `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |
+| `GITHUB_OAUTH_BASE_URL` | OAuth2 only | Public base URL of the MCP server (used for the OAuth2 redirect) |
+| `PORT` | No (default `8081`) | HTTP server port |
+| `HOST` | No (default `localhost`) | HTTP server host |
+| `GITHUB_API_TIMEOUT` | No (default `5`) | Timeout in seconds for GitHub API requests |
+
+> To create a GitHub OAuth App, go to **Settings → Developer settings → OAuth Apps → New OAuth App** and set the Authorization callback URL to `<GITHUB_OAUTH_BASE_URL>/auth/callback` (e.g. `https://mcp.example.com/auth/callback`).
 
 ## Architecture Diagram
 
@@ -108,6 +132,17 @@ uvx ./
 ```
 > You can access it via `http` i.e. `http(s)://localhost:8081/mcp`
 > In HTTP mode, clients must authenticate with `Authorization: Bearer <GITHUB_TOKEN>`.
+
+Alternatively, launch MCP in `http` mode with GitHub OAuth2 authentication.
+```sh
+export GITHUB_TOKEN="<github-token>"
+export MCP_ENABLE_REMOTE=true
+export GITHUB_OAUTH_CLIENT_ID="<oauth-app-client-id>"
+export GITHUB_OAUTH_CLIENT_SECRET="<oauth-app-client-secret>"
+export GITHUB_OAUTH_BASE_URL="https://<your-public-host>"
+uvx ./
+```
+> In OAuth2 mode, users authenticate via GitHub's OAuth flow. Each user's own GitHub token is used for API calls.
 
 Alternatively, run via Docker using the published image.
 ```sh
