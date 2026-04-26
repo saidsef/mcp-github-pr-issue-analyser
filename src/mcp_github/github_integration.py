@@ -20,10 +20,10 @@
 from __future__ import annotations
 
 import logging
-import requests
+import httpx
 import traceback
 from os import getenv
-from typing import Annotated, Any, Dict, Optional, Literal, TypedDict
+from typing import Annotated, Any, Literal, TypedDict
 
 from .auth import (
     APIKeyVerifier,
@@ -44,87 +44,101 @@ from .graphql_client import GraphQLClient
 from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
 
 
-# TypedDict definitions for common return types
-class PRContent(TypedDict):
-    """Structure of PR content data."""
-
-    title: str
-    description: str | None
-    author: str
-    created_at: str
-    updated_at: str
-    state: str
-
-
-class CommentData(TypedDict):
-    """Structure of comment data from GitHub API."""
-
-    id: int
-    body: str
-    user: dict[str, Any]
-    created_at: str
-    updated_at: str
+# TypedDict definitions for common return types (PEP 695 type alias syntax)
+type PRContent = TypedDict(
+    "PRContent",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "title": str,
+        "description": str | None,
+        "author": str,
+        "created_at": str,
+        "updated_at": str,
+        "state": str,
+    },
+)
 
 
-class IssueData(TypedDict):
-    """Structure of issue data from GitHub API."""
-
-    id: int
-    number: int
-    title: str
-    body: str | None
-    state: str
-    user: dict[str, Any]
-    created_at: str
-    updated_at: str
-    labels: list[dict[str, Any]]
+type CommentData = TypedDict(
+    "CommentData",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "id": int,
+        "body": str,
+        "user": dict[str, Any],
+        "created_at": str,
+        "updated_at": str,
+    },
+)
 
 
-class ActivityData(TypedDict):
-    """Structure of user activity data."""
-
-    commits: list[dict[str, Any]]
-    prs: list[dict[str, Any]]
-    issues: list[dict[str, Any]]
-
-
-class ActivityResult(TypedDict):
-    """Structure of activity query result."""
-
-    status: str
-    activity: ActivityData
-
-
-class UserSearchResult(TypedDict):
-    """Structure of user search result."""
-
-    login: str
-    name: Optional[str]
-    email: Optional[str]
-    company: Optional[str]
-    location: Optional[str]
-    bio: Optional[str]
-    url: str
-    avatar_url: Optional[str]
-    created_at: str
-    updated_at: str
-    followers: int
-    following: int
-    public_repos: int
-    recent_repos: list[dict[str, Any]]
-    organizations: list[dict[str, Any]]
+type IssueData = TypedDict(
+    "IssueData",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "id": int,
+        "number": int,
+        "title": str,
+        "body": str | None,
+        "state": str,
+        "user": dict[str, Any],
+        "created_at": str,
+        "updated_at": str,
+        "labels": list[dict[str, Any]],
+    },
+)
 
 
-class UserActivityResult(TypedDict):
-    """Structure of user activity query result from GraphQL."""
+type ActivityData = TypedDict(
+    "ActivityData",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "commits": list[dict[str, Any]],
+        "prs": list[dict[str, Any]],
+        "issues": list[dict[str, Any]],
+    },
+)
 
-    username: str
-    date_range: Optional[dict[str, str]]
-    total_contributions: dict[str, int]
-    commits: list[dict[str, Any]]
-    pull_requests: list[dict[str, Any]]
-    issues: list[dict[str, Any]]
-    reviews: list[dict[str, Any]]
+
+type ActivityResult = TypedDict(
+    "ActivityResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "status": str,
+        "activity": ActivityData,
+    },
+)
+
+
+type UserSearchResult = TypedDict(
+    "UserSearchResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "login": str,
+        "name": str | None,
+        "email": str | None,
+        "company": str | None,
+        "location": str | None,
+        "bio": str | None,
+        "url": str,
+        "avatar_url": str | None,
+        "created_at": str,
+        "updated_at": str,
+        "followers": int,
+        "following": int,
+        "public_repos": int,
+        "recent_repos": list[dict[str, Any]],
+        "organizations": list[dict[str, Any]],
+    },
+)
+
+
+type UserActivityResult = TypedDict(
+    "UserActivityResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "username": str,
+        "date_range": dict[str, str] | None,
+        "total_contributions": dict[str, int],
+        "commits": list[dict[str, Any]],
+        "pull_requests": list[dict[str, Any]],
+        "issues": list[dict[str, Any]],
+        "reviews": list[dict[str, Any]],
+    },
+)
 
 
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
@@ -154,7 +168,9 @@ class GitHubIntegration:
 
         # Detect OAuth2 mode first so the token check can be conditional
         self._oauth_mode = bool(
-            GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL
+            GITHUB_OAUTH_CLIENT_ID
+            and GITHUB_OAUTH_CLIENT_SECRET
+            and GITHUB_OAUTH_BASE_URL
         )
 
         # GITHUB_TOKEN is required only in static-token (non-OAuth2) mode
@@ -178,7 +194,7 @@ class GitHubIntegration:
         """Return the token for the current request."""
         return resolve_token(self.github_token, self._oauth_mode)
 
-    def _handle_response_error(self, response: requests.Response, context: str = ""):
+    def _handle_response_error(self, response: httpx.Response, context: str = ""):
         """
         Handle HTTP errors from GitHub API with specific exceptions.
 
@@ -233,7 +249,7 @@ class GitHubIntegration:
             )
         else:
             raise GitHubAPIError(
-                f"GitHub API error: {response.status_code} - {response.reason}",
+                f"GitHub API error: {response.status_code} - {response.reason_phrase}",
                 status_code=response.status_code,
                 response_body=response_body,
             )
@@ -255,21 +271,6 @@ class GitHubIntegration:
         }
         return headers
 
-    def _get_pr_url(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
-        """
-        Construct the GitHub API URL for a specific pull request.
-        Args:
-            repo_owner (str): The owner of the GitHub repository.
-            repo_name (str): The name of the GitHub repository.
-            pr_number (int): The pull request number.
-        Returns:
-            str: The formatted GitHub API URL for the specified pull request.
-        Raises:
-            ValueError: If any of the arguments are empty or if pr_number is not a positive integer.
-        """
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        return url
-
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
         Fetches the diff/patch of a specific pull request from a GitHub repository.
@@ -286,18 +287,17 @@ class GitHubIntegration:
         logging.info(f"Fetching PR diff for {repo_owner}/{repo_name}#{pr_number}")
 
         try:
-            response = requests.get(
+            response = httpx.get(
                 f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch",
                 headers=self._get_headers(),
                 timeout=TIMEOUT,
             )
-            if not response.ok:
-                self._handle_response_error(response, f"PR #{pr_number} diff in {repo_owner}/{repo_name}")
+            response.raise_for_status()
 
             logging.info("Successfully fetched PR diff/patch")
             return response.text
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
     def get_pr_content(
@@ -317,14 +317,13 @@ class GitHubIntegration:
         """
         logging.info(f"Fetching PR content for {repo_owner}/{repo_name}#{pr_number}")
 
-        pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
+        pr_url = (
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+        )
 
         try:
-            response = requests.get(
-                pr_url, headers=self._get_headers(), timeout=TIMEOUT
-            )
-            if not response.ok:
-                self._handle_response_error(response, f"PR #{pr_number} in {repo_owner}/{repo_name}")
+            response = httpx.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
+            response.raise_for_status()
 
             pr_data = response.json()
 
@@ -340,7 +339,7 @@ class GitHubIntegration:
             logging.info("Successfully fetched PR content")
             return pr_info
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
     def add_pr_comments(
@@ -365,19 +364,18 @@ class GitHubIntegration:
         comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{pr_number}/comments"
 
         try:
-            response = requests.post(
+            response = httpx.post(
                 comments_url,
                 headers=self._get_headers(),
                 json={"body": comment},
                 timeout=TIMEOUT,
             )
-            if not response.ok:
-                self._handle_response_error(response, f"PR #{pr_number} comment in {repo_owner}/{repo_name}")
+            response.raise_for_status()
 
             logging.info("Comment added successfully")
             return response.json()
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
     def add_inline_pr_comment(
@@ -412,8 +410,8 @@ class GitHubIntegration:
         review_comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
 
         try:
-            pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
-            pr_response = requests.get(
+            pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+            pr_response = httpx.get(
                 pr_url, headers=self._get_headers(), timeout=TIMEOUT
             )
             pr_response.raise_for_status()
@@ -428,7 +426,7 @@ class GitHubIntegration:
                 "side": "RIGHT",
             }
 
-            response = requests.post(
+            response = httpx.post(
                 review_comments_url,
                 headers=self._get_headers(),
                 json=payload,
@@ -472,10 +470,12 @@ class GitHubIntegration:
         )
 
         # Construct the PR URL
-        pr_url = self._get_pr_url(repo_owner, repo_name, pr_number)
+        pr_url = (
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+        )
         try:
             # Update the PR description
-            response = requests.patch(
+            response = httpx.patch(
                 pr_url,
                 headers=self._get_headers(),
                 json={"title": new_title, "body": new_description},
@@ -521,7 +521,7 @@ class GitHubIntegration:
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
 
         try:
-            response = requests.post(
+            response = httpx.post(
                 pr_url,
                 headers=self._get_headers(),
                 json={
@@ -556,7 +556,7 @@ class GitHubIntegration:
         filtering: Literal["user", "org", "repo", "involves"] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Lists open pull requests or issues for a specified GitHub repository owner.
         Args:
@@ -577,7 +577,7 @@ class GitHubIntegration:
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
-            response = requests.get(
+            response = httpx.get(
                 search_url, headers=self._get_headers(), timeout=TIMEOUT
             )
             response.raise_for_status()
@@ -636,7 +636,7 @@ class GitHubIntegration:
         try:
             # Create the issue
             issue_labels = ["mcp"] if not labels else labels + ["mcp"]
-            response = requests.post(
+            response = httpx.post(
                 issues_url,
                 headers=self._get_headers(),
                 json={"title": title, "body": body, "labels": issue_labels},
@@ -658,10 +658,10 @@ class GitHubIntegration:
         repo_owner: str,
         repo_name: str,
         pr_number: int,
-        commit_title: Optional[str] = None,
-        commit_message: Optional[str] = None,
+        commit_title: str | None = None,
+        commit_message: str | None = None,
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Merges a specific pull request in a GitHub repository using the specified merge method.
         Args:
@@ -682,19 +682,19 @@ class GitHubIntegration:
         merge_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
 
         try:
-            payload: Dict[str, Any] = {"merge_method": merge_method}
+            payload: dict[str, Any] = {"merge_method": merge_method}
             if commit_title is not None:
                 payload["commit_title"] = commit_title
             if commit_message is not None:
                 payload["commit_message"] = commit_message
 
-            response = requests.put(
+            response = httpx.put(
                 merge_url,
                 headers=self._get_headers(),
                 json=payload,
                 timeout=TIMEOUT,
             )
-            if not response.ok:
+            if not response.is_success:
                 self._handle_response_error(
                     response,
                     f"PR #{pr_number} merge in {repo_owner}/{repo_name}",
@@ -705,11 +705,13 @@ class GitHubIntegration:
             return merge_data
 
         except GitHubAPIError as e:
-            github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
+            github_msg = (
+                (e.response_body or {}).get("message", "") if e.response_body else ""
+            )
             detail = github_msg or e.message
             logging.error(f"Error merging PR: {detail}")
             return {"status": "error", "message": detail, "details": e.response_body}
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             logging.error(f"Error merging PR: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
@@ -747,7 +749,7 @@ class GitHubIntegration:
 
         try:
             # Update the issue
-            response = requests.patch(
+            response = httpx.patch(
                 issue_url,
                 headers=self._get_headers(),
                 json={"title": title, "body": body, "labels": labels, "state": state},
@@ -768,8 +770,8 @@ class GitHubIntegration:
         repo_name: str,
         pr_number: int,
         event: Literal["APPROVE", "REQUEST_CHANGES", "COMMENT"],
-        body: Optional[str] = None,
-    ) -> Dict[str, Any]:
+        body: str | None = None,
+    ) -> dict[str, Any]:
         """
         Submits a review for a specific pull request in a GitHub repository.
         Args:
@@ -790,7 +792,7 @@ class GitHubIntegration:
         reviews_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
 
         try:
-            response = requests.post(
+            response = httpx.post(
                 reviews_url,
                 headers=self._get_headers(),
                 json={"body": body, "event": event},
@@ -809,7 +811,7 @@ class GitHubIntegration:
 
     def update_assignees(
         self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Updates the assignees for a specific issue or pull request in a GitHub repository.
         Args:
@@ -830,7 +832,7 @@ class GitHubIntegration:
         issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         try:
             # Update the assignees
-            response = requests.patch(
+            response = httpx.patch(
                 issue_url,
                 headers=self._get_headers(),
                 json={"assignees": assignees},
@@ -862,7 +864,7 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def get_latest_sha(self, repo_owner: str, repo_name: str) -> Optional[str]:
+    def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
         """
         Fetches the SHA of the latest commit in the specified GitHub repository.
         Args:
@@ -881,7 +883,7 @@ class GitHubIntegration:
 
         try:
             # Fetch the latest commit
-            response = requests.get(
+            response = httpx.get(
                 commits_url, headers=self._get_headers(), timeout=TIMEOUT
             )
             response.raise_for_status()
@@ -902,7 +904,7 @@ class GitHubIntegration:
 
     def create_tag(
         self, repo_owner: str, repo_name: str, tag_name: str, message: str
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Creates a new tag in the specified GitHub repository.
         Args:
@@ -926,7 +928,7 @@ class GitHubIntegration:
                 raise ValueError("Failed to fetch the latest commit SHA")
 
             # Create the tag
-            response = requests.post(
+            response = httpx.post(
                 tags_url,
                 headers=self._get_headers(),
                 json={
@@ -958,7 +960,7 @@ class GitHubIntegration:
         prerelease: bool = False,
         generate_release_notes: bool = True,
         make_latest: Literal["true", "false", "legacy"] = "true",
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Creates a new release in the specified GitHub repository.
         Args:
@@ -984,7 +986,7 @@ class GitHubIntegration:
 
         try:
             # Create the release
-            response = requests.post(
+            response = httpx.post(
                 releases_url,
                 headers=self._get_headers(),
                 json={

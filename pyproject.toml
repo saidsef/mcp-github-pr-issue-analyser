@@ -3,13 +3,13 @@ name = "mcp-github-pr-issue-analyser"
 dynamic = ["version"]
 description = "MCP GitHub Issues Create/Update and PR Analyse"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.14"
 authors = [
     { name = "saidsef" }
 ]
 dependencies = [
-    "fastmcp[apps]==3.2.3",
-    "requests==2.33.1",
+    "fastmcp[apps]>=3.2.4",
+    "httpx>=0.28.1",
 ]
 
 [project.scripts]
@@ -32,15 +32,11 @@ fallback_version = "0.0.0"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 
-[tool.mypy]
-python_version = "3.12"
-warn_return_any = true
-warn_unused_ignores = true
-disallow_untyped_defs = true
-disallow_incomplete_defs = true
-warn_redundant_casts = true
-warn_unused_configs = true
-show_error_codes = true
+[tool.pyright]
+pythonVersion = "3.14"
+typeCheckingMode = "basic"
+reportMissingTypeStubs = false
+reportUnknownMemberType = false
 
 [build-system]
 requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=10.0.5"]
@@ -48,6 +44,8 @@ build-backend = "setuptools.build_meta"
 
 [dependency-groups]
 dev = [
-    "ruff>=0.15.10",
-    "uv==0.11.6",
+    "pyright>=1.1.400",
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
+    "uv>=0.11.7",
 ]
