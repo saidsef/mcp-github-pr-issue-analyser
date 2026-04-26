@@ -164,7 +164,7 @@ class PRIssueAnalyser:
             if name.startswith("_"):
                 continue
             method = getattr(methods, name)
-            if inspect.isfunction(method) or inspect.ismethod(method):
+            if inspect.isroutine(method):
                 self.mcp.add_tool(method)
 
     def run(self):
