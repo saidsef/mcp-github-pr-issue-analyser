@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -26,7 +25,7 @@ import logging
 import time
 from os import getenv
 
-from fastmcp.server.auth import TokenVerifier, AccessToken
+from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
@@ -94,7 +93,6 @@ def get_oauth_verifier() -> _PermissiveGitHubProvider:
     Requires GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and
     GITHUB_OAUTH_BASE_URL to be set.
     """
-
     if not all(
         (GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL)
     ):
@@ -120,8 +118,8 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
     cases (stdio mode or API-key mode).
 
     Raises:
-        RuntimeError: In OAuth2 mode when no access token is available in the
-            request context and no GITHUB_TOKEN fallback is configured.
+        RuntimeError: In OAuth2 mode when no access token is available in
+            the request context and no GITHUB_TOKEN fallback is configured.
     """
     if oauth_mode:
         from fastmcp.server.dependencies import get_access_token
@@ -131,6 +129,7 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
             return access_token.token
         if not github_token:
             raise RuntimeError(
-                "OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback"
+                "OAuth2 mode: no access token in request context "
+                "and no GITHUB_TOKEN fallback"
             )
     return github_token or ""

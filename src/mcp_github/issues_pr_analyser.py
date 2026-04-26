@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -19,13 +18,14 @@
 
 from __future__ import annotations
 
-import sys
-import logging
 import inspect
+import logging
+import sys
 import traceback
 from os import getenv
 from pathlib import Path
 from typing import Any
+
 from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
@@ -37,10 +37,11 @@ from fastmcp.server.middleware.caching import (
     ResponseCachingMiddleware,
 )
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
+
 from .auth import (
+    GITHUB_OAUTH_BASE_URL,
     GITHUB_OAUTH_CLIENT_ID,
     GITHUB_OAUTH_CLIENT_SECRET,
-    GITHUB_OAUTH_BASE_URL,
 )
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP

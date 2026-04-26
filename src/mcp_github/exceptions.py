@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -28,6 +27,7 @@ from __future__ import annotations
 
 
 class MCPGitHubError(Exception):
+
     """Base exception for MCP GitHub integration."""
 
     def __init__(self, message: str, code: str = "ERROR"):
@@ -40,6 +40,7 @@ class MCPGitHubError(Exception):
 
 
 class GitHubAPIError(MCPGitHubError):
+
     """GitHub API returned an error."""
 
     def __init__(
@@ -60,6 +61,7 @@ class GitHubAPIError(MCPGitHubError):
 
 
 class GitHubAuthError(GitHubAPIError):
+
     """
     Authentication failed (401).
 
@@ -78,6 +80,7 @@ class GitHubAuthError(GitHubAPIError):
 
 
 class GitHubRateLimitError(GitHubAPIError):
+
     """Rate limit exceeded (403)."""
 
     def __init__(
@@ -93,6 +96,7 @@ class GitHubRateLimitError(GitHubAPIError):
 
 
 class GitHubNotFoundError(GitHubAPIError):
+
     """Resource not found (404)."""
 
     def __init__(self, message: str, response_body: dict | None = None):
@@ -103,6 +107,7 @@ class GitHubNotFoundError(GitHubAPIError):
 
 
 class GitHubValidationError(GitHubAPIError):
+
     """Validation failed (422)."""
 
     def __init__(
@@ -117,6 +122,7 @@ class GitHubValidationError(GitHubAPIError):
 
 
 class IPInfoError(MCPGitHubError):
+
     """IP info service error."""
 
     def __init__(self, message: str, url: str | None = None):

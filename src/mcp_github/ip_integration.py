@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -20,9 +19,10 @@
 from __future__ import annotations
 
 import logging
-import httpx
 from os import getenv
 from typing import Any
+
+import httpx
 
 from .exceptions import IPInfoError
 

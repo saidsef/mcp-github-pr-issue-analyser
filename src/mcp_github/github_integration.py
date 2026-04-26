@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -20,29 +19,29 @@
 from __future__ import annotations
 
 import logging
-import httpx
 import traceback
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
 
+import httpx
+
 from .auth import (
+    GITHUB_OAUTH_BASE_URL,
+    GITHUB_OAUTH_CLIENT_ID,
+    GITHUB_OAUTH_CLIENT_SECRET,
     APIKeyVerifier,
     get_oauth_verifier,
     resolve_token,
-    GITHUB_OAUTH_CLIENT_ID,
-    GITHUB_OAUTH_CLIENT_SECRET,
-    GITHUB_OAUTH_BASE_URL,
 )
 from .exceptions import (
     GitHubAPIError,
     GitHubAuthError,
-    GitHubRateLimitError,
     GitHubNotFoundError,
+    GitHubRateLimitError,
     GitHubValidationError,
 )
 from .graphql_client import GraphQLClient
 from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
-
 
 # TypedDict definitions for common return types (PEP 695 type alias syntax)
 type PRContent = TypedDict(
@@ -209,12 +208,12 @@ class GitHubIntegration:
             GitHubValidationError: For 422 responses
             GitHubAPIError: For other error responses
         """
+        status = response.status_code
+
         try:
             response_body = response.json()
         except Exception:
             response_body = None
-
-        status = response.status_code
 
         if status == 401:
             raise GitHubAuthError(
@@ -223,19 +222,7 @@ class GitHubIntegration:
             )
 
         if status == 403:
-            error_text = response.text.lower()
-            if "rate limit" in error_text or "api rate limit" in error_text:
-                reset_header = response.headers.get("X-RateLimit-Reset")
-                raise GitHubRateLimitError(
-                    "GitHub API rate limit exceeded. Please wait before making more requests.",
-                    response_body=response_body,
-                    reset_timestamp=int(reset_header) if reset_header else None,
-                )
-            raise GitHubAPIError(
-                "Permission denied. Check your token permissions.",
-                status_code=403,
-                response_body=response_body,
-            )
+            self._raise_for_403(response, response_body)
 
         if status == 404:
             raise GitHubNotFoundError(
@@ -248,13 +235,27 @@ class GitHubIntegration:
                 "Validation failed. Check your input data.", response_body=response_body
             )
 
-        message = "GitHub API error"
-        if context:
-            message = f"{message} ({context})"
+        message = f"GitHub API error ({context})" if context else "GitHub API error"
         raise GitHubAPIError(
             f"{message}: {status} - {response.reason_phrase}",
             status_code=status,
             response_body=response_body,
+        )
+
+    def _raise_for_403(self, response: httpx.Response, response_body: dict | None):
+        """Handle 403 response — distinguishes rate limit from permission error."""
+        error_text = response.text.lower()
+        if "rate limit" not in error_text and "api rate limit" not in error_text:
+            raise GitHubAPIError(
+                "Permission denied. Check your token permissions.",
+                status_code=403,
+                response_body=response_body,
+            )
+        reset_header = response.headers.get("X-RateLimit-Reset")
+        raise GitHubRateLimitError(
+            "GitHub API rate limit exceeded. Please wait before making more requests.",
+            response_body=response_body,
+            reset_timestamp=int(reset_header) if reset_header else None,
         )
 
     def _get_headers(self):
