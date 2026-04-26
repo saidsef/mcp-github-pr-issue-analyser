@@ -35,6 +35,7 @@ IPIntegration -> src/mcp_github/ip_integration.py
 **Skills directory**: `src/mcp_github/skills/` contains markdown skill files exposed as MCP resources via `SkillsDirectoryProvider` under the `skill://` URI scheme. Each subdirectory (e.g. `pr-analysis/`, `issue-management/`) contains a `SKILL.md` with workflow guidance for the LLM.
 
 **Exposed MCP Tools** (from `GitHubIntegration`):
+
 - `get_pr_diff` — raw patch/diff from patch-diff.githubusercontent.com
 - `get_pr_content` — PR metadata (title, description, author, state)
 - `update_pr_description` — PATCH PR body
@@ -58,6 +59,7 @@ From `IPIntegration`: `get_ipv4_info`, `get_ipv6_info`
 **IPv6 socket override**: `IPIntegration.get_ipv6_info()` uses `httpx.HTTPTransport(local_address="::")` to force IPv6 socket family. Do not refactor this into a persistent setting.
 
 **GraphQL Schema Notes** (from recent fixes):
+
 - `CreatedCommitContribution`: has `commitCount`, `url`, `occurredAt` — NOT `commit { message }`
 - `CreatedPullRequestReviewContribution`: has `pullRequestReview { state url }` — NOT `review`
 
@@ -138,6 +140,7 @@ No tests currently exist. When adding tests, place them in `tests/` with `test_*
 ## CI/CD
 
 GitHub Actions in `.github/workflows/`:
+
 - `ci.yml` — CodeQL, dependency review, Docker build/push to `ghcr.io/saidsef/mcp-github-pr-issue-analyser` (multi-platform: amd64, arm64), Trivy scan
 - `tag_release.yml` — Automated semantic versioning and releases on push to main
 
