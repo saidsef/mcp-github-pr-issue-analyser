@@ -29,13 +29,6 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
-from fastmcp.server.middleware.caching import (
-    CallToolSettings,
-    ListResourcesSettings,
-    ListToolsSettings,
-    ReadResourceSettings,
-    ResponseCachingMiddleware,
-)
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
 
 from .auth import (
@@ -142,14 +135,6 @@ class PRIssueAnalyser:
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
-        self.mcp.add_middleware(
-            ResponseCachingMiddleware(
-                list_tools_settings=ListToolsSettings(ttl=0),  # type: ignore[reportArgumentType]
-                list_resources_settings=ListResourcesSettings(ttl=0),  # type: ignore[reportArgumentType]
-                read_resource_settings=ReadResourceSettings(ttl=0),  # type: ignore[reportArgumentType]
-                call_tool_settings=CallToolSettings(enabled=False),
-            )
-        )
         logging.info("MCP Server initialised")
 
         self._register_tools()
