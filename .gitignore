@@ -5,3 +5,4 @@ build/
 src/mcp_github_pr_issue_analyser.egg-info/
 **/mcp_github_pr_issue_analyser.egg-info/
 src/mcp_github/_version.py
+CLAUDE.md
