@@ -60,10 +60,12 @@ class GitHubAPIError(MCPGitHubError):
 
 
 class GitHubAuthError(GitHubAPIError):
-    """Authentication failed (401).
+    """
+    Authentication failed (401).
 
     Inherits from GitHubAPIError because a 401 response is still an HTTP API
-    response — it follows the same status_code + response_body pattern."""
+    response -- it follows the same status_code + response_body pattern.
+    """
 
     def __init__(
         self,
@@ -94,6 +96,7 @@ class GitHubNotFoundError(GitHubAPIError):
     """Resource not found (404)."""
 
     def __init__(self, message: str, response_body: dict | None = None):
+        """Initialize GitHubNotFoundError."""
         super().__init__(
             message, status_code=404, response_body=response_body, code="NOT_FOUND"
         )
@@ -117,5 +120,6 @@ class IPInfoError(MCPGitHubError):
     """IP info service error."""
 
     def __init__(self, message: str, url: str | None = None):
+        """Initialize IPInfoError."""
         super().__init__(message, code="IP_INFO_ERROR")
         self.url = url

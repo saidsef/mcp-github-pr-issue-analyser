@@ -199,7 +199,7 @@ class GitHubIntegration:
         Handle HTTP errors from GitHub API with specific exceptions.
 
         Args:
-            response: The requests Response object
+            response: The httpx Response object
             context: Additional context for error messages
 
         Raises:
@@ -214,17 +214,15 @@ class GitHubIntegration:
         except Exception:
             response_body = None
 
-        message = "GitHub API error"
-        if context:
-            message = f"{message} ({context})"
+        status = response.status_code
 
-        if response.status_code == 401:
+        if status == 401:
             raise GitHubAuthError(
                 "Authentication failed. Check your GitHub token.",
                 response_body=response_body,
             )
-        elif response.status_code == 403:
-            # Check if it's a rate limit error
+
+        if status == 403:
             error_text = response.text.lower()
             if "rate limit" in error_text or "api rate limit" in error_text:
                 reset_header = response.headers.get("X-RateLimit-Reset")
@@ -238,21 +236,26 @@ class GitHubIntegration:
                 status_code=403,
                 response_body=response_body,
             )
-        elif response.status_code == 404:
+
+        if status == 404:
             raise GitHubNotFoundError(
                 f"{context}: Resource not found" if context else "Resource not found",
                 response_body=response_body,
             )
-        elif response.status_code == 422:
+
+        if status == 422:
             raise GitHubValidationError(
                 "Validation failed. Check your input data.", response_body=response_body
             )
-        else:
-            raise GitHubAPIError(
-                f"GitHub API error: {response.status_code} - {response.reason_phrase}",
-                status_code=response.status_code,
-                response_body=response_body,
-            )
+
+        message = "GitHub API error"
+        if context:
+            message = f"{message} ({context})"
+        raise GitHubAPIError(
+            f"{message}: {status} - {response.reason_phrase}",
+            status_code=status,
+            response_body=response_body,
+        )
 
     def _get_headers(self):
         """
