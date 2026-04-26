@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -20,7 +19,6 @@
 """GraphQL query definitions for GitHub API v4."""
 
 from __future__ import annotations
-
 
 # Query to search for a GitHub user by username
 SEARCH_USER_QUERY = """
