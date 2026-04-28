@@ -85,25 +85,6 @@ type IssueData = TypedDict(
 )
 
 
-type ActivityData = TypedDict(
-    "ActivityData",
-    {  # pyright: ignore[reportInvalidTypeForm]
-        "commits": list[dict[str, Any]],
-        "prs": list[dict[str, Any]],
-        "issues": list[dict[str, Any]],
-    },
-)
-
-
-type ActivityResult = TypedDict(
-    "ActivityResult",
-    {  # pyright: ignore[reportInvalidTypeForm]
-        "status": str,
-        "activity": ActivityData,
-    },
-)
-
-
 type UserSearchResult = TypedDict(
     "UserSearchResult",
     {  # pyright: ignore[reportInvalidTypeForm]
@@ -143,8 +124,7 @@ type UserActivityResult = TypedDict(
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
 
-# Set up logging for the application
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 
@@ -163,14 +143,9 @@ class GitHubIntegration:
             Raises ValueError if neither OAuth2 mode is active nor GITHUB_TOKEN is set.
         """
         self.github_token = GITHUB_TOKEN
-        self.base_url = "https://api.github.com"
 
         # Detect OAuth2 mode first so the token check can be conditional
-        self._oauth_mode = bool(
-            GITHUB_OAUTH_CLIENT_ID
-            and GITHUB_OAUTH_CLIENT_SECRET
-            and GITHUB_OAUTH_BASE_URL
-        )
+        self._oauth_mode = bool(GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL)
 
         # GITHUB_TOKEN is required only in static-token (non-OAuth2) mode
         if not self._oauth_mode and not self.github_token:
@@ -216,10 +191,12 @@ class GitHubIntegration:
             response_body = None
 
         if status == 401:
-            raise GitHubAuthError(
-                "Authentication failed. Check your GitHub token.",
-                response_body=response_body,
-            )
+            msg = "Authentication failed. Check your GitHub token."
+            if self._oauth_mode:
+                msg += (
+                    " OAuth token may be expired or revoked — use grant_type=refresh_token against /token to refresh."
+                )
+            raise GitHubAuthError(msg, response_body=response_body)
 
         if status == 403:
             self._raise_for_403(response, response_body)
@@ -231,9 +208,7 @@ class GitHubIntegration:
             )
 
         if status == 422:
-            raise GitHubValidationError(
-                "Validation failed. Check your input data.", response_body=response_body
-            )
+            raise GitHubValidationError("Validation failed. Check your input data.", response_body=response_body)
 
         message = f"GitHub API error ({context})" if context else "GitHub API error"
         raise GitHubAPIError(
@@ -304,9 +279,7 @@ class GitHubIntegration:
         except httpx.HTTPError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
-    def get_pr_content(
-        self, repo_owner: str, repo_name: str, pr_number: int
-    ) -> PRContent:
+    def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
         """
         Fetches the content/details of a specific pull request from a GitHub repository.
         Args:
@@ -321,9 +294,7 @@ class GitHubIntegration:
         """
         logging.info(f"Fetching PR content for {repo_owner}/{repo_name}#{pr_number}")
 
-        pr_url = (
-            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        )
+        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
 
         try:
             response = httpx.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
@@ -346,9 +317,7 @@ class GitHubIntegration:
         except httpx.HTTPError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
-    def add_pr_comments(
-        self, repo_owner: str, repo_name: str, pr_number: int, comment: str
-    ) -> CommentData:
+    def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
         """
         Adds a comment to a specific pull request on GitHub.
         Args:
@@ -406,18 +375,14 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(
-            f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}"
-        )
+        logging.info(f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}")
 
         # Construct the review comments URL
         review_comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
 
         try:
             pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-            pr_response = httpx.get(
-                pr_url, headers=self._get_headers(), timeout=TIMEOUT
-            )
+            pr_response = httpx.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
             pr_response.raise_for_status()
             pr_data = pr_response.json()
             commit_id = pr_data["head"]["sha"]
@@ -469,14 +434,10 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the update fails due to an exception (e.g., network issues, invalid credentials, or API errors).
         """
-        logging.info(
-            f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}"
-        )
+        logging.info(f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}")
 
         # Construct the PR URL
-        pr_url = (
-            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        )
+        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
         try:
             # Update the PR description
             response = httpx.patch(
@@ -581,9 +542,7 @@ class GitHubIntegration:
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
-            response = httpx.get(
-                search_url, headers=self._get_headers(), timeout=TIMEOUT
-            )
+            response = httpx.get(search_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             pr_data = response.json()
             open_prs = {
@@ -597,9 +556,7 @@ class GitHubIntegration:
                         "created_at": item["created_at"],
                         "updated_at": item["updated_at"],
                         "author": item["user"]["login"],
-                        "label_names": [
-                            label["name"] for label in item.get("labels", [])
-                        ],
+                        "label_names": [label["name"] for label in item.get("labels", [])],
                         "is_draft": item.get("draft", False),
                     }
                     for item in pr_data["items"]
@@ -614,9 +571,7 @@ class GitHubIntegration:
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
-    def create_issue(
-        self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]
-    ) -> IssueData:
+    def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> IssueData:
         """
         Creates a new issue in the specified GitHub repository.
         If the issue is created successfully, a link to the issue must be appended in the PR's description.
@@ -709,10 +664,11 @@ class GitHubIntegration:
             return merge_data
 
         except GitHubAPIError as e:
-            github_msg = (
-                (e.response_body or {}).get("message", "") if e.response_body else ""
-            )
-            detail = github_msg or e.message
+            if isinstance(e, GitHubAuthError):
+                detail = e.message
+            else:
+                github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
+                detail = github_msg or e.message
             logging.error(f"Error merging PR: {detail}")
             return {"status": "error", "message": detail, "details": e.response_body}
         except httpx.HTTPError as e:
@@ -829,9 +785,7 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(
-            f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}"
-        )
+        logging.info(f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}")
         # Construct the issue URL
         issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         try:
@@ -887,9 +841,7 @@ class GitHubIntegration:
 
         try:
             # Fetch the latest commit
-            response = httpx.get(
-                commits_url, headers=self._get_headers(), timeout=TIMEOUT
-            )
+            response = httpx.get(commits_url, headers=self._get_headers(), timeout=TIMEOUT)
             response.raise_for_status()
             commits_data = response.json()
 
@@ -906,9 +858,7 @@ class GitHubIntegration:
             traceback.print_exc()
             return str(e)
 
-    def create_tag(
-        self, repo_owner: str, repo_name: str, tag_name: str, message: str
-    ) -> dict[str, Any]:
+    def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
         """
         Creates a new tag in the specified GitHub repository.
         Args:
@@ -1141,10 +1091,7 @@ class GitHubIntegration:
             GitHubNotFoundError: If the user, org, or repo is not found
             GitHubAPIError: If the API request fails
         """
-        logging.info(
-            f"Fetching user activities for {username} "
-            f"(org={org}, repo={repo}, since={since}, until={until})"
-        )
+        logging.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
 
         try:
             variables: dict[str, Any] = {"username": username}
@@ -1207,9 +1154,7 @@ class GitHubIntegration:
                     )
 
             # Process PR contributions
-            for repo_contrib in collection.get(
-                "pullRequestContributionsByRepository", []
-            ):
+            for repo_contrib in collection.get("pullRequestContributionsByRepository", []):
                 repo_info = repo_contrib["repository"]
                 owner = repo_info["owner"]["login"]
                 repo_name = repo_info["name"]
@@ -1266,9 +1211,7 @@ class GitHubIntegration:
                     )
 
             # Process review contributions
-            for repo_contrib in collection.get(
-                "pullRequestReviewContributionsByRepository", []
-            ):
+            for repo_contrib in collection.get("pullRequestReviewContributionsByRepository", []):
                 repo_info = repo_contrib["repository"]
                 owner = repo_info["owner"]["login"]
                 repo_name = repo_info["name"]
