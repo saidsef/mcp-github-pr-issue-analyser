@@ -157,7 +157,7 @@ class GitHubIntegration:
         # GraphQL client: token overridden per-call in OAuth2 mode via _resolve_token()
         self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT)
 
-        logging.info("GitHub Integration Initialised")
+        logger.info("GitHub Integration Initialised")
 
     @property
     def _oauth_verifier(self):
@@ -235,6 +235,11 @@ class GitHubIntegration:
             reset_timestamp=int(reset_header) if reset_header else None,
         )
 
+    def _raise_for_status(self, response: httpx.Response, context: str = "") -> None:
+        """Raise the appropriate exception if the response indicates an error."""
+        if not response.is_success:
+            self._handle_response_error(response, context)
+
     def _get_headers(self):
         """
         Constructs the HTTP headers required for GitHub API requests, including the authorization token.
@@ -265,7 +270,7 @@ class GitHubIntegration:
             GitHubNotFoundError: If the PR is not found.
             GitHubAPIError: If the API request fails.
         """
-        logging.info(f"Fetching PR diff for {repo_owner}/{repo_name}#{pr_number}")
+        logger.info(f"Fetching PR diff for {repo_owner}/{repo_name}#{pr_number}")
 
         try:
             response = httpx.get(
@@ -273,12 +278,12 @@ class GitHubIntegration:
                 headers=self._get_headers(),
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response)
 
-            logging.info("Successfully fetched PR diff/patch")
+            logger.info("Successfully fetched PR diff/patch")
             return response.text
 
-        except httpx.HTTPError as e:
+        except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
     def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
@@ -294,13 +299,13 @@ class GitHubIntegration:
             GitHubNotFoundError: If the PR is not found.
             GitHubAPIError: If the API request fails.
         """
-        logging.info(f"Fetching PR content for {repo_owner}/{repo_name}#{pr_number}")
+        logger.info(f"Fetching PR content for {repo_owner}/{repo_name}#{pr_number}")
 
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
 
         try:
             response = httpx.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
-            response.raise_for_status()
+            self._raise_for_status(response)
 
             pr_data = response.json()
 
@@ -313,10 +318,10 @@ class GitHubIntegration:
                 "state": pr_data["state"],
             }
 
-            logging.info("Successfully fetched PR content")
+            logger.info("Successfully fetched PR content")
             return pr_info
 
-        except httpx.HTTPError as e:
+        except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
     def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
@@ -334,7 +339,7 @@ class GitHubIntegration:
             GitHubValidationError: If the comment data is invalid.
             GitHubAPIError: If the API request fails.
         """
-        logging.info(f"Adding comment to PR {repo_owner}/{repo_name}#{pr_number}")
+        logger.info(f"Adding comment to PR {repo_owner}/{repo_name}#{pr_number}")
 
         comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{pr_number}/comments"
 
@@ -345,12 +350,12 @@ class GitHubIntegration:
                 json={"body": comment},
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response)
 
-            logging.info("Comment added successfully")
+            logger.info("Comment added successfully")
             return response.json()
 
-        except httpx.HTTPError as e:
+        except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
     def add_inline_pr_comment(
@@ -377,7 +382,7 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}")
+        logger.info(f"Adding inline review comment to PR {repo_owner}/{repo_name}#{pr_number} on {path}:{line}")
 
         # Construct the review comments URL
         review_comments_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
@@ -385,7 +390,7 @@ class GitHubIntegration:
         try:
             pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
             pr_response = httpx.get(pr_url, headers=self._get_headers(), timeout=TIMEOUT)
-            pr_response.raise_for_status()
+            self._raise_for_status(pr_response, f"PR #{pr_number}")
             pr_data = pr_response.json()
             commit_id = pr_data["head"]["sha"]
 
@@ -403,14 +408,16 @@ class GitHubIntegration:
                 json=payload,
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"inline comment on {path}:{line}")
             comment_data = response.json()
 
-            logging.info("Inline review comment added successfully")
+            logger.info("Inline review comment added successfully")
             return comment_data
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error adding inline review comment: {str(e)}")
+            logger.error(f"Error adding inline review comment: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -436,7 +443,7 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the update fails due to an exception (e.g., network issues, invalid credentials, or API errors).
         """
-        logging.info(f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}")
+        logger.info(f"Updating PR description for {repo_owner}/{repo_name}#{pr_number}")
 
         # Construct the PR URL
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
@@ -448,13 +455,15 @@ class GitHubIntegration:
                 json={"title": new_title, "body": new_description},
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"PR #{pr_number}")
             pr_data = response.json()
 
-            logging.info("PR description updated successfully")
+            logger.info("PR description updated successfully")
             return pr_data
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error updating PR description: {str(e)}")
+            logger.error(f"Error updating PR description: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -483,7 +492,7 @@ class GitHubIntegration:
         Error Handling:
             Logs errors and prints the traceback if the pull request creation fails, returning None.
         """
-        logging.info(f"Creating PR in {repo_owner}/{repo_name}")
+        logger.info(f"Creating PR in {repo_owner}/{repo_name}")
 
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
 
@@ -500,10 +509,10 @@ class GitHubIntegration:
                 },
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"create PR {head} -> {base}")
             pr_data = response.json()
 
-            logging.info("PR created successfully")
+            logger.info("PR created successfully")
             return {
                 "pr_url": pr_data.get("html_url"),
                 "pr_number": pr_data.get("number"),
@@ -511,8 +520,10 @@ class GitHubIntegration:
                 "title": pr_data.get("title"),
             }
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error creating PR: {str(e)}")
+            logger.error(f"Error creating PR: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -538,14 +549,14 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Listing open {issue}s for {repo_owner}")
+        logger.info(f"Listing open {issue}s for {repo_owner}")
 
         # Construct the search URL
         search_url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
 
         try:
             response = httpx.get(search_url, headers=self._get_headers(), timeout=TIMEOUT)
-            response.raise_for_status()
+            self._raise_for_status(response, f"list open {issue}s for {repo_owner}")
             pr_data = response.json()
             open_prs = {
                 "total": pr_data["total_count"],
@@ -565,11 +576,13 @@ class GitHubIntegration:
                 ],
             }
 
-            logging.info(f"Open {issue}s listed successfully")
+            logger.info(f"Open {issue}s listed successfully")
             return open_prs
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error listing open {issue}s: {str(e)}")
+            logger.error(f"Error listing open {issue}s: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -589,7 +602,7 @@ class GitHubIntegration:
         Error Handling:
             Logs errors and prints the traceback if the issue creation fails, returning None.
         """
-        logging.info(f"Creating issue in {repo_owner}/{repo_name}")
+        logger.info(f"Creating issue in {repo_owner}/{repo_name}")
 
         # Construct the issues URL
         issues_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
@@ -603,14 +616,16 @@ class GitHubIntegration:
                 json={"title": title, "body": body, "labels": issue_labels},
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"create issue in {repo_owner}/{repo_name}")
             issue_data = response.json()
 
-            logging.info("Issue created successfully")
+            logger.info("Issue created successfully")
             return issue_data
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error creating issue: {str(e)}")
+            logger.error(f"Error creating issue: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -637,7 +652,7 @@ class GitHubIntegration:
         Error Handling:
             Logs errors and prints the traceback if the merge fails, returning None.
         """
-        logging.info(f"Merging PR {repo_owner}/{repo_name}#{pr_number}")
+        logger.info(f"Merging PR {repo_owner}/{repo_name}#{pr_number}")
 
         # Construct the merge URL
         merge_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
@@ -662,7 +677,7 @@ class GitHubIntegration:
                 )
             merge_data = response.json()
 
-            logging.info("PR merged successfully")
+            logger.info("PR merged successfully")
             return merge_data
 
         except GitHubAPIError as e:
@@ -671,10 +686,10 @@ class GitHubIntegration:
             else:
                 github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
                 detail = github_msg or e.message
-            logging.error(f"Error merging PR: {detail}")
+            logger.error(f"Error merging PR: {detail}")
             return {"status": "error", "message": detail, "details": e.response_body}
         except httpx.HTTPError as e:
-            logging.error(f"Error merging PR: {str(e)}")
+            logger.error(f"Error merging PR: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -704,7 +719,7 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Updating issue {issue_number} in {repo_owner}/{repo_name}")
+        logger.info(f"Updating issue {issue_number} in {repo_owner}/{repo_name}")
 
         # Construct the issue URL
         issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
@@ -717,12 +732,14 @@ class GitHubIntegration:
                 json={"title": title, "body": body, "labels": labels, "state": state},
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"issue #{issue_number}")
             issue_data = response.json()
-            logging.info("Issue updated successfully")
+            logger.info("Issue updated successfully")
             return issue_data
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error updating issue: {str(e)}")
+            logger.error(f"Error updating issue: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -748,7 +765,7 @@ class GitHubIntegration:
         Error Handling:
             Logs errors and prints the traceback if the review submission fails, returning None.
         """
-        logging.info(f"Submitting review for PR {repo_owner}/{repo_name}#{pr_number}")
+        logger.info(f"Submitting review for PR {repo_owner}/{repo_name}#{pr_number}")
 
         # Construct the reviews URL
         reviews_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
@@ -760,14 +777,16 @@ class GitHubIntegration:
                 json={"body": body, "event": event},
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"PR #{pr_number} review")
             review_data = response.json()
 
-            logging.info("Review submitted successfully")
+            logger.info("Review submitted successfully")
             return review_data
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error submitting review: {str(e)}")
+            logger.error(f"Error submitting review: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -787,7 +806,7 @@ class GitHubIntegration:
         Error Handling:
             Logs an error message and prints the traceback if the request fails or an exception is raised.
         """
-        logging.info(f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}")
+        logger.info(f"Updating assignees for issue/PR {repo_owner}/{repo_name}#{issue_number}")
         # Construct the issue URL
         issue_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         try:
@@ -798,7 +817,7 @@ class GitHubIntegration:
                 json={"assignees": assignees},
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"issue/PR #{issue_number} assignees")
             issue_data = response.json()
 
             # GitHub silently drops assignees it cannot apply (non-collaborators, unknown users).
@@ -808,7 +827,7 @@ class GitHubIntegration:
             missing = requested - actual_logins
 
             if missing:
-                logging.warning(f"Some assignees were not applied: {missing}")
+                logger.warning(f"Some assignees were not applied: {missing}")
                 return {
                     "status": "partial",
                     "message": f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}",
@@ -817,10 +836,12 @@ class GitHubIntegration:
                     "issue": issue_data,
                 }
 
-            logging.info("Assignees updated successfully")
+            logger.info("Assignees updated successfully")
             return issue_data
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error updating assignees: {str(e)}")
+            logger.error(f"Error updating assignees: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -836,7 +857,7 @@ class GitHubIntegration:
             Logs errors and warnings if the request fails, the response is invalid, or no commits are found.
             Returns None in case of exceptions or if the repository has no commits.
         """
-        logging.info(f"Fetching latest commit SHA for {repo_owner}/{repo_name}")
+        logger.info(f"Fetching latest commit SHA for {repo_owner}/{repo_name}")
 
         # Construct the commits URL
         commits_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
@@ -844,19 +865,21 @@ class GitHubIntegration:
         try:
             # Fetch the latest commit
             response = httpx.get(commits_url, headers=self._get_headers(), timeout=TIMEOUT)
-            response.raise_for_status()
+            self._raise_for_status(response, f"commits for {repo_owner}/{repo_name}")
             commits_data = response.json()
 
             if commits_data:
                 latest_sha = commits_data[0]["sha"]
-                logging.info(f"Latest commit SHA: {latest_sha}")
+                logger.info(f"Latest commit SHA: {latest_sha}")
                 return latest_sha
             else:
-                logging.warning("No commits found in the repository")
+                logger.warning("No commits found in the repository")
                 return "No commits found in the repository"
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error fetching latest commit SHA: {str(e)}")
+            logger.error(f"Error fetching latest commit SHA: {str(e)}")
             traceback.print_exc()
             return str(e)
 
@@ -874,7 +897,7 @@ class GitHubIntegration:
         Error Handling:
             Logs errors and prints the traceback if fetching the latest commit SHA fails or if the GitHub API request fails.
         """
-        logging.info(f"Creating tag {tag_name} in {repo_owner}/{repo_name}")
+        logger.info(f"Creating tag {tag_name} in {repo_owner}/{repo_name}")
         # Construct the tags URL
         tags_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs"
         try:
@@ -894,14 +917,16 @@ class GitHubIntegration:
                 },
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"create tag {tag_name}")
             tag_data = response.json()
 
-            logging.info("Tag created successfully")
+            logger.info("Tag created successfully")
             return tag_data
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error creating tag: {str(e)}")
+            logger.error(f"Error creating tag: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -935,7 +960,7 @@ class GitHubIntegration:
         Error Handling:
             Logs errors and prints the traceback if the release creation fails, returning None.
         """
-        logging.info(f"Creating release {release_name} in {repo_owner}/{repo_name}")
+        logger.info(f"Creating release {release_name} in {repo_owner}/{repo_name}")
 
         # Construct the releases URL
         releases_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
@@ -956,14 +981,16 @@ class GitHubIntegration:
                 },
                 timeout=TIMEOUT,
             )
-            response.raise_for_status()
+            self._raise_for_status(response, f"create release {release_name}")
             release_data = response.json()
 
-            logging.info("Release created successfully")
+            logger.info("Release created successfully")
             return release_data
 
+        except GitHubAuthError:
+            raise
         except Exception as e:
-            logging.error(f"Error creating release: {str(e)}")
+            logger.error(f"Error creating release: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
@@ -996,7 +1023,7 @@ class GitHubIntegration:
             GitHubNotFoundError: If the user is not found
             GitHubAPIError: If the API request fails
         """
-        logging.info(f"Searching for GitHub user: {username}")
+        logger.info(f"Searching for GitHub user: {username}")
 
         try:
             result = self.graphql.execute_query(
@@ -1044,13 +1071,13 @@ class GitHubIntegration:
                 ],
             }
 
-            logging.info(f"Successfully found user: {username}")
+            logger.info(f"Successfully found user: {username}")
             return user_info
 
         except GitHubNotFoundError:
             raise
         except Exception as e:
-            logging.error(f"Error searching for user {username}: {e}")
+            logger.error(f"Error searching for user {username}: {e}")
             raise GitHubAPIError(f"Failed to search for user: {e}") from e
 
     def get_user_activities(
@@ -1093,7 +1120,7 @@ class GitHubIntegration:
             GitHubNotFoundError: If the user, org, or repo is not found
             GitHubAPIError: If the API request fails
         """
-        logging.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
+        logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
 
         try:
             variables: dict[str, Any] = {"username": username}
@@ -1257,7 +1284,7 @@ class GitHubIntegration:
                 "reviews": reviews,
             }
 
-            logging.info(
+            logger.info(
                 f"Successfully fetched activities: {len(commits)} commits, "
                 f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews"
             )
@@ -1266,5 +1293,5 @@ class GitHubIntegration:
         except GitHubNotFoundError:
             raise
         except Exception as e:
-            logging.error(f"Error fetching user activities for {username}: {e}")
+            logger.error(f"Error fetching user activities for {username}: {e}")
             raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e

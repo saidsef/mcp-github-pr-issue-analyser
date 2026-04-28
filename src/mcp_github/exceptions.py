@@ -30,6 +30,7 @@ class MCPGitHubError(Exception):
     """Base exception for MCP GitHub integration."""
 
     def __init__(self, message: str, code: str = "ERROR"):
+        """Initialize MCPGitHubError."""
         super().__init__(message)
         self.message = message
         self.code = code
@@ -75,6 +76,7 @@ class GitHubAuthError(GitHubAPIError):
         message: str = "Authentication failed. Check your GitHub token.",
         response_body: dict | None = None,
     ):
+        """Initialize GitHubAuthError."""
         super().__init__(message, status_code=401, response_body=response_body, code="AUTH_FAILED")
 
 
@@ -87,6 +89,7 @@ class GitHubRateLimitError(GitHubAPIError):
         response_body: dict | None = None,
         reset_timestamp: int | None = None,
     ):
+        """Initialize GitHubRateLimitError."""
         super().__init__(message, status_code=403, response_body=response_body, code="RATE_LIMITED")
         self.reset_timestamp = reset_timestamp
 

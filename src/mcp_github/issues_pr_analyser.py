@@ -130,7 +130,7 @@ class PRIssueAnalyser:
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
-        logging.info("MCP Server initialised")
+        logger.info("MCP Server initialised")
 
         self._register_tools()
 
@@ -153,7 +153,7 @@ class PRIssueAnalyser:
         Uses HTTP transport if MCP_ENABLE_REMOTE is set, otherwise uses stdio.
         """
         try:
-            logging.info("Running MCP Server for GitHub PR Analysis.")
+            logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
                 self.mcp.run(
                     transport="http",
@@ -163,7 +163,7 @@ class PRIssueAnalyser:
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
-            logging.error(f"Fatal Error in MCP Server: {str(e)}")
+            logger.error(f"Fatal Error in MCP Server: {str(e)}")
             traceback.print_exc(file=sys.stderr)
 
 
@@ -181,7 +181,7 @@ def main():
         review = PRIssueAnalyser()
         review.run()
     except Exception as e:
-        logging.error(f"Error running main analyzer: {str(e)}")
+        logger.error(f"Error running main analyzer: {str(e)}")
         traceback.print_exc()
         sys.exit(1)
 
