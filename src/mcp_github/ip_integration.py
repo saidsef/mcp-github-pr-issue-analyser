@@ -26,17 +26,14 @@ import httpx
 
 from .exceptions import IPInfoError
 
-# Set up logging for the application
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
 
 
 class IPIntegration:
-    def __init__(
-        self, ipv4_api_url: str | None = None, ipv6_api_url: str | None = None
-    ) -> None:
+    def __init__(self, ipv4_api_url: str | None = None, ipv6_api_url: str | None = None) -> None:
         """
         Initialise the IPIntegration class.
 
@@ -73,16 +70,12 @@ class IPIntegration:
         try:
             ipv4 = self.get_info(self.ipv4_api_url)
             if not ipv4:
-                raise IPInfoError(
-                    "No IPv4 information returned from API", url=self.ipv4_api_url
-                )
+                raise IPInfoError("No IPv4 information returned from API", url=self.ipv4_api_url)
             return ipv4
         except IPInfoError:
             raise
         except Exception as e:
-            raise IPInfoError(
-                f"Error fetching IPv4 info: {e}", url=self.ipv4_api_url
-            ) from e
+            raise IPInfoError(f"Error fetching IPv4 info: {e}", url=self.ipv4_api_url) from e
 
     def get_ipv6_info(self) -> dict[str, Any]:
         """
@@ -97,20 +90,14 @@ class IPIntegration:
             Also logs the full traceback at the debug level for troubleshooting.
         """
         try:
-            with httpx.Client(
-                transport=httpx.HTTPTransport(local_address="::")
-            ) as ipv6_client:
+            with httpx.Client(transport=httpx.HTTPTransport(local_address="::")) as ipv6_client:
                 response = ipv6_client.get(self.ipv6_api_url, timeout=TIMEOUT)
                 response.raise_for_status()
                 ipv6 = response.json()
             if not ipv6:
-                raise IPInfoError(
-                    "No IPv6 information returned from API", url=self.ipv6_api_url
-                )
+                raise IPInfoError("No IPv6 information returned from API", url=self.ipv6_api_url)
             return ipv6
         except IPInfoError:
             raise
         except Exception as e:
-            raise IPInfoError(
-                f"Error fetching IPv6 info: {e}", url=self.ipv6_api_url
-            ) from e
+            raise IPInfoError(f"Error fetching IPv6 info: {e}", url=self.ipv6_api_url) from e

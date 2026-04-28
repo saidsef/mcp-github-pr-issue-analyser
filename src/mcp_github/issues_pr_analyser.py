@@ -39,8 +39,7 @@ from .auth import (
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
 
-# Set up logging for the application
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 PORT = int(getenv("PORT", 8081))
@@ -86,11 +85,7 @@ class PRIssueAnalyser:
         def _select_auth():
             if not MCP_ENABLE_REMOTE:
                 return None
-            if (
-                GITHUB_OAUTH_CLIENT_ID
-                and GITHUB_OAUTH_CLIENT_SECRET
-                and GITHUB_OAUTH_BASE_URL
-            ):
+            if GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL:
                 return self.gi._oauth_verifier  # OAuth2 path
             return self.gi.verifier  # Default: API key / Bearer token
 
