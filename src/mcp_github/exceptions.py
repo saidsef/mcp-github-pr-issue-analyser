@@ -59,12 +59,16 @@ class GitHubAPIError(MCPGitHubError):
 
 
 class GitHubAuthError(GitHubAPIError):
+    # fmt: off
+
     """
     Authentication failed (401).
 
     Inherits from GitHubAPIError because a 401 response is still an HTTP API
     response -- it follows the same status_code + response_body pattern.
     """
+
+    # fmt: on
 
     def __init__(
         self,
@@ -99,6 +103,7 @@ class GitHubValidationError(GitHubAPIError):
     """Validation failed (422)."""
 
     def __init__(self, message: str = "Validation failed.", response_body: dict | None = None):
+        """Initialize GitHubValidationError."""
         super().__init__(
             message,
             status_code=422,
