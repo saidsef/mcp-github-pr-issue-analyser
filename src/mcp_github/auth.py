@@ -23,15 +23,12 @@ from __future__ import annotations
 import hmac
 import logging
 import time
-from datetime import datetime
 from os import getenv
 
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
-
-from .exceptions import GitHubAuthError
 
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
@@ -119,7 +116,6 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
     cases (stdio mode or API-key mode).
 
     Raises:
-        GitHubAuthError: In OAuth2 mode when the access token has expired.
         RuntimeError: In OAuth2 mode when no access token is available in
             the request context and no GITHUB_TOKEN fallback is configured.
     """
@@ -128,14 +124,6 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
 
         access_token = get_access_token()
         if access_token is not None:
-            if access_token.expires_at is not None:
-                exp = access_token.expires_at
-                ts = exp.timestamp() if isinstance(exp, datetime) else float(exp)
-                if ts < time.time():
-                    raise GitHubAuthError(
-                        "OAuth access token has expired. Use grant_type=refresh_token "
-                        "against this server's /token endpoint to obtain a new one."
-                    )
             return access_token.token
         if not github_token:
             raise RuntimeError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")

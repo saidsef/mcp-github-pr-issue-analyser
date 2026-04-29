@@ -169,10 +169,10 @@ class GitHubIntegration:
         return resolve_token(self.github_token, self._oauth_mode)
 
     def _auth_error_msg(self) -> str:
-        """Return a 401 error message, appending a refresh hint in OAuth mode."""
+        """Return a 401 error message, appending a re-auth hint in OAuth mode."""
         msg = "Authentication failed. Check your GitHub token."
         if self._oauth_mode:
-            msg += " OAuth token may be expired or revoked — use grant_type=refresh_token against /token to refresh."
+            msg += " The GitHub OAuth authorization may have been revoked — please re-authenticate via the OAuth flow."
         return msg
 
     def _handle_response_error(self, response: httpx.Response, context: str = ""):

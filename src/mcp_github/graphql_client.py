@@ -98,7 +98,7 @@ class GraphQLClient:
             if response.status_code == 401:
                 raise GitHubAuthError(
                     "Authentication failed. Check your GitHub token."
-                    " If using OAuth, use grant_type=refresh_token against /token to refresh.",
+                    " If using OAuth, the authorization may have been revoked — please re-authenticate.",
                     response_body=response.json() if response.text else None,
                 )
             elif response.status_code == 403:
@@ -160,7 +160,7 @@ class GraphQLClient:
             raise GitHubRateLimitError(error_message)
         elif "FORBIDDEN" in error_type or "UNAUTHORIZED" in error_type:
             raise GitHubAuthError(
-                error_message + " If using OAuth, use grant_type=refresh_token against /token to refresh."
+                error_message + " If using OAuth, the authorization may have been revoked — please re-authenticate."
             )
 
         raise GitHubAPIError(
