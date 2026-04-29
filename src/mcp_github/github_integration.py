@@ -640,6 +640,7 @@ class GitHubIntegration:
     ) -> dict[str, Any]:
         """
         Merges a specific pull request in a GitHub repository using the specified merge method.
+        If merge pr is fails use update_pr_branch to update the branch with the latest changes from the base branch and try merging again after CI finishes.
         Args:
             repo_owner (str): The owner of the repository.
             repo_name (str): The name of the repository.
@@ -690,6 +691,54 @@ class GitHubIntegration:
             return {"status": "error", "message": detail, "details": e.response_body}
         except httpx.HTTPError as e:
             logger.error(f"Error merging PR: {str(e)}")
+            traceback.print_exc()
+            return {"status": "error", "message": str(e)}
+
+    def update_pr_branch(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        expected_head_sha: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Updates the pull request branch with the latest upstream changes by merging the base branch into the PR branch.
+
+        Args:
+            repo_owner: The owner of the repository.
+            repo_name: The name of the repository.
+            pr_number: The pull request number.
+            expected_head_sha: Optional SHA of the PR branch head. If provided, GitHub will only update the
+                branch if the current head SHA matches this value.
+        Returns:
+            dict[str, Any]: The GitHub API response for the branch update request.
+        Raises:
+            GitHubAuthError: If authentication fails.
+            GitHubAPIError: If the request fails.
+        """
+        logger.info(f"Updating PR branch for {repo_owner}/{repo_name}#{pr_number}")
+
+        pr_url = (
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
+        )
+
+        try:
+            payload: dict[str, Any] = {}
+            if expected_head_sha is not None:
+                payload["expected_head_sha"] = expected_head_sha
+            response = httpx.put(
+                pr_url,
+                headers=self._get_headers(),
+                json=payload,
+                timeout=TIMEOUT,
+            )
+            self._raise_for_status(response, f"PR #{pr_number} update branch")
+            logger.info("PR branch update requested successfully")
+            return response.json()
+        except GitHubAuthError:
+            raise
+        except Exception as e:
+            logger.error(f"Error updating PR branch: {str(e)}")
             traceback.print_exc()
             return {"status": "error", "message": str(e)}
 
