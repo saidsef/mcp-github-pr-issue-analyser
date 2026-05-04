@@ -8,7 +8,7 @@ authors = [
     { name = "saidsef" }
 ]
 dependencies = [
-    "fastmcp[apps]==3.2.3",
+    "fastmcp[apps]==3.2.4",
     "requests==2.33.1",
 ]
 
