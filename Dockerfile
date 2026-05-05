@@ -27,7 +27,7 @@ RUN apk add -U curl py3-uv && \
     uv pip install --system -v -r /tmp/requirements.txt && \
     uv pip install --system --no-deps .
 
-RUN --mount=type=bind,from=deno-src,source=/usr/bin,target=/deno-bin \
+RUN --mount=type=bind,from=deno-src,source=/bin,target=/deno-bin \
     if [ "$TARGETARCH" != "arm64" ]; then cp /deno-bin/deno /usr/bin/deno; fi
 
 EXPOSE ${PORT}/tcp
