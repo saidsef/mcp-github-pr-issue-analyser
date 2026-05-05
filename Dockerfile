@@ -12,6 +12,8 @@ ENV MCP_ENABLE_REMOTE="true"
 ENV PORT=${PORT}
 ENV FASTMCP_HOME=/tmp
 
+COPY --from=denoland/deno:alpine /usr/bin/deno /usr/bin/deno
+
 WORKDIR /app
 COPY pyproject.toml requirements.txt /app/
 COPY src src
