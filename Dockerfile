@@ -1,6 +1,6 @@
-FROM --platform=linux/amd64 denoland/deno:alpine AS deno-src
+FROM denoland/deno:alpine AS deno-src
 
-FROM docker.io/python:3.14-alpine
+FROM docker.io/python:3.14-slim
 
 LABEL org.opencontainers.image.description="MCP for GitHub PR, Issues, Tags and Releases"
 LABEL org.opencontainers.image.authors="Said Sef"
@@ -9,7 +9,6 @@ LABEL org.opencontainers.image.source="https://github.com/saidsef/mcp-github-pr-
 LABEL org.opencontainers.image.licenses="Apache License, Version 2.0"
 
 ARG PORT=8081
-ARG TARGETARCH
 
 ENV MCP_ENABLE_REMOTE="true"
 ENV PORT=${PORT}
@@ -22,13 +21,16 @@ COPY src src
 ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-RUN apk add -U curl py3-uv && \
+RUN apt-get update && \
+    apt-get install -y curl && \
+    rm -rf /var/lib/apt/lists/* && \
+    pip install --no-cache-dir uv && \
     grep -v "^-e " requirements.txt > /tmp/requirements.txt && \
     uv pip install --system -v -r /tmp/requirements.txt && \
     uv pip install --system --no-deps .
 
 RUN --mount=type=bind,from=deno-src,source=/bin,target=/deno-bin \
-    if [ "$TARGETARCH" != "arm64" ]; then cp /deno-bin/deno /usr/bin/deno; fi
+    cp /deno-bin/deno /usr/bin/deno
 
 EXPOSE ${PORT}/tcp
 
