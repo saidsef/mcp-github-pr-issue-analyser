@@ -1,3 +1,5 @@
+FROM --platform=linux/amd64 denoland/deno:alpine AS deno-src
+
 FROM docker.io/python:3.14-alpine
 
 LABEL org.opencontainers.image.description="MCP for GitHub PR, Issues, Tags and Releases"
@@ -20,16 +22,13 @@ COPY src src
 ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
-RUN apk add -U curl unzip py3-uv && \
-    if [ "$TARGETARCH" = "amd64" ]; then \
-        curl -fsSL "https://github.com/denoland/deno/releases/download/v2.3.3/deno-x86_64-unknown-linux-musl.zip" \
-            -o /tmp/deno.zip && \
-        unzip /tmp/deno.zip -d /usr/bin && \
-        rm /tmp/deno.zip; \
-    fi && \
+RUN apk add -U curl py3-uv && \
     grep -v "^-e " requirements.txt > /tmp/requirements.txt && \
     uv pip install --system -v -r /tmp/requirements.txt && \
     uv pip install --system --no-deps .
+
+RUN --mount=type=bind,from=deno-src,source=/usr/bin,target=/deno-bin \
+    if [ "$TARGETARCH" != "arm64" ]; then cp /deno-bin/deno /usr/bin/deno; fi
 
 EXPOSE ${PORT}/tcp
 
