@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -19,30 +18,28 @@
 
 from __future__ import annotations
 
-import sys
-import logging
 import inspect
+import logging
+import sys
 import traceback
 from os import getenv
 from pathlib import Path
 from typing import Any
+
 from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
-from fastmcp.server.middleware.caching import (
-    CallToolSettings,
-    ListResourcesSettings,
-    ListToolsSettings,
-    ReadResourceSettings,
-    ResponseCachingMiddleware,
-)
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
-from .auth import GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL
+
+from .auth import (
+    GITHUB_OAUTH_BASE_URL,
+    GITHUB_OAUTH_CLIENT_ID,
+    GITHUB_OAUTH_CLIENT_SECRET,
+)
 from .github_integration import GitHubIntegration as GI
 from .ip_integration import IPIntegration as IP
 
-# Set up logging for the application
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 PORT = int(getenv("PORT", 8081))
@@ -133,15 +130,7 @@ class PRIssueAnalyser:
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
-        self.mcp.add_middleware(
-            ResponseCachingMiddleware(
-                list_tools_settings=ListToolsSettings(ttl=None),
-                list_resources_settings=ListResourcesSettings(ttl=None),
-                read_resource_settings=ReadResourceSettings(ttl=None),
-                call_tool_settings=CallToolSettings(enabled=False),
-            )
-        )
-        logging.info("MCP Server initialised")
+        logger.info("MCP Server initialised")
 
         self._register_tools()
 
@@ -155,7 +144,7 @@ class PRIssueAnalyser:
             if name.startswith("_"):
                 continue
             method = getattr(methods, name)
-            if inspect.isfunction(method) or inspect.ismethod(method):
+            if inspect.isroutine(method):
                 self.mcp.add_tool(method)
 
     def run(self):
@@ -164,7 +153,7 @@ class PRIssueAnalyser:
         Uses HTTP transport if MCP_ENABLE_REMOTE is set, otherwise uses stdio.
         """
         try:
-            logging.info("Running MCP Server for GitHub PR Analysis.")
+            logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
                 self.mcp.run(
                     transport="http",
@@ -174,7 +163,7 @@ class PRIssueAnalyser:
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
-            logging.error(f"Fatal Error in MCP Server: {str(e)}")
+            logger.error(f"Fatal Error in MCP Server: {str(e)}")
             traceback.print_exc(file=sys.stderr)
 
 
@@ -192,7 +181,7 @@ def main():
         review = PRIssueAnalyser()
         review.run()
     except Exception as e:
-        logging.error(f"Error running main analyzer: {str(e)}")
+        logger.error(f"Error running main analyzer: {str(e)}")
         traceback.print_exc()
         sys.exit(1)
 

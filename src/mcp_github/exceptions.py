@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -26,13 +25,12 @@ GitHub API and IP info services in a structured way.
 
 from __future__ import annotations
 
-from typing import Optional
-
 
 class MCPGitHubError(Exception):
     """Base exception for MCP GitHub integration."""
 
     def __init__(self, message: str, code: str = "ERROR"):
+        """Initialize MCPGitHubError."""
         super().__init__(message)
         self.message = message
         self.code = code
@@ -47,8 +45,8 @@ class GitHubAPIError(MCPGitHubError):
     def __init__(
         self,
         message: str,
-        status_code: Optional[int] = None,
-        response_body: Optional[dict] = None,
+        status_code: int | None = None,
+        response_body: dict | None = None,
         code: str = "GITHUB_API_ERROR",
     ):
         super().__init__(message, code)
@@ -62,16 +60,24 @@ class GitHubAPIError(MCPGitHubError):
 
 
 class GitHubAuthError(GitHubAPIError):
-    """Authentication failed (401)."""
+    # fmt: off
+
+    """
+    Authentication failed (401).
+
+    Inherits from GitHubAPIError because a 401 response is still an HTTP API
+    response -- it follows the same status_code + response_body pattern.
+    """
+
+    # fmt: on
 
     def __init__(
         self,
         message: str = "Authentication failed. Check your GitHub token.",
-        response_body: Optional[dict] = None,
+        response_body: dict | None = None,
     ):
-        super().__init__(
-            message, status_code=401, response_body=response_body, code="AUTH_FAILED"
-        )
+        """Initialize GitHubAuthError."""
+        super().__init__(message, status_code=401, response_body=response_body, code="AUTH_FAILED")
 
 
 class GitHubRateLimitError(GitHubAPIError):
@@ -80,30 +86,27 @@ class GitHubRateLimitError(GitHubAPIError):
     def __init__(
         self,
         message: str = "GitHub API rate limit exceeded.",
-        response_body: Optional[dict] = None,
-        reset_timestamp: Optional[int] = None,
+        response_body: dict | None = None,
+        reset_timestamp: int | None = None,
     ):
-        super().__init__(
-            message, status_code=403, response_body=response_body, code="RATE_LIMITED"
-        )
+        """Initialize GitHubRateLimitError."""
+        super().__init__(message, status_code=403, response_body=response_body, code="RATE_LIMITED")
         self.reset_timestamp = reset_timestamp
 
 
 class GitHubNotFoundError(GitHubAPIError):
     """Resource not found (404)."""
 
-    def __init__(self, message: str, response_body: Optional[dict] = None):
-        super().__init__(
-            message, status_code=404, response_body=response_body, code="NOT_FOUND"
-        )
+    def __init__(self, message: str, response_body: dict | None = None):
+        """Initialize GitHubNotFoundError."""
+        super().__init__(message, status_code=404, response_body=response_body, code="NOT_FOUND")
 
 
 class GitHubValidationError(GitHubAPIError):
     """Validation failed (422)."""
 
-    def __init__(
-        self, message: str = "Validation failed.", response_body: Optional[dict] = None
-    ):
+    def __init__(self, message: str = "Validation failed.", response_body: dict | None = None):
+        """Initialize GitHubValidationError."""
         super().__init__(
             message,
             status_code=422,
@@ -115,6 +118,7 @@ class GitHubValidationError(GitHubAPIError):
 class IPInfoError(MCPGitHubError):
     """IP info service error."""
 
-    def __init__(self, message: str, url: Optional[str] = None):
+    def __init__(self, message: str, url: str | None = None):
+        """Initialize IPInfoError."""
         super().__init__(message, code="IP_INFO_ERROR")
         self.url = url

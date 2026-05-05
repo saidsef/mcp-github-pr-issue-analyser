@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -19,40 +18,32 @@
 
 from __future__ import annotations
 
-import socket
 import logging
-import requests
-import requests.packages.urllib3.util.connection as urllib3_connection
 from os import getenv
-from typing import Dict, Any
+from typing import Any
+
+import httpx
 
 from .exceptions import IPInfoError
 
-# Set up logging for the application
-logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
 
 
 class IPIntegration:
-    def __init__(self, ipv4_api_url: str = None, ipv6_api_url: str = None) -> None:
+    def __init__(self, ipv4_api_url: str | None = None, ipv6_api_url: str | None = None) -> None:
         """
         Initialise the IPIntegration class.
 
         :param ipv4_api_url: Optional custom API URL for IPv4 information.
         :param ipv6_api_url: Optional custom API URL for IPv6 information.
         """
-        self.ipv4_api_url = None
-        self.ipv6_api_url = None
-        if ipv4_api_url is None or ipv6_api_url is None:
-            self.ipv4_api_url = "https://ipinfo.io/json"
-            self.ipv6_api_url = "https://v6.ipinfo.io/json"
-        else:
-            self.ipv4_api_url = ipv4_api_url
-            self.ipv6_api_url = ipv6_api_url
+        self.ipv4_api_url = ipv4_api_url or "https://ipinfo.io/json"
+        self.ipv6_api_url = ipv6_api_url or "https://v6.ipinfo.io/json"
 
-    def get_info(self, url: str) -> Dict[str, Any]:
+    def get_info(self, url: str) -> dict[str, Any]:
         """
         Fetches information from the specified URL using an HTTP GET request.
         Args:
@@ -65,15 +56,13 @@ class IPIntegration:
         """
 
         try:
-            response = requests.get(url, timeout=TIMEOUT)
+            response = httpx.get(url, timeout=TIMEOUT)
             response.raise_for_status()
             return response.json()
-        except requests.HTTPError as e:
+        except httpx.HTTPError as e:
             raise IPInfoError(f"HTTP error from IP info service: {e}", url=url) from e
-        except requests.RequestException as e:
-            raise IPInfoError(f"Failed to fetch IP info: {e}", url=url) from e
 
-    def get_ipv4_info(self) -> Dict[str, Any]:
+    def get_ipv4_info(self) -> dict[str, Any]:
         """
         Get information about an IPv4 address.
         :return: A dictionary containing the IPv4 information.
@@ -81,18 +70,14 @@ class IPIntegration:
         try:
             ipv4 = self.get_info(self.ipv4_api_url)
             if not ipv4:
-                raise IPInfoError(
-                    "No IPv4 information returned from API", url=self.ipv4_api_url
-                )
+                raise IPInfoError("No IPv4 information returned from API", url=self.ipv4_api_url)
             return ipv4
         except IPInfoError:
             raise
         except Exception as e:
-            raise IPInfoError(
-                f"Error fetching IPv4 info: {e}", url=self.ipv4_api_url
-            ) from e
+            raise IPInfoError(f"Error fetching IPv4 info: {e}", url=self.ipv4_api_url) from e
 
-    def get_ipv6_info(self) -> Dict[str, Any]:
+    def get_ipv6_info(self) -> dict[str, Any]:
         """
         Retrieves IPv6 information from a specified API endpoint.
         This method temporarily overrides the `allowed_gai_family` method to force the use of IPv6 when making network requests.
@@ -105,16 +90,14 @@ class IPIntegration:
             Also logs the full traceback at the debug level for troubleshooting.
         """
         try:
-            urllib3_connection.allowed_gai_family = lambda: socket.AF_INET6
-            ipv6 = self.get_info(self.ipv6_api_url)
+            with httpx.Client(transport=httpx.HTTPTransport(local_address="::")) as ipv6_client:
+                response = ipv6_client.get(self.ipv6_api_url, timeout=TIMEOUT)
+                response.raise_for_status()
+                ipv6 = response.json()
             if not ipv6:
-                raise IPInfoError(
-                    "No IPv6 information returned from API", url=self.ipv6_api_url
-                )
+                raise IPInfoError("No IPv6 information returned from API", url=self.ipv6_api_url)
             return ipv6
         except IPInfoError:
             raise
         except Exception as e:
-            raise IPInfoError(
-                f"Error fetching IPv6 info: {e}", url=self.ipv6_api_url
-            ) from e
+            raise IPInfoError(f"Error fetching IPv6 info: {e}", url=self.ipv6_api_url) from e

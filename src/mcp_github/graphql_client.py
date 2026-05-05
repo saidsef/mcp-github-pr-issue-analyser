@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 
 # /*
 #  * Copyright Said Sef
@@ -22,14 +21,15 @@
 from __future__ import annotations
 
 import logging
-import requests
-from typing import Any, Optional
+from typing import Any
+
+import httpx
 
 from .exceptions import (
     GitHubAPIError,
     GitHubAuthError,
-    GitHubRateLimitError,
     GitHubNotFoundError,
+    GitHubRateLimitError,
 )
 
 logger = logging.getLogger(__name__)
@@ -50,8 +50,8 @@ class GraphQLClient:
         """
         self.token = token
         self.timeout = timeout
-        self.session = requests.Session()
-        self.session.headers.update(
+        self.client = httpx.Client(timeout=httpx.Timeout(self.timeout))
+        self.client.headers.update(
             {
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/json",
@@ -61,8 +61,8 @@ class GraphQLClient:
     def execute_query(
         self,
         query: str,
-        variables: Optional[dict[str, Any]] = None,
-        token: Optional[str] = None,
+        variables: dict[str, Any] | None = None,
+        token: str | None = None,
     ) -> dict[str, Any]:
         """
         Execute a GraphQL query against the GitHub API.
@@ -88,17 +88,17 @@ class GraphQLClient:
 
         try:
             logger.debug(f"Executing GraphQL query with variables: {variables}")
-            response = self.session.post(
+            response = self.client.post(
                 self.GRAPHQL_URL,
                 json=payload,
                 headers=per_call_headers,
-                timeout=self.timeout,
             )
 
             # Handle HTTP errors
             if response.status_code == 401:
                 raise GitHubAuthError(
-                    "Authentication failed. Check your GitHub token.",
+                    "Authentication failed. Check your GitHub token."
+                    " If using OAuth, the authorization may have been revoked — please re-authenticate.",
                     response_body=response.json() if response.text else None,
                 )
             elif response.status_code == 403:
@@ -114,9 +114,9 @@ class GraphQLClient:
                     "Resource not found",
                     response_body=response.json() if response.text else None,
                 )
-            elif not response.ok:
+            elif response.status_code >= 400:
                 raise GitHubAPIError(
-                    f"GraphQL request failed: {response.status_code} - {response.reason}",
+                    f"GraphQL request failed: {response.status_code} - {response.reason_phrase}",
                     status_code=response.status_code,
                     response_body=response.json() if response.text else None,
                 )
@@ -130,7 +130,7 @@ class GraphQLClient:
 
             return data.get("data", {})
 
-        except requests.RequestException as e:
+        except httpx.HTTPError as e:
             raise GitHubAPIError(f"GraphQL request failed: {e}") from e
 
     def _handle_graphql_errors(self, errors: list[dict[str, Any]]) -> None:
@@ -158,8 +158,10 @@ class GraphQLClient:
             raise GitHubNotFoundError(error_message)
         elif "RATE_LIMITED" in error_type:
             raise GitHubRateLimitError(error_message)
-        elif "FORBIDDEN" in error_type:
-            raise GitHubAuthError(error_message)
+        elif "FORBIDDEN" in error_type or "UNAUTHORIZED" in error_type:
+            raise GitHubAuthError(
+                error_message + " If using OAuth, the authorization may have been revoked — please re-authenticate."
+            )
 
         raise GitHubAPIError(
             f"GraphQL error: {error_message}",
