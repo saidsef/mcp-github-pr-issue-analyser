@@ -1,5 +1,3 @@
-FROM denoland/deno:alpine AS deno-src
-
 FROM docker.io/python:3.14-slim
 
 LABEL org.opencontainers.image.description="MCP for GitHub PR, Issues, Tags and Releases"
@@ -22,15 +20,22 @@ ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
 ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
 
 RUN apt-get update && \
-    apt-get install -y curl && \
+    apt-get install -y --no-install-recommends curl unzip ca-certificates && \
+    ARCH=$(uname -m) && \
+    case "$ARCH" in \
+      x86_64)  DENO_ARCH="x86_64-unknown-linux-gnu" ;; \
+      aarch64) DENO_ARCH="aarch64-unknown-linux-gnu" ;; \
+      *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -fsSL "https://github.com/denoland/deno/releases/latest/download/deno-${DENO_ARCH}.zip" -o /tmp/deno.zip && \
+    unzip /tmp/deno.zip -d /usr/bin && \
+    chmod +x /usr/bin/deno && \
+    rm /tmp/deno.zip && \
     rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir uv && \
     grep -v "^-e " requirements.txt > /tmp/requirements.txt && \
     uv pip install --system -v -r /tmp/requirements.txt && \
     uv pip install --system --no-deps .
-
-RUN --mount=type=bind,from=deno-src,source=/bin,target=/deno-bin \
-    cp /deno-bin/deno /usr/bin/deno
 
 EXPOSE ${PORT}/tcp
 
