@@ -1,10 +1,6 @@
-# MCP for GitHub PR, Issues, Tags and Releases
+# MCP for GitHub PR, Issues, Tags and Releases [![CI](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml) [![Tag and Release](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml) [![Maintainability](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser/maintainability.svg)](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser)
 
 The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
-
-<a href="https://glama.ai/mcp/servers/@saidsef/mcp-github-pr-issue-analyser">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@saidsef/mcp-github-pr-issue-analyser/badge" alt="GitHub PR Issue Analyser MCP server" />
-</a>
 
 This MCP application serves as a bridge between LLMs and GitHub's repository management features, offering automated analysis of pull requests and comprehensive issue management. It provides a robust set of tools to fetch PR details, create issues, and update issues directly from your desktop LLM. The application is designed with modularity in mind, supporting extensibility via the MCP tool interface and seamless integration with existing workflows.
 
