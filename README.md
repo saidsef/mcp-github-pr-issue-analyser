@@ -71,31 +71,18 @@ Two auth modes are supported. The active mode is selected automatically from env
                                               | (stdio/http)
                                               v
                                      +------------------------+
-                                     |      Auth Layer        |
-                                     |   (auth.py)            |
-                                     |                        |
-                                     | stdio : no auth        |
-                                     | http  : APIKeyVerifier |
-                                     | oauth : GitHub OAuth2  |
-                                     |   (DCR + token proxy)  |
-                                     +------------------------+
-                                              |
-                              +--------------+---------------+
-                              | (token store)                |
-                              v                              v
-                   +------------------+          +--------------------+
-                   |   MemoryStore    |          |    RedisStore      |
-                   | (default, in-    |          | (REDIS_HOST_PORT   |
-                   |  process)        |          |  set; plaintext or |
-                   +------------------+          |  TLS via rediss://) |
-                                                 +--------------------+
-                                                          |
-                                                          v
-                                                    +----------+
-                                                    |  Redis   |
-                                                    +----------+
-
-                                              |
+                                     |      Auth Layer        +-->+------------------------+
+                                     |   (auth.py)            |   | OAuth Token Store      |
+                                     |                        |   | MemoryStore (default)  |
+                                     | stdio : no auth        |   | RedisStore             |
+                                     | http  : APIKeyVerifier |   |   (REDIS_HOST_PORT set)|
+                                     | oauth : GitHub OAuth2  |   |   redis:// / rediss:// |
+                                     |   (DCR + token proxy)  |   +------------------------+
+                                     +------------------------+             |
+                                              |                             v
+                                              |                       +----------+
+                                              |                       |  Redis   |
+                                              |                       +----------+
                                               v
 +--------------------+              +------------------------+
 |                    |              |    PRIssueAnalyser     |
