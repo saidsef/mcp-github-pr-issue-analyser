@@ -62,8 +62,9 @@ class APIKeyVerifier(TokenVerifier):
 
 
 class _PermissiveGitHubProvider(GitHubProvider):
-    """
-    GitHubProvider that accepts the upstream client_id without prior DCR.
+
+    """GitHubProvider that accepts the upstream client_id without prior DCR.
+
     Claude.ai and similar MCP clients skip Dynamic Client Registration and
     send the GitHub OAuth App's client_id directly in /authorize requests.
     On first use, this subclass auto-registers that client_id in the proxy's
@@ -150,9 +151,12 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
     per-request context. Falls back to the static github_token in all other
     cases (stdio mode or API-key mode).
 
-    Raises:
-        RuntimeError: In OAuth2 mode when no access token is available in
-            the request context and no GITHUB_TOKEN fallback is configured.
+    Raises
+    ------
+    RuntimeError
+        In OAuth2 mode when no access token is available in
+        the request context and no GITHUB_TOKEN fallback is configured.
+
     """
     if oauth_mode:
         access_token = get_access_token()
