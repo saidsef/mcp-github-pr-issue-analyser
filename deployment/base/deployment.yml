@@ -48,12 +48,6 @@ spec:
               name: redis-config
               key: host-port
               optional: true
-        - name: REDIS_HOST_DB
-          valueFrom:
-            configMapKeyRef:
-              name: redis-config
-              key: db
-              optional: true
         - name: REDIS_PASSWORD
           valueFrom:
             secretKeyRef:

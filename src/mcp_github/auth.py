@@ -38,12 +38,6 @@ GITHUB_OAUTH_BASE_URL = getenv("GITHUB_OAUTH_BASE_URL")
 REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD")
 
-_redis_db_raw = getenv("REDIS_HOST_DB", "0")
-try:
-    REDIS_HOST_DB = int(_redis_db_raw)
-except ValueError as exc:
-    raise ValueError(f"REDIS_HOST_DB must be an integer (0-15), got: {_redis_db_raw!r}") from exc
-
 
 class APIKeyVerifier(TokenVerifier):
     """Verifies requests using a static GitHub personal access token."""
@@ -106,7 +100,8 @@ def build_token_store():
     REDIS_HOST_PORT accepts either a bare host:port or a full URI:
       redis://[:<password>@]<host>:<port>[/<db>]   — plaintext
       rediss://[:<password>@]<host>:<port>[/<db>]  — TLS
-    REDIS_HOST_DB and REDIS_PASSWORD are used as fallbacks when not present in the URI.
+    REDIS_PASSWORD is used as a fallback when not embedded in the URI.
+    The database defaults to 0 when not specified in the URI.
     """
     if REDIS_HOST_PORT:
         from key_value.aio.stores.redis import RedisStore
@@ -118,7 +113,7 @@ def build_token_store():
         host = parsed.hostname or "localhost"
         port = parsed.port or 6379
         _db_path = parsed.path.lstrip("/")
-        db = int(_db_path) if _db_path.isdigit() else REDIS_HOST_DB
+        db = int(_db_path) if _db_path.isdigit() else 0
         password = parsed.password or REDIS_PASSWORD or None
 
         client = AsyncRedis(host=host, port=port, db=db, password=password, ssl=ssl, decode_responses=True)
