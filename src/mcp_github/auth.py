@@ -57,8 +57,8 @@ class APIKeyVerifier(TokenVerifier):
 
 
 class _PermissiveGitHubProvider(GitHubProvider):
-    """GitHubProvider that accepts the upstream client_id without prior DCR.
-
+    """
+    GitHubProvider that accepts the upstream client_id without prior DCR.
     Claude.ai and similar MCP clients skip Dynamic Client Registration and
     send the GitHub OAuth App's client_id directly in /authorize requests.
     On first use, this subclass auto-registers that client_id in the proxy's
@@ -90,8 +90,8 @@ class _PermissiveGitHubProvider(GitHubProvider):
 
 
 def build_token_store():
-    """Return a token store for OAuth state — Redis when REDIS_HOST_PORT is set, otherwise in-memory.
-
+    """
+    Return a token store for OAuth state — Redis when REDIS_HOST_PORT is set, otherwise in-memory.
     Neither backend writes to disk, satisfying the security requirement of keeping tokens
     out of the filesystem (especially important in read-only K8s pod environments).
     """
@@ -109,8 +109,8 @@ def build_token_store():
 
 
 def get_oauth_verifier() -> _PermissiveGitHubProvider:
-    """Return a PermissiveGitHubProvider instance for OAuth2 authentication.
-
+    """
+    Return a PermissiveGitHubProvider instance for OAuth2 authentication.
     Requires GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and
     GITHUB_OAUTH_BASE_URL to be set.
     """
@@ -131,8 +131,8 @@ def get_oauth_verifier() -> _PermissiveGitHubProvider:
 
 
 def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
-    """Return the token to use for the current request.
-
+    """
+    Return the token to use for the current request.
     In OAuth2 mode, reads the authenticated user's token from FastMCP's
     per-request context. Falls back to the static github_token in all other
     cases (stdio mode or API-key mode).
