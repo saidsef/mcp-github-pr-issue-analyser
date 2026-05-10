@@ -33,6 +33,8 @@ from pydantic import AnyUrl
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
 GITHUB_OAUTH_BASE_URL = getenv("GITHUB_OAUTH_BASE_URL")
+REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
+REDIS_HOST_DB = int(getenv("REDIS_HOST_DB", "0"))
 
 
 class APIKeyVerifier(TokenVerifier):
@@ -87,6 +89,25 @@ class _PermissiveGitHubProvider(GitHubProvider):
         return None
 
 
+def build_token_store():
+    """Return a token store for OAuth state — Redis when REDIS_HOST_PORT is set, otherwise in-memory.
+
+    Neither backend writes to disk, satisfying the security requirement of keeping tokens
+    out of the filesystem (especially important in read-only K8s pod environments).
+    """
+    if REDIS_HOST_PORT:
+        try:
+            from key_value.aio.stores.redis import RedisStore
+        except ImportError as exc:
+            raise RuntimeError(
+                "REDIS_HOST_PORT is set but the redis package is not installed. Add redis>=5 to your dependencies."
+            ) from exc
+        return RedisStore(url=f"redis://{REDIS_HOST_PORT}/{REDIS_HOST_DB}")
+    from key_value.aio.stores.memory import MemoryStore
+
+    return MemoryStore()
+
+
 def get_oauth_verifier() -> _PermissiveGitHubProvider:
     """Return a PermissiveGitHubProvider instance for OAuth2 authentication.
 
@@ -105,6 +126,7 @@ def get_oauth_verifier() -> _PermissiveGitHubProvider:
         client_secret=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
         required_scopes=["repo", "read:org", "user"],
+        client_storage=build_token_store(),
     )
 
 

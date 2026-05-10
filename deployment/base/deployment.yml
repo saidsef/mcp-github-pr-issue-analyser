@@ -42,6 +42,18 @@ spec:
               name: github-token
               key: token
               optional: true
+        - name: REDIS_HOST_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: redis-config
+              key: host-port
+              optional: true
+        - name: REDIS_HOST_DB
+          valueFrom:
+            configMapKeyRef:
+              name: redis-config
+              key: db
+              optional: true
         ports:
         - name: http
           containerPort: 8081
