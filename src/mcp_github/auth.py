@@ -28,9 +28,12 @@ from urllib.parse import urlparse
 
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
+from fastmcp.server.dependencies import get_access_token
 from key_value.aio.stores.memory import MemoryStore
+from key_value.aio.stores.redis import RedisStore
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
+from redis.asyncio import Redis as AsyncRedis
 
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
@@ -104,9 +107,6 @@ def build_token_store():
     The database defaults to 0 when not specified in the URI.
     """
     if REDIS_HOST_PORT:
-        from key_value.aio.stores.redis import RedisStore
-        from redis.asyncio import Redis as AsyncRedis
-
         uri = REDIS_HOST_PORT if "://" in REDIS_HOST_PORT else f"redis://{REDIS_HOST_PORT}"
         parsed = urlparse(uri)
         ssl = parsed.scheme == "rediss"
@@ -155,8 +155,6 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
             the request context and no GITHUB_TOKEN fallback is configured.
     """
     if oauth_mode:
-        from fastmcp.server.dependencies import get_access_token
-
         access_token = get_access_token()
         if access_token is not None:
             return access_token.token
