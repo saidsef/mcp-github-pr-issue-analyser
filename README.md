@@ -50,9 +50,9 @@ Two auth modes are supported. The active mode is selected automatically from env
 | `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |
 | `GITHUB_OAUTH_BASE_URL` | OAuth2 only | Public base URL of the MCP server (used for the OAuth2 redirect) |
-| `REDIS_HOST_PORT` | No | Redis address (`host:port`, e.g. `redis-service:6379`). When set, OAuth token state is stored in Redis instead of in-process memory. |
-| `REDIS_HOST_DB` | No (default `0`) | Redis database index. Must be an integer; server refuses to start on invalid values. Only used when `REDIS_HOST_PORT` is set. |
-| `REDIS_PASSWORD` | No | Redis AUTH password. Only used when `REDIS_HOST_PORT` is set. |
+| `REDIS_HOST_PORT` | No | Redis connection string. Accepts `host:port` or a full URI: `redis://[:password@]host:port[/db]` (plaintext) or `rediss://[:password@]host:port[/db]` (TLS). When set, OAuth token state is stored in Redis instead of in-process memory. |
+| `REDIS_HOST_DB` | No (default `0`) | Redis database index fallback — used when the database is not specified in the URI. Must be an integer. |
+| `REDIS_PASSWORD` | No | Redis AUTH password fallback — used when the password is not embedded in the URI. |
 | `PORT` | No (default `8081`) | HTTP server port |
 | `HOST` | No (default `localhost`) | HTTP server host |
 | `GITHUB_API_TIMEOUT` | No (default `5`) | Timeout in seconds for GitHub API requests |

@@ -24,6 +24,7 @@ import hmac
 import logging
 import time
 from os import getenv
+from urllib.parse import urlparse
 
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
@@ -101,14 +102,27 @@ def build_token_store():
     Return a token store for OAuth state — Redis when REDIS_HOST_PORT is set, otherwise in-memory.
     Neither backend writes to disk, satisfying the security requirement of keeping tokens
     out of the filesystem (especially important in read-only K8s pod environments).
+
+    REDIS_HOST_PORT accepts either a bare host:port or a full URI:
+      redis://[:<password>@]<host>:<port>[/<db>]   — plaintext
+      rediss://[:<password>@]<host>:<port>[/<db>]  — TLS
+    REDIS_HOST_DB and REDIS_PASSWORD are used as fallbacks when not present in the URI.
     """
     if REDIS_HOST_PORT:
         from key_value.aio.stores.redis import RedisStore
+        from redis.asyncio import Redis as AsyncRedis
 
-        _host, _sep, _port_str = REDIS_HOST_PORT.rpartition(":")
-        _redis_host = _host if _sep else REDIS_HOST_PORT
-        _redis_port = int(_port_str) if _sep and _port_str.isdigit() else 6379
-        return RedisStore(host=_redis_host, port=_redis_port, db=REDIS_HOST_DB, password=REDIS_PASSWORD)
+        uri = REDIS_HOST_PORT if "://" in REDIS_HOST_PORT else f"redis://{REDIS_HOST_PORT}"
+        parsed = urlparse(uri)
+        ssl = parsed.scheme == "rediss"
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 6379
+        _db_path = parsed.path.lstrip("/")
+        db = int(_db_path) if _db_path.isdigit() else REDIS_HOST_DB
+        password = parsed.password or REDIS_PASSWORD or None
+
+        client = AsyncRedis(host=host, port=port, db=db, password=password, ssl=ssl, decode_responses=True)
+        return RedisStore(client=client)
     return MemoryStore()
 
 
