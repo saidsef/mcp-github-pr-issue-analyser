@@ -1,4 +1,5 @@
-# MCP for GitHub PR, Issues, Tags and Releases [![CI](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml) [![Tag and Release](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml) [![Maintainability](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser/maintainability.svg)](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser)
+# MCP for GitHub PR, Issues, Tags and Releases
+[![CI](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml) [![Tag and Release](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml) [![Maintainability](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser/maintainability.svg)](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser) [![Codacy Badge](https://app.codacy.com/project/badge/Grade/9ca2ee03cbfa4407944a2450b1719d5d)](https://app.codacy.com/gh/saidsef/mcp-github-pr-issue-analyser/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
 The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
 
@@ -50,7 +51,8 @@ Two auth modes are supported. The active mode is selected automatically from env
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |
 | `GITHUB_OAUTH_BASE_URL` | OAuth2 only | Public base URL of the MCP server (used for the OAuth2 redirect) |
 | `REDIS_HOST_PORT` | No | Redis address (`host:port`, e.g. `redis-service:6379`). When set, OAuth token state is stored in Redis instead of in-process memory. |
-| `REDIS_HOST_DB` | No (default `0`) | Redis database index. Only used when `REDIS_HOST_PORT` is set. |
+| `REDIS_HOST_DB` | No (default `0`) | Redis database index. Must be an integer; server refuses to start on invalid values. Only used when `REDIS_HOST_PORT` is set. |
+| `REDIS_PASSWORD` | No | Redis AUTH password. Only used when `REDIS_HOST_PORT` is set. |
 | `PORT` | No (default `8081`) | HTTP server port |
 | `HOST` | No (default `localhost`) | HTTP server host |
 | `GITHUB_API_TIMEOUT` | No (default `5`) | Timeout in seconds for GitHub API requests |

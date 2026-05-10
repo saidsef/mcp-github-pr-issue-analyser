@@ -54,6 +54,12 @@ spec:
               name: redis-config
               key: db
               optional: true
+        - name: REDIS_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: redis-config
+              key: password
+              optional: true
         ports:
         - name: http
           containerPort: 8081

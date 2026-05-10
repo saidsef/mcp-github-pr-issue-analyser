@@ -27,6 +27,7 @@ from os import getenv
 
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
+from key_value.aio.stores.memory import MemoryStore
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 
@@ -34,7 +35,13 @@ GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
 GITHUB_OAUTH_BASE_URL = getenv("GITHUB_OAUTH_BASE_URL")
 REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
-REDIS_HOST_DB = int(getenv("REDIS_HOST_DB", "0"))
+REDIS_PASSWORD = getenv("REDIS_PASSWORD")
+
+_redis_db_raw = getenv("REDIS_HOST_DB", "0")
+try:
+    REDIS_HOST_DB = int(_redis_db_raw)
+except ValueError as exc:
+    raise ValueError(f"REDIS_HOST_DB must be an integer (0-15), got: {_redis_db_raw!r}") from exc
 
 
 class APIKeyVerifier(TokenVerifier):
@@ -96,15 +103,12 @@ def build_token_store():
     out of the filesystem (especially important in read-only K8s pod environments).
     """
     if REDIS_HOST_PORT:
-        try:
-            from key_value.aio.stores.redis import RedisStore
-        except ImportError as exc:
-            raise RuntimeError(
-                "REDIS_HOST_PORT is set but the redis package is not installed. Add redis>=5 to your dependencies."
-            ) from exc
-        return RedisStore(url=f"redis://{REDIS_HOST_PORT}/{REDIS_HOST_DB}")
-    from key_value.aio.stores.memory import MemoryStore
+        from key_value.aio.stores.redis import RedisStore
 
+        _host, _sep, _port_str = REDIS_HOST_PORT.rpartition(":")
+        _redis_host = _host if _sep else REDIS_HOST_PORT
+        _redis_port = int(_port_str) if _sep and _port_str.isdigit() else 6379
+        return RedisStore(host=_redis_host, port=_redis_port, db=REDIS_HOST_DB, password=REDIS_PASSWORD)
     return MemoryStore()
 
 
