@@ -70,6 +70,33 @@ Two auth modes are supported. The active mode is selected automatically from env
                                               |
                                               | (stdio/http)
                                               v
+                                     +------------------------+
+                                     |      Auth Layer        |
+                                     |   (auth.py)            |
+                                     |                        |
+                                     | stdio : no auth        |
+                                     | http  : APIKeyVerifier |
+                                     | oauth : GitHub OAuth2  |
+                                     |   (DCR + token proxy)  |
+                                     +------------------------+
+                                              |
+                              +--------------+---------------+
+                              | (token store)                |
+                              v                              v
+                   +------------------+          +--------------------+
+                   |   MemoryStore    |          |    RedisStore      |
+                   | (default, in-    |          | (REDIS_HOST_PORT   |
+                   |  process)        |          |  set; plaintext or |
+                   +------------------+          |  TLS via rediss://) |
+                                                 +--------------------+
+                                                          |
+                                                          v
+                                                    +----------+
+                                                    |  Redis   |
+                                                    +----------+
+
+                                              |
+                                              v
 +--------------------+              +------------------------+
 |                    |              |    PRIssueAnalyser     |
 |   IP Integration   | <------------|    (FastMCP Server)    |
@@ -104,6 +131,7 @@ Two auth modes are supported. The active mode is selected automatically from env
 ### Main Flows:
 
 - PRIssueAnalyser: Main MCP server handling tool registration and requests
+- Auth Layer: Selects APIKeyVerifier (static token) or GitHub OAuth2 provider; token state in MemoryStore or RedisStore
 - GitHub Integration: Manages all GitHub API interactions (REST + GraphQL)
 - IP Integration: Handles IPv4/IPv6 information retrieval
 - MCP Client: Interacts via stdio or streamable HTTP (http)
