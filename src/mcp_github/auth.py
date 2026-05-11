@@ -20,6 +20,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import time
@@ -29,8 +30,10 @@ from urllib.parse import urlparse
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.dependencies import get_access_token
+from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
 from key_value.aio.stores.redis import RedisStore
+from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from mcp.shared.auth import OAuthClientInformationFull
 from pydantic import AnyUrl
 from redis.asyncio import Redis as AsyncRedis
@@ -62,7 +65,6 @@ class APIKeyVerifier(TokenVerifier):
 
 
 class _PermissiveGitHubProvider(GitHubProvider):
-
     """GitHubProvider that accepts the upstream client_id without prior DCR.
 
     Claude.ai and similar MCP clients skip Dynamic Client Registration and
@@ -95,11 +97,18 @@ class _PermissiveGitHubProvider(GitHubProvider):
         return None
 
 
-def build_token_store():
+def build_token_store() -> AsyncKeyValue:
     """
-    Return a token store for OAuth state — Redis when REDIS_HOST_PORT is set, otherwise in-memory.
-    Neither backend writes to disk, satisfying the security requirement of keeping tokens
-    out of the filesystem (especially important in read-only K8s pod environments).
+    Return a token store for OAuth state.
+
+    When REDIS_HOST_PORT is set, returns a RedisStore whose collection names are
+    prefixed with a 12-char SHA-256 hash of GITHUB_OAUTH_BASE_URL. Two server
+    instances sharing the same Redis instance will have fully isolated keyspaces
+    provided their base URLs differ.
+
+    When REDIS_HOST_PORT is unset, returns an in-process MemoryStore. No tokens
+    are written to disk in either case. Sessions are lost on server restart in
+    MemoryStore mode.
 
     REDIS_HOST_PORT accepts either a bare host:port or a full URI:
       redis://[:<password>@]<host>:<port>[/<db>]   — plaintext
@@ -118,7 +127,12 @@ def build_token_store():
         password = parsed.password or REDIS_PASSWORD or None
 
         client = AsyncRedis(host=host, port=port, db=db, password=password, ssl=ssl, decode_responses=True)
-        return RedisStore(client=client)
+        store: AsyncKeyValue = RedisStore(client=client)
+
+        if GITHUB_OAUTH_BASE_URL:
+            prefix = hashlib.sha256(GITHUB_OAUTH_BASE_URL.encode()).hexdigest()[:12]
+            return PrefixCollectionsWrapper(store, prefix=prefix)
+        return store
     return MemoryStore()
 
 
