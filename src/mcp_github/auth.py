@@ -28,6 +28,7 @@ from os import getenv
 from urllib.parse import urlparse
 
 from fastmcp.server.auth import AccessToken, TokenVerifier
+from fastmcp.server.auth.jwt_issuer import derive_jwt_key
 from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.protocols import AsyncKeyValue
@@ -41,6 +42,7 @@ from redis.asyncio import Redis as AsyncRedis
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
 GITHUB_OAUTH_BASE_URL = getenv("GITHUB_OAUTH_BASE_URL")
+JWT_SIGNING_KEY = getenv("JWT_SIGNING_KEY")
 REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD")
 
@@ -140,11 +142,39 @@ def build_token_store() -> AsyncKeyValue:
     return MemoryStore()
 
 
+def _derive_jwt_signing_key() -> bytes:
+    """Return a stable JWT signing key.
+
+    Priority:
+    1. ``JWT_SIGNING_KEY`` env var (explicit override).
+    2. Deterministic derivation from ``GITHUB_OAUTH_CLIENT_SECRET``
+       (automatic — all pods with the same secret share the same key).
+
+    When the automatic path is used, rotating the GitHub OAuth App
+    secret invalidates all stored sessions and forces clients to
+    re-authenticate.
+
+    """
+    if JWT_SIGNING_KEY:
+        return derive_jwt_key(
+            low_entropy_material=JWT_SIGNING_KEY,
+            salt="fastmcp-jwt-signing-key",
+        )
+    return derive_jwt_key(
+        high_entropy_material=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
+        salt="fastmcp-jwt-signing-key",
+    )
+
+
 def get_oauth_verifier() -> _PermissiveGitHubProvider:
     """Return a PermissiveGitHubProvider instance for OAuth2 authentication.
 
     Requires GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and
     GITHUB_OAUTH_BASE_URL to be set.
+
+    JWT_SIGNING_KEY is optional. When omitted, a stable key is derived
+    automatically from GITHUB_OAUTH_CLIENT_SECRET so all pods generate
+    the same signing key without requiring an additional env var.
 
     """
     if not all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL)):
@@ -158,6 +188,7 @@ def get_oauth_verifier() -> _PermissiveGitHubProvider:
         client_id=GITHUB_OAUTH_CLIENT_ID,  # type: ignore[arg-type]
         client_secret=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
+        jwt_signing_key=_derive_jwt_signing_key(),
         required_scopes=["repo", "read:org", "user"],
         client_storage=build_token_store(),
     )
