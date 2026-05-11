@@ -97,9 +97,23 @@ class _PermissiveGitHubProvider(GitHubProvider):
         return None
 
 
+def _build_redis_client(host_port: str) -> AsyncRedis:
+    """Build an AsyncRedis client from a host:port string or Redis URI."""
+    uri = host_port if "://" in host_port else f"redis://{host_port}"
+    parsed = urlparse(uri)
+    db_path = parsed.path.lstrip("/")
+    return AsyncRedis(
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 6379,
+        db=int(db_path) if db_path.isdigit() else 0,
+        password=parsed.password or REDIS_PASSWORD or None,
+        ssl=parsed.scheme == "rediss",
+        decode_responses=True,
+    )
+
+
 def build_token_store() -> AsyncKeyValue:
-    """
-    Return a token store for OAuth state.
+    """Return a token store for OAuth state.
 
     When REDIS_HOST_PORT is set, returns a RedisStore whose collection names are
     prefixed with a 12-char SHA-256 hash of GITHUB_OAUTH_BASE_URL. Two server
@@ -115,20 +129,10 @@ def build_token_store() -> AsyncKeyValue:
       rediss://[:<password>@]<host>:<port>[/<db>]  — TLS
     REDIS_PASSWORD is used as a fallback when not embedded in the URI.
     The database defaults to 0 when not specified in the URI.
+
     """
     if REDIS_HOST_PORT:
-        uri = REDIS_HOST_PORT if "://" in REDIS_HOST_PORT else f"redis://{REDIS_HOST_PORT}"
-        parsed = urlparse(uri)
-        ssl = parsed.scheme == "rediss"
-        host = parsed.hostname or "localhost"
-        port = parsed.port or 6379
-        _db_path = parsed.path.lstrip("/")
-        db = int(_db_path) if _db_path.isdigit() else 0
-        password = parsed.password or REDIS_PASSWORD or None
-
-        client = AsyncRedis(host=host, port=port, db=db, password=password, ssl=ssl, decode_responses=True)
-        store: AsyncKeyValue = RedisStore(client=client)
-
+        store: AsyncKeyValue = RedisStore(client=_build_redis_client(REDIS_HOST_PORT))
         if GITHUB_OAUTH_BASE_URL:
             prefix = hashlib.sha256(GITHUB_OAUTH_BASE_URL.encode()).hexdigest()[:12]
             return PrefixCollectionsWrapper(store, prefix=prefix)
@@ -137,10 +141,11 @@ def build_token_store() -> AsyncKeyValue:
 
 
 def get_oauth_verifier() -> _PermissiveGitHubProvider:
-    """
-    Return a PermissiveGitHubProvider instance for OAuth2 authentication.
+    """Return a PermissiveGitHubProvider instance for OAuth2 authentication.
+
     Requires GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and
     GITHUB_OAUTH_BASE_URL to be set.
+
     """
     if not all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL)):
         raise ValueError(
