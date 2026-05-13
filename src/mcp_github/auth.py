@@ -99,19 +99,24 @@ class _PermissiveGitHubProvider(GitHubProvider):
         return None
 
 
-def _build_redis_client(host_port: str) -> AsyncRedis:
-    """Build an AsyncRedis client from a host:port string or Redis URI."""
-    uri = host_port if "://" in host_port else f"redis://{host_port}"
-    parsed = urlparse(uri)
-    db_path = parsed.path.lstrip("/")
+def _parse_redis_db(path: str) -> int:
+    """Parse the database index from a Redis URI path component."""
+    db_path = path.lstrip("/")
     if db_path and not db_path.isdigit():
         raise ValueError(
             f"Invalid Redis database in URI: {db_path!r} (must be a non-negative integer)"
         )
+    return int(db_path) if db_path else 0
+
+
+def _build_redis_client(host_port: str) -> AsyncRedis:
+    """Build an AsyncRedis client from a host:port string or Redis URI."""
+    uri = host_port if "://" in host_port else f"redis://{host_port}"
+    parsed = urlparse(uri)
     return AsyncRedis(
         host=parsed.hostname or "localhost",
         port=parsed.port or 6379,
-        db=int(db_path) if db_path else 0,
+        db=_parse_redis_db(parsed.path),
         password=parsed.password or REDIS_PASSWORD or None,
         ssl=parsed.scheme == "rediss",
         decode_responses=True,
@@ -119,7 +124,8 @@ def _build_redis_client(host_port: str) -> AsyncRedis:
 
 
 def build_token_store() -> AsyncKeyValue:
-    """Return a token store for OAuth state.
+    """
+    Return a token store for OAuth state.
 
     When REDIS_HOST_PORT is set, returns a RedisStore whose collection names are
     prefixed with a 12-char SHA-256 hash of GITHUB_OAUTH_BASE_URL. Two server
@@ -147,7 +153,8 @@ def build_token_store() -> AsyncKeyValue:
 
 
 def _derive_jwt_signing_key() -> bytes:
-    """Return a stable JWT signing key.
+    """
+    Return a stable JWT signing key.
 
     Priority:
     1. ``JWT_SIGNING_KEY`` env var (explicit override).
@@ -199,7 +206,8 @@ def get_oauth_verifier() -> _PermissiveGitHubProvider:
 
 
 def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
-    """Return the token to use for the current request.
+    """
+    Return the token to use for the current request.
 
     In OAuth2 mode, reads the authenticated user's token from FastMCP's
     per-request context. Falls back to the static github_token in all other

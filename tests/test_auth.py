@@ -4,12 +4,13 @@ import hashlib
 from unittest.mock import MagicMock, patch
 
 import pytest
-
 from key_value.aio.stores.memory import MemoryStore
+
 from mcp_github.auth import _build_redis_client, build_token_store
 
 
 class TestBuildRedisClient:
+
     """URI parsing and AsyncRedis constructor kwargs."""
 
     def _kwargs(self, uri, redis_password=None):
@@ -65,6 +66,7 @@ class TestBuildRedisClient:
 
 
 class TestBuildTokenStore:
+
     """Storage backend selection based on env vars."""
 
     def test_returns_memory_store_when_redis_not_configured(self):

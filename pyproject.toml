@@ -101,5 +101,9 @@ fixable = ["I", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/mcp_github/__init__.py" = ["D100"]
+"tests/**" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
 
 
