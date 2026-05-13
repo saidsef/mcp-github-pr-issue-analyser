@@ -104,10 +104,14 @@ def _build_redis_client(host_port: str) -> AsyncRedis:
     uri = host_port if "://" in host_port else f"redis://{host_port}"
     parsed = urlparse(uri)
     db_path = parsed.path.lstrip("/")
+    if db_path and not db_path.isdigit():
+        raise ValueError(
+            f"Invalid Redis database in URI: {db_path!r} (must be a non-negative integer)"
+        )
     return AsyncRedis(
         host=parsed.hostname or "localhost",
         port=parsed.port or 6379,
-        db=int(db_path) if db_path.isdigit() else 0,
+        db=int(db_path) if db_path else 0,
         password=parsed.password or REDIS_PASSWORD or None,
         ssl=parsed.scheme == "rediss",
         decode_responses=True,
@@ -195,8 +199,8 @@ def get_oauth_verifier() -> _PermissiveGitHubProvider:
 
 
 def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
-    """
-    Return the token to use for the current request.
+    """Return the token to use for the current request.
+
     In OAuth2 mode, reads the authenticated user's token from FastMCP's
     per-request context. Falls back to the static github_token in all other
     cases (stdio mode or API-key mode).
