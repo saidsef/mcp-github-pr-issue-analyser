@@ -10,6 +10,7 @@ authors = [
 dependencies = [
     "fastmcp[apps]>=3.2.4",
     "httpx>=0.28.1",
+    "redis>=5.0.0",
 ]
 
 [project.scripts]
@@ -100,5 +101,9 @@ fixable = ["I", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/mcp_github/__init__.py" = ["D100"]
+"tests/**" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]
+
+[tool.bandit]
+exclude_dirs = ["tests", ".venv"]
 
 

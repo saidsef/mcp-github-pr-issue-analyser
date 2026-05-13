@@ -718,9 +718,7 @@ class GitHubIntegration:
         """
         logger.info(f"Updating PR branch for {repo_owner}/{repo_name}#{pr_number}")
 
-        pr_url = (
-            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
-        )
+        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
 
         try:
             payload: dict[str, Any] = {}

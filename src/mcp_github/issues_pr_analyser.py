@@ -111,6 +111,7 @@ class PRIssueAnalyser:
           ## Best Practices
           - Use all tools available for a comprehensive understanding of the PR and issue landscape.
           - Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
+          - Use single dashes instead of em-dashes in PR descriptions and issue bodies
           - Use update_pr_description to keep PRs up-to-date
           - Use create_issue and update_issue for issue management
           - Use create_tag and create_release for release management

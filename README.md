@@ -1,4 +1,6 @@
-# MCP for GitHub PR, Issues, Tags and Releases [![CI](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml) [![Tag and Release](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml) [![Maintainability](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser/maintainability.svg)](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser)
+# MCP for GitHub PR, Issues, Tags and Releases
+
+[![CI](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/ci.yml) [![Tag and Release](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml/badge.svg)](https://github.com/saidsef/mcp-github-pr-issue-analyser/actions/workflows/tag_release.yml) [![Maintainability](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser/maintainability.svg)](https://qlty.sh/gh/saidsef/projects/mcp-github-pr-issue-analyser) [![Codacy Badge](https://app.codacy.com/project/badge/Grade/9ca2ee03cbfa4407944a2450b1719d5d)](https://app.codacy.com/gh/saidsef/mcp-github-pr-issue-analyser/dashboard?utm_source=gh&utm_medium=referral&utm_content=&utm_campaign=Badge_grade)
 
 The [Model Context Protocol](https://www.anthropic.com/news/model-context-protocol) (MCP) is an open standard that enables seamless integration between Large Language Models (LLMs) and external tools. Whilst it can be implemented in any AI system, including custom LLM setups, the degree of integration and optimisation varies based on the model's architecture and capabilities.
 
@@ -49,6 +51,8 @@ Two auth modes are supported. The active mode is selected automatically from env
 | `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |
 | `GITHUB_OAUTH_BASE_URL` | OAuth2 only | Public base URL of the MCP server (used for the OAuth2 redirect) |
+| `REDIS_HOST_PORT` | No | Redis connection string. Accepts `host:port` or a full URI: `redis://[:password@]host:port[/db]` (plaintext) or `rediss://[:password@]host:port[/db]` (TLS). When set, OAuth token state is stored in Redis instead of in-process memory. |
+| `REDIS_PASSWORD` | No | Redis AUTH password fallback — used when the password is not embedded in the URI. |
 | `PORT` | No (default `8081`) | HTTP server port |
 | `HOST` | No (default `localhost`) | HTTP server host |
 | `GITHUB_API_TIMEOUT` | No (default `5`) | Timeout in seconds for GitHub API requests |
@@ -65,6 +69,20 @@ Two auth modes are supported. The active mode is selected automatically from env
                                      +------------------------+
                                               |
                                               | (stdio/http)
+                                              v
+                                     +------------------------+
+                                     |      Auth Layer        +-->+------------------------+
+                                     |   (auth.py)            |   | OAuth Token Store      |
+                                     |                        |   | MemoryStore (default)  |
+                                     | stdio : no auth        |   | RedisStore             |
+                                     | http  : APIKeyVerifier |   |   (REDIS_HOST_PORT set)|
+                                     | oauth : GitHub OAuth2  |   |   redis:// / rediss:// |
+                                     |   (DCR + token proxy)  |   +------------------------+
+                                     +------------------------+             |
+                                              |                             v
+                                              |                       +----------+
+                                              |                       |  Redis   |
+                                              |                       +----------+
                                               v
 +--------------------+              +------------------------+
 |                    |              |    PRIssueAnalyser     |
@@ -100,6 +118,7 @@ Two auth modes are supported. The active mode is selected automatically from env
 ### Main Flows:
 
 - PRIssueAnalyser: Main MCP server handling tool registration and requests
+- Auth Layer: Selects APIKeyVerifier (static token) or GitHub OAuth2 provider; token state in MemoryStore or RedisStore
 - GitHub Integration: Manages all GitHub API interactions (REST + GraphQL)
 - IP Integration: Handles IPv4/IPv6 information retrieval
 - MCP Client: Interacts via stdio or streamable HTTP (http)
