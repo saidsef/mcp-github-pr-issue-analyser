@@ -159,6 +159,11 @@ def _destructive(fn: Any) -> Any:
     return fn
 
 
+def _write(fn: Any) -> Any:
+    fn._mcp_annotations = ToolAnnotations(readOnlyHint=False)
+    return fn
+
+
 class GitHubIntegration:
     def __init__(self):
         """
@@ -357,6 +362,7 @@ class GitHubIntegration:
         except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
+    @_write
     def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
         """
         Adds a comment to a specific pull request on GitHub.
@@ -391,6 +397,7 @@ class GitHubIntegration:
         except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
+    @_write
     def add_inline_pr_comment(
         self,
         repo_owner: str,
@@ -453,6 +460,7 @@ class GitHubIntegration:
             logger.error(f"Error adding inline review comment: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def update_pr_description(
         self,
         repo_owner: str,
@@ -498,6 +506,7 @@ class GitHubIntegration:
             logger.error(f"Error updating PR description: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def create_pr(
         self,
         repo_owner: str,
@@ -616,6 +625,7 @@ class GitHubIntegration:
             logger.error(f"Error listing open {issue}s: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> IssueData:
         """
         Creates a new issue in the specified GitHub repository.
@@ -722,6 +732,7 @@ class GitHubIntegration:
             logger.error(f"Error merging PR: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def update_pr_branch(
         self,
         repo_owner: str,
@@ -767,6 +778,7 @@ class GitHubIntegration:
             logger.error(f"Error updating PR branch: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def update_issue(
         self,
         repo_owner: str,
@@ -816,6 +828,7 @@ class GitHubIntegration:
             logger.error(f"Error updating issue: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def update_reviews(
         self,
         repo_owner: str,
@@ -862,6 +875,7 @@ class GitHubIntegration:
             logger.error(f"Error submitting review: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def update_assignees(
         self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
     ) -> dict[str, Any]:
@@ -954,6 +968,7 @@ class GitHubIntegration:
             logger.error(f"Error fetching latest commit SHA: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
         """
         Creates a new tag in the specified GitHub repository.
@@ -1000,6 +1015,7 @@ class GitHubIntegration:
             logger.error(f"Error creating tag: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_write
     def create_release(
         self,
         repo_owner: str,
