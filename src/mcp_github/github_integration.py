@@ -149,6 +149,12 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 
+_FAILING_CONCLUSIONS = frozenset({"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"})
+_PENDING_STATUSES = frozenset({"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"})
+_FAILING_LEGACY = frozenset({"FAILURE", "ERROR"})
+_PENDING_LEGACY = frozenset({"PENDING"})
+
+
 def _read_only(fn: Any) -> Any:
     fn._mcp_annotations = ToolAnnotations(readOnlyHint=True)
     return fn
@@ -1453,14 +1459,12 @@ class GitHubIntegration:
         """Derive a single overall status string from check runs and commit statuses."""
         if not check_runs and not commit_statuses:
             return "unknown"
-        failing = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
-        pending = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
-        conclusions = {r["conclusion"] for r in check_runs if r["conclusion"]}
-        in_progress = {r["status"] for r in check_runs if r["status"] != "COMPLETED"}
+        conclusions = {r["conclusion"] for r in check_runs} - {None, ""}
+        in_progress = {r["status"] for r in check_runs} - {"COMPLETED"}
         legacy = {ctx["state"] for ctx in commit_statuses}
-        if conclusions & failing or "FAILURE" in legacy or "ERROR" in legacy:
+        if conclusions & _FAILING_CONCLUSIONS or legacy & _FAILING_LEGACY:
             return "failing"
-        if in_progress & pending or "PENDING" in legacy:
+        if in_progress & _PENDING_STATUSES or legacy & _PENDING_LEGACY:
             return "pending"
         return "passing"
 

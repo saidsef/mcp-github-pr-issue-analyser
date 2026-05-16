@@ -110,7 +110,7 @@ Two auth modes are supported. The active mode is selected automatically from env
    +---------------------------------------+   +-----------------------------+
 ```
 
-### Features
+### Tool Categories
 
 1. PR Management: Fetch diffs, content, linked issues, CI status - create, review, merge, and update
 2. Issue Tracking: Create, update, list, and assign
