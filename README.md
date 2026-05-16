@@ -14,6 +14,8 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 |------------------------------------------|---------------------------------------------------------------------------------------------------|
 | Analyse GitHub Pull Requests and fetch diffs         | Retrieve the diff/patch for any PR in a repository.                                                |
 | Fetch content and metadata for specific PRs          | Get PR title, description, author, timestamps, and state.                                          |
+| Fetch linked issues for a PR                         | Get the issues that will auto-close when a PR is merged, via GraphQL `closingIssuesReferences`.    |
+| Fetch CI status checks for a PR                      | Get check run conclusions and legacy commit status for a PR's HEAD commit.                         |
 | Create Pull Requests                                 | Open new PRs with title, body, head/base branch, and draft option.                                 |
 | Update PR title and description                      | Change the title and body of any PR.                                                               |
 | Merge Pull Requests                                  | Merge a PR using merge, squash, or rebase method.                                                  |
@@ -26,7 +28,6 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 | Create tags and releases                             | Tag repository commits and publish releases with changelogs.                                       |
 | Search GitHub Users                                  | Retrieve user profile information via GraphQL.                                                     |
 | Get User Activity                                    | Fetch commit, PR, issue, and review contributions with org/repo/date filtering.                    |
-| Retrieve IPv4 and IPv6 information                   | Get public IP address details for both IPv4 and IPv6.                                              |
 
 ## Requirements
 
@@ -62,66 +63,66 @@ Two auth modes are supported. The active mode is selected automatically from env
 ## Architecture Diagram
 
 ```ascii
-                                     +------------------------+
-                                     |                        |
-                                     |    MCP Client/User     |
-                                     |                        |
-                                     +------------------------+
-                                              |
-                                              | (stdio/http)
-                                              v
-                                     +------------------------+
-                                     |      Auth Layer        +-->+------------------------+
-                                     |   (auth.py)            |   | OAuth Token Store      |
-                                     |                        |   | MemoryStore (default)  |
-                                     | stdio : no auth        |   | RedisStore             |
-                                     | http  : APIKeyVerifier |   |   (REDIS_HOST_PORT set)|
-                                     | oauth : GitHub OAuth2  |   |   redis:// / rediss:// |
-                                     |   (DCR + token proxy)  |   +------------------------+
-                                     +------------------------+             |
-                                              |                             v
-                                              |                       +----------+
-                                              |                       |  Redis   |
-                                              |                       +----------+
-                                              v
-+--------------------+              +------------------------+
-|                    |              |    PRIssueAnalyser     |
-|   IP Integration   | <------------|    (FastMCP Server)    |
-|   (ipinfo.io)      |              |                        |
-+--------------------+              +------------------------+
-                                              |
-                                              | (API calls)
-                                              v
-                                   +------------------------+
-                                   |   GitHub Integration   |
-                                   +------------------------+
-                                              |
-                          +-------------------+-------------------+
-                          | (REST API)                            | (GraphQL API)
-                          v                                       v
-         +-----------------------------------+     +-----------------------------+
-         |                                   |     |                             |
-   +-------------+  +--------------+  +------+     |   User Search & Activity   |
-   | GitHub PRs  |  |GitHub Issues |  | Tags/|     |   (contributions, profile) |
-   | & Reviews   |  |              |  |Rels  |     |                             |
-   +-------------+  +--------------+  +------+     +-----------------------------+
+                              +------------------------+
+                              |                        |
+                              |    MCP Client/User     |
+                              |                        |
+                              +------------------------+
+                                         |
+                                         | (stdio/http)
+                                         v
+                              +------------------------+
+                              |      Auth Layer        +-->+------------------------+
+                              |   (auth.py)            |   | OAuth Token Store      |
+                              |                        |   | MemoryStore (default)  |
+                              | stdio : no auth        |   | RedisStore             |
+                              | http  : APIKeyVerifier |   |   (REDIS_HOST_PORT set)|
+                              | oauth : GitHub OAuth2  |   |   redis:// / rediss:// |
+                              |   (DCR + token proxy)  |   +------------------------+
+                              +------------------------+             |
+                                         |                           v
+                                         |                     +----------+
+                                         |                     |  Redis   |
+                                         |                     +----------+
+                                         v
+                              +------------------------+
+                              |    PRIssueAnalyser     |
+                              |    (FastMCP Server)    |
+                              +------------------------+
+                                         |
+                                         | (API calls)
+                                         v
+                              +------------------------+
+                              |   GitHub Integration   |
+                              +------------------------+
+                                         |
+                     +-------------------+-------------------+
+                     | (REST API)                            | (GraphQL API)
+                     v                                       v
+   +---------------------------------------+   +-----------------------------+
+   |                                       |   |                             |
+   | PRs (diff, content, status, linked    |   | User Search & Activity      |
+   | issues, reviews, comments, merge)     |   | (contributions, profile)    |
+   |                                       |   |                             |
+   | Issues (create, update, list, assign) |   | PR Linked Issues            |
+   |                                       |   | PR Status Checks            |
+   | Tags and Releases                     |   |                             |
+   +---------------------------------------+   +-----------------------------+
 ```
 
-### Features:
+### Features
 
-1. PR Management: Fetch, analyse, create, merge, review, and update
+1. PR Management: Fetch diffs, content, linked issues, CI status - create, review, merge, and update
 2. Issue Tracking: Create, update, list, and assign
 3. Release Management: Tags and releases
 4. User Search: Profile lookup and activity tracking via GraphQL
-5. Network Info: IPv4/IPv6 details
 
-### Main Flows:
+### Main Flows
 
-- PRIssueAnalyser: Main MCP server handling tool registration and requests
+- MCP Client: Interacts via stdio or streamable HTTP
 - Auth Layer: Selects APIKeyVerifier (static token) or GitHub OAuth2 provider; token state in MemoryStore or RedisStore
-- GitHub Integration: Manages all GitHub API interactions (REST + GraphQL)
-- IP Integration: Handles IPv4/IPv6 information retrieval
-- MCP Client: Interacts via stdio or streamable HTTP (http)
+- PRIssueAnalyser: FastMCP server - handles tool registration and request routing
+- GitHub Integration: All GitHub API calls (REST v3 + GraphQL v4)
 
 ## Local Installation
 
