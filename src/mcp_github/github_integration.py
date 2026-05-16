@@ -155,7 +155,7 @@ def _read_only(fn: Any) -> Any:
 
 
 def _destructive(fn: Any) -> Any:
-    fn._mcp_annotations = ToolAnnotations(destructiveHint=True)
+    fn._mcp_annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
     return fn
 
 
