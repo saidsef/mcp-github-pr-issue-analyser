@@ -41,7 +41,7 @@ from .exceptions import (
     GitHubValidationError,
 )
 from .graphql_client import GraphQLClient
-from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
+from .graphql_queries import PR_LINKED_ISSUES_QUERY, PR_STATUS_CHECKS_QUERY, SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
 
 # TypedDict definitions for common return types (PEP 695 type alias syntax)
 type PRContent = TypedDict(
@@ -117,6 +117,26 @@ type UserActivityResult = TypedDict(
         "pull_requests": list[dict[str, Any]],
         "issues": list[dict[str, Any]],
         "reviews": list[dict[str, Any]],
+    },
+)
+
+
+type LinkedIssuesResult = TypedDict(
+    "LinkedIssuesResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "pr_number": int,
+        "linked_issues": list[dict[str, Any]],
+    },
+)
+
+
+type StatusChecksResult = TypedDict(
+    "StatusChecksResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "pr_number": int,
+        "overall": str,
+        "check_runs": list[dict[str, Any]],
+        "commit_statuses": list[dict[str, Any]],
     },
 )
 
@@ -1342,3 +1362,184 @@ class GitHubIntegration:
         except Exception as e:
             logger.error(f"Error fetching user activities for {username}: {e}")
             raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e
+
+    def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
+        """
+
+        Return the issues that will be auto-closed when a pull request is merged.
+
+        Uses the GraphQL `closingIssuesReferences` field, which is authoritative —
+        it includes issues linked via the GitHub UI in addition to "Closes #N" keywords
+        in the PR body.
+
+        Parameters
+        ----------
+        repo_owner
+            GitHub organisation or username that owns the repository.
+        repo_name
+            Repository name.
+        pr_number
+            Pull request number.
+
+        Returns
+        -------
+        LinkedIssuesResult
+            Dictionary containing:
+
+            - pr_number: The pull request number.
+            - linked_issues: List of issues, each with number, title, state, url,
+              created_at, and labels.
+
+        Raises
+        ------
+        GitHubNotFoundError
+            If the pull request is not found.
+        GitHubAPIError
+            If the API request fails.
+
+        """
+        logger.info(f"Fetching linked issues for PR #{pr_number} in {repo_owner}/{repo_name}")
+
+        try:
+            result = self.graphql.execute_query(
+                PR_LINKED_ISSUES_QUERY,
+                variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
+                token=self._resolve_token(),
+            )
+
+            repo_data = result.get("repository")
+            if not repo_data or not repo_data.get("pullRequest"):
+                raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
+
+            nodes = repo_data["pullRequest"]["closingIssuesReferences"]["nodes"]
+            linked_issues = [
+                {
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "state": issue["state"],
+                    "url": issue["url"],
+                    "created_at": issue["createdAt"],
+                    "labels": [label["name"] for label in issue["labels"]["nodes"]],
+                }
+                for issue in nodes
+            ]
+
+            logger.info(f"Found {len(linked_issues)} linked issue(s) for PR #{pr_number}")
+            return {"pr_number": pr_number, "linked_issues": linked_issues}
+
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching linked issues for PR #{pr_number}: {e}")
+            raise GitHubAPIError(f"Failed to fetch linked issues: {e}") from e
+
+    def get_pr_status_checks(self, repo_owner: str, repo_name: str, pr_number: int) -> StatusChecksResult:
+        """
+
+        Return the CI check runs and commit status for a pull request's HEAD commit.
+
+        Aggregates both GitHub Actions check suites and legacy commit status contexts
+        into a single result, and derives an overall pass/fail/pending state.
+
+        Parameters
+        ----------
+        repo_owner
+            GitHub organisation or username that owns the repository.
+        repo_name
+            Repository name.
+        pr_number
+            Pull request number.
+
+        Returns
+        -------
+        StatusChecksResult
+            Dictionary containing:
+
+            - pr_number: The pull request number.
+            - overall: Aggregated state — one of "passing", "failing", "pending", "unknown".
+            - check_runs: Flat list of check runs, each with name, status, conclusion,
+              details_url, and suite_app.
+            - commit_statuses: List of legacy commit status contexts, each with context,
+              state, description, and target_url.
+
+        Raises
+        ------
+        GitHubNotFoundError
+            If the pull request is not found.
+        GitHubAPIError
+            If the API request fails.
+
+        """
+        logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
+
+        failing_conclusions = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+        pending_statuses = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
+
+        try:
+            result = self.graphql.execute_query(
+                PR_STATUS_CHECKS_QUERY,
+                variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
+                token=self._resolve_token(),
+            )
+
+            repo_data = result.get("repository")
+            if not repo_data or not repo_data.get("pullRequest"):
+                raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
+
+            pr_data = repo_data["pullRequest"]
+            head_target = (pr_data.get("headRef") or {}).get("target") or {}
+
+            # Flatten check suites → individual check runs
+            check_runs: list[dict[str, Any]] = []
+            for suite in (head_target.get("checkSuites") or {}).get("nodes", []):
+                app_name = (suite.get("app") or {}).get("name", "unknown")
+                for run in (suite.get("checkRuns") or {}).get("nodes", []):
+                    check_runs.append(
+                        {
+                            "name": run["name"],
+                            "status": run["status"],
+                            "conclusion": run.get("conclusion"),
+                            "details_url": run.get("detailsUrl"),
+                            "suite_app": app_name,
+                        }
+                    )
+
+            # Legacy commit status contexts
+            commit_status = head_target.get("status") or {}
+            commit_statuses = [
+                {
+                    "context": ctx["context"],
+                    "state": ctx["state"],
+                    "description": ctx.get("description"),
+                    "target_url": ctx.get("targetUrl"),
+                }
+                for ctx in commit_status.get("contexts", [])
+            ]
+
+            # Derive overall from check run conclusions + legacy status
+            conclusions = {run["conclusion"] for run in check_runs if run["conclusion"]}
+            statuses_in_progress = {run["status"] for run in check_runs if run["status"] != "COMPLETED"}
+            legacy_states = {ctx["state"] for ctx in commit_statuses}
+
+            if not check_runs and not commit_statuses:
+                overall = "unknown"
+            elif conclusions & failing_conclusions or "FAILURE" in legacy_states or "ERROR" in legacy_states:
+                overall = "failing"
+            elif statuses_in_progress & pending_statuses or "PENDING" in legacy_states:
+                overall = "pending"
+            else:
+                overall = "passing"
+
+            logger.info(f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}")
+            return {
+                "pr_number": pr_number,
+                "overall": overall,
+                "check_runs": check_runs,
+                "commit_statuses": commit_statuses,
+            }
+
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching status checks for PR #{pr_number}: {e}")
+            raise GitHubAPIError(f"Failed to fetch status checks: {e}") from e
