@@ -149,12 +149,6 @@ logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
 
 
-_FAILING_CONCLUSIONS = frozenset({"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"})
-_PENDING_STATUSES = frozenset({"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"})
-_FAILING_LEGACY = frozenset({"FAILURE", "ERROR"})
-_PENDING_LEGACY = frozenset({"PENDING"})
-
-
 def _read_only(fn: Any) -> Any:
     fn._mcp_annotations = ToolAnnotations(readOnlyHint=True)
     return fn
@@ -1455,16 +1449,24 @@ class GitHubIntegration:
             for ctx in commit_status.get("contexts", [])
         ]
 
+    def _has_failing_checks(self, check_runs: list[dict[str, Any]], legacy: set[str]) -> bool:
+        failing = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+        conclusions = {r["conclusion"] for r in check_runs if r["conclusion"]}
+        return bool(conclusions & failing) or "FAILURE" in legacy or "ERROR" in legacy
+
+    def _has_pending_checks(self, check_runs: list[dict[str, Any]], legacy: set[str]) -> bool:
+        pending = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
+        in_progress = {r["status"] for r in check_runs if r["status"] != "COMPLETED"}
+        return bool(in_progress & pending) or "PENDING" in legacy
+
     def _derive_overall(self, check_runs: list[dict[str, Any]], commit_statuses: list[dict[str, Any]]) -> str:
         """Derive a single overall status string from check runs and commit statuses."""
         if not check_runs and not commit_statuses:
             return "unknown"
-        conclusions = {r["conclusion"] for r in check_runs} - {None, ""}
-        in_progress = {r["status"] for r in check_runs} - {"COMPLETED"}
         legacy = {ctx["state"] for ctx in commit_statuses}
-        if conclusions & _FAILING_CONCLUSIONS or legacy & _FAILING_LEGACY:
+        if self._has_failing_checks(check_runs, legacy):
             return "failing"
-        if in_progress & _PENDING_STATUSES or legacy & _PENDING_LEGACY:
+        if self._has_pending_checks(check_runs, legacy):
             return "pending"
         return "passing"
 
