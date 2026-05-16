@@ -30,7 +30,6 @@ from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
-from mcp.types import ToolAnnotations
 
 from .auth import (
     GITHUB_OAUTH_BASE_URL,
@@ -45,21 +44,6 @@ logging.basicConfig(level=logging.WARNING)
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
 MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
-
-_READ_ONLY = ToolAnnotations(readOnlyHint=True)
-_DESTRUCTIVE = ToolAnnotations(destructiveHint=True)
-
-_TOOL_ANNOTATIONS: dict[str, ToolAnnotations] = {
-    "get_pr_diff": _READ_ONLY,
-    "get_pr_content": _READ_ONLY,
-    "get_pr_linked_issues": _READ_ONLY,
-    "get_pr_status_checks": _READ_ONLY,
-    "list_open_issues_prs": _READ_ONLY,
-    "get_latest_sha": _READ_ONLY,
-    "search_user": _READ_ONLY,
-    "get_user_activities": _READ_ONLY,
-    "merge_pr": _DESTRUCTIVE,
-}
 
 
 class PRIssueAnalyser:
@@ -144,7 +128,7 @@ class PRIssueAnalyser:
                 continue
             method = getattr(methods, name)
             if inspect.isroutine(method):
-                annotations = _TOOL_ANNOTATIONS.get(name)
+                annotations = getattr(method, "_mcp_annotations", None)
                 if annotations is not None:
                     self.mcp.tool(annotations=annotations)(method)
                 else:

@@ -24,6 +24,7 @@ from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
 from fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from .auth import (
     GITHUB_OAUTH_BASE_URL,
@@ -146,6 +147,16 @@ TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via en
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
+
+
+def _read_only(fn: Any) -> Any:
+    fn._mcp_annotations = ToolAnnotations(readOnlyHint=True)
+    return fn
+
+
+def _destructive(fn: Any) -> Any:
+    fn._mcp_annotations = ToolAnnotations(destructiveHint=True)
+    return fn
 
 
 class GitHubIntegration:
@@ -277,6 +288,7 @@ class GitHubIntegration:
         }
         return headers
 
+    @_read_only
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
         Fetches the diff/patch of a specific pull request from a GitHub repository.
@@ -306,6 +318,7 @@ class GitHubIntegration:
         except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
+    @_read_only
     def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
         """
         Fetches the content/details of a specific pull request from a GitHub repository.
@@ -544,6 +557,7 @@ class GitHubIntegration:
             logger.error(f"Error creating PR: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_read_only
     def list_open_issues_prs(
         self,
         repo_owner: str,
@@ -644,6 +658,7 @@ class GitHubIntegration:
             logger.error(f"Error creating issue: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_destructive
     def merge_pr(
         self,
         repo_owner: str,
@@ -901,6 +916,7 @@ class GitHubIntegration:
             logger.error(f"Error updating assignees: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_read_only
     def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
         """
         Fetches the SHA of the latest commit in the specified GitHub repository.
@@ -1047,6 +1063,7 @@ class GitHubIntegration:
             logger.error(f"Error creating release: {str(e)}")
             raise ToolError(str(e)) from e
 
+    @_read_only
     def search_user(self, username: str) -> UserSearchResult:
         """
         Search for a GitHub user by username using GraphQL API.
@@ -1133,6 +1150,7 @@ class GitHubIntegration:
             logger.error(f"Error searching for user {username}: {e}")
             raise GitHubAPIError(f"Failed to search for user: {e}") from e
 
+    @_read_only
     def get_user_activities(
         self,
         username: str,
@@ -1349,6 +1367,7 @@ class GitHubIntegration:
             logger.error(f"Error fetching user activities for {username}: {e}")
             raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e
 
+    @_read_only
     def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
         """
 
@@ -1445,6 +1464,7 @@ class GitHubIntegration:
             return "pending"
         return "passing"
 
+    @_read_only
     def get_pr_status_checks(self, repo_owner: str, repo_name: str, pr_number: int) -> StatusChecksResult:
         """
 
