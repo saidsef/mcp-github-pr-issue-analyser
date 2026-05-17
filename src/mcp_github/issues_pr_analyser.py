@@ -45,84 +45,67 @@ PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
 MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
 
+_MCP_INSTRUCTIONS = """
+# GitHub PR and Issue Analyser
+
+This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitHub Issues, Tags, and Releases.
+
+## Features
+- Fetch PR diffs, content, linked issues, and CI status
+- Update PR descriptions and post inline review comments
+- Create and update GitHub issues
+- Create tags and releases
+
+## Prerequisites
+1. GitHub integration is preconfigured
+2. Appropriate permissions and GitHub API key is set
+
+## Best Practices
+- Use all tools available for a comprehensive understanding of the PR and issue landscape.
+- Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
+- Use single dashes instead of em-dashes in PR descriptions and issue bodies
+- Use update_pr_description to keep PRs up-to-date
+- Use create_issue and update_issue for issue management
+- Use create_tag and create_release for release management
+- Always maintain a professional, clear and concise tone
+
+## Skills
+Workflow guidance is available as MCP resources under the skill:// URI scheme:
+- skill://pr-analysis/SKILL.md -- fetch and analyse PR diffs and metadata
+- skill://pr-review/SKILL.md -- post inline comments and submit review decisions
+- skill://pr-management/SKILL.md -- create, update, assign, and merge PRs
+- skill://issue-management/SKILL.md -- create, update, and list issues
+- skill://release-management/SKILL.md -- tag commits and publish releases
+- skill://user-activity/SKILL.md -- look up user profiles and contribution history
+"""
+
 
 class PRIssueAnalyser:
-    """
-    PRIssueAnalyser exposes GitHub PR and issue management as MCP tools.
-
-    Runs in stdio mode (IDE integration) or HTTP mode (remote access via
-    MCP_ENABLE_REMOTE). Tools are auto-registered from public methods on
-    GitHubIntegration via inspect.getmembers().
-    """
+    """PRIssueAnalyser exposes GitHub PR and issue management as MCP tools."""
 
     def __init__(self):
-        """
-        Initialises the main components required for the Issue and PR Analyser.
-        This constructor performs the following actions:
-        - Initialises the GitHub integration and issue processing components.
-        - Sets up the MCP (Multi-Component Platform) server for handling PR analysis, issue creation, and updates.
-        - Registers the necessary MCP tools for further processing.
-        - Logs the successful initialization of the MCP server.
-        """
-
         self.gi = GI()
 
-        # Initialise MCP Server
         def _select_auth():
             if not MCP_ENABLE_REMOTE:
                 return None
             if GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL:
-                return self.gi._oauth_verifier  # OAuth2 path
-            return self.gi.verifier  # Default: API key / Bearer token
+                return self.gi._oauth_verifier
+            return self.gi.verifier
 
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
             auth=_select_auth(),
-            instructions="""
-          # GitHub PR and Issue Analyser
-
-          This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitHub Issues, Tags, and Releases.
-
-          ## Features
-          - Fetch PR diffs, content, linked issues, and CI status
-          - Update PR descriptions and post inline review comments
-          - Create and update GitHub issues
-          - Create tags and releases
-
-          ## Prerequisites
-          1. GitHub integration is preconfigured
-          2. Appropriate permissions and GitHub API key is set
-
-          ## Best Practices
-          - Use all tools available for a comprehensive understanding of the PR and issue landscape.
-          - Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
-          - Use single dashes instead of em-dashes in PR descriptions and issue bodies
-          - Use update_pr_description to keep PRs up-to-date
-          - Use create_issue and update_issue for issue management
-          - Use create_tag and create_release for release management
-          - Always maintain a professional, clear and concise tone
-
-          ## Skills
-          Workflow guidance is available as MCP resources under the skill:// URI scheme:
-          - skill://pr-analysis/SKILL.md — fetch and analyse PR diffs and metadata
-          - skill://pr-review/SKILL.md — post inline comments and submit review decisions
-          - skill://pr-management/SKILL.md — create, update, assign, and merge PRs
-          - skill://issue-management/SKILL.md — create, update, and list issues
-          - skill://release-management/SKILL.md — tag commits and publish releases
-          - skill://user-activity/SKILL.md — look up user profiles and contribution history
-            """,
+            instructions=_MCP_INSTRUCTIONS,
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
         logger.info("MCP Server initialised")
-
-        self._register_tools()
-
-    def _register_tools(self):
-        self.register_tools(self.gi)
-        self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
+        self.register_tools()
 
     def register_tools(self, methods: Any = None) -> None:
+        if methods is None:
+            methods = self.gi
         for name in dir(methods):
             if name.startswith("_"):
                 continue
@@ -133,42 +116,28 @@ class PRIssueAnalyser:
                     self.mcp.tool(annotations=annotations)(method)
                 else:
                     self.mcp.add_tool(method)
+        self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
-    def run(self):
-        """
-        Runs the MCP server for GitHub PR analysis.
-        Uses HTTP transport if MCP_ENABLE_REMOTE is set, otherwise uses stdio.
-        """
+    def run(self) -> None:
+        """Runs the MCP server. Uses HTTP if MCP_ENABLE_REMOTE is set, otherwise stdio."""
         try:
             logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(
-                    transport="http",
-                    host=HOST,
-                    port=PORT,
-                )
+                self.mcp.run(transport="http", host=HOST, port=PORT)
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
-            logger.error(f"Fatal Error in MCP Server: {str(e)}")
+            logger.error(f"Fatal Error in MCP Server: {e}")
             traceback.print_exc(file=sys.stderr)
 
 
-def main():
-    """
-    Main function to run the PRIssueAnalyser.
-    This function Initialises the PRIssueAnalyser and starts the MCP server.
-    Returns:
-        None
-    Error Handling:
-        Catches all exceptions, logs the error message, prints the traceback,
-        and terminates the program with exit code 1.
-    """
+def main() -> None:
+    """Main entry point."""
     try:
         review = PRIssueAnalyser()
         review.run()
     except Exception as e:
-        logger.error(f"Error running main analyzer: {str(e)}")
+        logger.error(f"Error running main analyzer: {e}")
         traceback.print_exc()
         sys.exit(1)
 
