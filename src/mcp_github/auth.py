@@ -103,9 +103,7 @@ def _parse_redis_db(path: str) -> int:
     """Parse the database index from a Redis URI path component."""
     db_path = path.lstrip("/")
     if db_path and not db_path.isdigit():
-        raise ValueError(
-            f"Invalid Redis database in URI: {db_path!r} (must be a non-negative integer)"
-        )
+        raise ValueError(f"Invalid Redis database in URI: {db_path!r} (must be a non-negative integer)")
     return int(db_path) if db_path else 0
 
 

@@ -37,7 +37,6 @@ from .auth import (
     GITHUB_OAUTH_CLIENT_SECRET,
 )
 from .github_integration import GitHubIntegration as GI
-from .ip_integration import IPIntegration as IP
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -49,23 +48,11 @@ MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
 
 class PRIssueAnalyser:
     """
-    PRIssueAnalyser is a class that provides an interface for analyzing GitHub Pull Requests (PRs) and managing GitHub Issues, Tags, and Releases, as well as retrieving IP information. It integrates with GitHub and an MCP (Multi-Component Platform) server to expose a set of tools for PR and issue management, and can be run as an MCP server using either SSE or stdio transport.
-    Methods
-    -------
-    __init__():
-        Initialises the PRIssueAnalyser instance by setting up GitHub integration, IP processing, and the MCP server. Registers all MCP tools for PR and issue management.
-            Any exceptions during initialization are not explicitly handled and will propagate.
-    _register_tools():
-        Registers a set of asynchronous MCP tools for:
-            - Fetching PR diffs and content
-            - Updating PR descriptions
-            - Creating and updating GitHub issues
-            - Creating tags and releases
-            - Fetching IPv4 and IPv6 information
-            Each tool handles its own exceptions, logging errors and returning appropriate error messages or empty results.
-    run():
-        Runs the MCP server for GitHub PR analysis, selecting the transport mechanism based on the 'MCP_ENABLE_REMOTE' environment variable.
-            Logs and prints any exceptions that occur during server execution, including a fatal error message and traceback.
+    PRIssueAnalyser exposes GitHub PR and issue management as MCP tools.
+
+    Runs in stdio mode (IDE integration) or HTTP mode (remote access via
+    MCP_ENABLE_REMOTE). Tools are auto-registered from public methods on
+    GitHubIntegration via inspect.getmembers().
     """
 
     def __init__(self):
@@ -79,7 +66,6 @@ class PRIssueAnalyser:
         """
 
         self.gi = GI()
-        self.ip = IP()
 
         # Initialise MCP Server
         def _select_auth():
@@ -95,17 +81,16 @@ class PRIssueAnalyser:
             instructions="""
           # GitHub PR and Issue Analyser
 
-          This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitHub Issues, Tags, and Releases, as well as retrieve IP information.
+          This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitHub Issues, Tags, and Releases.
 
           ## Features
-          - Fetch PR diffs and content
-          - Update PR descriptions
+          - Fetch PR diffs, content, linked issues, and CI status
+          - Update PR descriptions and post inline review comments
           - Create and update GitHub issues
           - Create tags and releases
-          - Fetch IPv4 and IPv6 information
 
           ## Prerequisites
-          1. GitHub and IP integrations are preconfigured
+          1. GitHub integration is preconfigured
           2. Appropriate permissions and GitHub API key is set
 
           ## Best Practices
@@ -115,7 +100,6 @@ class PRIssueAnalyser:
           - Use update_pr_description to keep PRs up-to-date
           - Use create_issue and update_issue for issue management
           - Use create_tag and create_release for release management
-          - Use get_ipv4_info and get_ipv6_info for IP information
           - Always maintain a professional, clear and concise tone
 
           ## Skills
@@ -126,7 +110,6 @@ class PRIssueAnalyser:
           - skill://issue-management/SKILL.md — create, update, and list issues
           - skill://release-management/SKILL.md — tag commits and publish releases
           - skill://user-activity/SKILL.md — look up user profiles and contribution history
-          - skill://ip-lookup/SKILL.md — retrieve IPv4/IPv6 network information
             """,
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
@@ -137,7 +120,6 @@ class PRIssueAnalyser:
 
     def _register_tools(self):
         self.register_tools(self.gi)
-        self.register_tools(self.ip)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def register_tools(self, methods: Any = None) -> None:
@@ -146,7 +128,11 @@ class PRIssueAnalyser:
                 continue
             method = getattr(methods, name)
             if inspect.isroutine(method):
-                self.mcp.add_tool(method)
+                annotations = getattr(method, "_mcp_annotations", None)
+                if annotations is not None:
+                    self.mcp.tool(annotations=annotations)(method)
+                else:
+                    self.mcp.add_tool(method)
 
     def run(self):
         """

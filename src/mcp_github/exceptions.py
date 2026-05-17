@@ -113,12 +113,3 @@ class GitHubValidationError(GitHubAPIError):
             response_body=response_body,
             code="VALIDATION_ERROR",
         )
-
-
-class IPInfoError(MCPGitHubError):
-    """IP info service error."""
-
-    def __init__(self, message: str, url: str | None = None):
-        """Initialize IPInfoError."""
-        super().__init__(message, code="IP_INFO_ERROR")
-        self.url = url

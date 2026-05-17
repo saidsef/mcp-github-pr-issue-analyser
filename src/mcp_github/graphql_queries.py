@@ -64,6 +64,72 @@ query($username: String!) {
 }
 """
 
+# Query to fetch issues that will be auto-closed when a PR is merged
+PR_LINKED_ISSUES_QUERY = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      closingIssuesReferences(first: 25) {
+        nodes {
+          number
+          title
+          state
+          url
+          createdAt
+          labels(first: 10) {
+            nodes {
+              name
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Query to fetch check runs and commit status for a PR's HEAD commit
+PR_STATUS_CHECKS_QUERY = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    pullRequest(number: $number) {
+      headRef {
+        target {
+          ... on Commit {
+            checkSuites(first: 20) {
+              nodes {
+                app {
+                  name
+                }
+                status
+                conclusion
+                checkRuns(first: 20) {
+                  nodes {
+                    name
+                    status
+                    conclusion
+                    detailsUrl
+                  }
+                }
+              }
+            }
+            status {
+              state
+              contexts {
+                context
+                state
+                description
+                targetUrl
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 # Query to get user contributions with optional date filtering
 USER_CONTRIBUTIONS_QUERY = """
 query($username: String!, $since: DateTime, $until: DateTime) {

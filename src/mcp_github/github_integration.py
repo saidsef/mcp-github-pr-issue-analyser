@@ -19,11 +19,12 @@
 from __future__ import annotations
 
 import logging
-import traceback
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
+from fastmcp.exceptions import ToolError
+from mcp.types import ToolAnnotations
 
 from .auth import (
     GITHUB_OAUTH_BASE_URL,
@@ -41,7 +42,7 @@ from .exceptions import (
     GitHubValidationError,
 )
 from .graphql_client import GraphQLClient
-from .graphql_queries import SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
+from .graphql_queries import PR_LINKED_ISSUES_QUERY, PR_STATUS_CHECKS_QUERY, SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
 
 # TypedDict definitions for common return types (PEP 695 type alias syntax)
 type PRContent = TypedDict(
@@ -121,11 +122,46 @@ type UserActivityResult = TypedDict(
 )
 
 
+type LinkedIssuesResult = TypedDict(
+    "LinkedIssuesResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "pr_number": int,
+        "linked_issues": list[dict[str, Any]],
+    },
+)
+
+
+type StatusChecksResult = TypedDict(
+    "StatusChecksResult",
+    {  # pyright: ignore[reportInvalidTypeForm]
+        "pr_number": int,
+        "overall": str,
+        "check_runs": list[dict[str, Any]],
+        "commit_statuses": list[dict[str, Any]],
+    },
+)
+
+
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
+
+
+def _read_only(fn: Any) -> Any:
+    fn._mcp_annotations = ToolAnnotations(readOnlyHint=True)
+    return fn
+
+
+def _destructive(fn: Any) -> Any:
+    fn._mcp_annotations = ToolAnnotations(readOnlyHint=False, destructiveHint=True)
+    return fn
+
+
+def _write(fn: Any) -> Any:
+    fn._mcp_annotations = ToolAnnotations(readOnlyHint=False)
+    return fn
 
 
 class GitHubIntegration:
@@ -257,6 +293,7 @@ class GitHubIntegration:
         }
         return headers
 
+    @_read_only
     def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """
         Fetches the diff/patch of a specific pull request from a GitHub repository.
@@ -286,6 +323,7 @@ class GitHubIntegration:
         except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
+    @_read_only
     def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
         """
         Fetches the content/details of a specific pull request from a GitHub repository.
@@ -324,6 +362,7 @@ class GitHubIntegration:
         except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
+    @_write
     def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
         """
         Adds a comment to a specific pull request on GitHub.
@@ -358,6 +397,7 @@ class GitHubIntegration:
         except httpx.TransportError as e:
             raise GitHubAPIError(f"Request failed: {e}") from e
 
+    @_write
     def add_inline_pr_comment(
         self,
         repo_owner: str,
@@ -418,9 +458,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error adding inline review comment: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def update_pr_description(
         self,
         repo_owner: str,
@@ -464,9 +504,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error updating PR description: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def create_pr(
         self,
         repo_owner: str,
@@ -524,9 +564,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error creating PR: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_read_only
     def list_open_issues_prs(
         self,
         repo_owner: str,
@@ -583,9 +623,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error listing open {issue}s: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> IssueData:
         """
         Creates a new issue in the specified GitHub repository.
@@ -626,9 +666,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error creating issue: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_destructive
     def merge_pr(
         self,
         repo_owner: str,
@@ -681,19 +721,18 @@ class GitHubIntegration:
             logger.info("PR merged successfully")
             return merge_data
 
+        except GitHubAuthError:
+            raise
         except GitHubAPIError as e:
-            if isinstance(e, GitHubAuthError):
-                detail = e.message
-            else:
-                github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
-                detail = github_msg or e.message
+            github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
+            detail = github_msg or e.message
             logger.error(f"Error merging PR: {detail}")
-            return {"status": "error", "message": detail, "details": e.response_body}
+            raise ToolError(detail) from e
         except httpx.HTTPError as e:
             logger.error(f"Error merging PR: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def update_pr_branch(
         self,
         repo_owner: str,
@@ -737,9 +776,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error updating PR branch: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def update_issue(
         self,
         repo_owner: str,
@@ -787,9 +826,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error updating issue: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def update_reviews(
         self,
         repo_owner: str,
@@ -834,9 +873,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error submitting review: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def update_assignees(
         self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
     ) -> dict[str, Any]:
@@ -889,9 +928,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error updating assignees: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_read_only
     def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
         """
         Fetches the SHA of the latest commit in the specified GitHub repository.
@@ -927,9 +966,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error fetching latest commit SHA: {str(e)}")
-            traceback.print_exc()
-            return str(e)
+            raise ToolError(str(e)) from e
 
+    @_write
     def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
         """
         Creates a new tag in the specified GitHub repository.
@@ -974,9 +1013,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error creating tag: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_write
     def create_release(
         self,
         repo_owner: str,
@@ -1038,9 +1077,9 @@ class GitHubIntegration:
             raise
         except Exception as e:
             logger.error(f"Error creating release: {str(e)}")
-            traceback.print_exc()
-            return {"status": "error", "message": str(e)}
+            raise ToolError(str(e)) from e
 
+    @_read_only
     def search_user(self, username: str) -> UserSearchResult:
         """
         Search for a GitHub user by username using GraphQL API.
@@ -1127,6 +1166,7 @@ class GitHubIntegration:
             logger.error(f"Error searching for user {username}: {e}")
             raise GitHubAPIError(f"Failed to search for user: {e}") from e
 
+    @_read_only
     def get_user_activities(
         self,
         username: str,
@@ -1342,3 +1382,155 @@ class GitHubIntegration:
         except Exception as e:
             logger.error(f"Error fetching user activities for {username}: {e}")
             raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e
+
+    @_read_only
+    def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
+        """
+
+        Return the issues that will be auto-closed when a pull request is merged.
+
+        Uses `closingIssuesReferences` - authoritative over text-parsing "Closes #N"
+        keywords since it includes issues linked via the GitHub UI.
+
+        Raises
+        ------
+        GitHubNotFoundError
+            If the pull request is not found.
+        GitHubAPIError
+            If the API request fails.
+
+        """
+        logger.info(f"Fetching linked issues for PR #{pr_number} in {repo_owner}/{repo_name}")
+
+        try:
+            result = self.graphql.execute_query(
+                PR_LINKED_ISSUES_QUERY,
+                variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
+                token=self._resolve_token(),
+            )
+
+            repo_data = result.get("repository")
+            if not repo_data or not repo_data.get("pullRequest"):
+                raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
+
+            nodes = repo_data["pullRequest"]["closingIssuesReferences"]["nodes"]
+            linked_issues = [
+                {
+                    "number": issue["number"],
+                    "title": issue["title"],
+                    "state": issue["state"],
+                    "url": issue["url"],
+                    "created_at": issue["createdAt"],
+                    "labels": [label["name"] for label in issue["labels"]["nodes"]],
+                }
+                for issue in nodes
+            ]
+
+            logger.info(f"Found {len(linked_issues)} linked issue(s) for PR #{pr_number}")
+            return {"pr_number": pr_number, "linked_issues": linked_issues}
+
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching linked issues for PR #{pr_number}: {e}")
+            raise GitHubAPIError(f"Failed to fetch linked issues: {e}") from e
+
+    def _flatten_check_runs(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
+        """Flatten check suites into a single list of check run dicts."""
+        check_runs: list[dict[str, Any]] = []
+        for suite in (head_target.get("checkSuites") or {}).get("nodes", []):
+            app_name = (suite.get("app") or {}).get("name", "unknown")
+            for run in (suite.get("checkRuns") or {}).get("nodes", []):
+                check_runs.append(
+                    {
+                        "name": run["name"],
+                        "status": run["status"],
+                        "conclusion": run.get("conclusion"),
+                        "details_url": run.get("detailsUrl"),
+                        "suite_app": app_name,
+                    }
+                )
+        return check_runs
+
+    def _extract_commit_statuses(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
+        """Extract legacy commit status contexts from a HEAD commit target."""
+        commit_status = head_target.get("status") or {}
+        return [
+            {
+                "context": ctx["context"],
+                "state": ctx["state"],
+                "description": ctx.get("description"),
+                "target_url": ctx.get("targetUrl"),
+            }
+            for ctx in commit_status.get("contexts", [])
+        ]
+
+    def _has_failing_checks(self, check_runs: list[dict[str, Any]], legacy: set[str]) -> bool:
+        failing = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+        conclusions = {r["conclusion"] for r in check_runs if r["conclusion"]}
+        return bool(conclusions & failing) or "FAILURE" in legacy or "ERROR" in legacy
+
+    def _has_pending_checks(self, check_runs: list[dict[str, Any]], legacy: set[str]) -> bool:
+        pending = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
+        in_progress = {r["status"] for r in check_runs if r["status"] != "COMPLETED"}
+        return bool(in_progress & pending) or "PENDING" in legacy
+
+    def _derive_overall(self, check_runs: list[dict[str, Any]], commit_statuses: list[dict[str, Any]]) -> str:
+        """Derive a single overall status string from check runs and commit statuses."""
+        if not check_runs and not commit_statuses:
+            return "unknown"
+        legacy = {ctx["state"] for ctx in commit_statuses}
+        if self._has_failing_checks(check_runs, legacy):
+            return "failing"
+        if self._has_pending_checks(check_runs, legacy):
+            return "pending"
+        return "passing"
+
+    @_read_only
+    def get_pr_status_checks(self, repo_owner: str, repo_name: str, pr_number: int) -> StatusChecksResult:
+        """
+
+        Return the CI check runs and commit status for a pull request's HEAD commit.
+
+        Aggregates GitHub Actions check suites and legacy commit status contexts,
+        and derives an overall passing/failing/pending/unknown state.
+
+        Raises
+        ------
+        GitHubNotFoundError
+            If the pull request is not found.
+        GitHubAPIError
+            If the API request fails.
+
+        """
+        logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
+
+        try:
+            result = self.graphql.execute_query(
+                PR_STATUS_CHECKS_QUERY,
+                variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
+                token=self._resolve_token(),
+            )
+
+            repo_data = result.get("repository")
+            if not repo_data or not repo_data.get("pullRequest"):
+                raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
+
+            head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
+            check_runs = self._flatten_check_runs(head_target)
+            commit_statuses = self._extract_commit_statuses(head_target)
+            overall = self._derive_overall(check_runs, commit_statuses)
+
+            logger.info(f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}")
+            return {
+                "pr_number": pr_number,
+                "overall": overall,
+                "check_runs": check_runs,
+                "commit_statuses": commit_statuses,
+            }
+
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching status checks for PR #{pr_number}: {e}")
+            raise GitHubAPIError(f"Failed to fetch status checks: {e}") from e
