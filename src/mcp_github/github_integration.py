@@ -242,7 +242,7 @@ class GitHubIntegration:
             return response
         except GitHubAuthError:
             raise
-        except httpx.HTTPError as e:
+        except Exception as e:
             raise ToolError(str(e)) from e
 
     @_read_only
@@ -316,7 +316,7 @@ class GitHubIntegration:
         head: str,
         base: str,
         draft: bool = False,
-    ) -> PRContent:
+    ) -> dict[str, Any]:
         """Creates a new pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
         data = self._request(
@@ -325,7 +325,7 @@ class GitHubIntegration:
             context=f"create PR {head} -> {base}",
             json={"title": title, "body": body, "head": head, "base": base, "draft": draft},
         ).json()
-        return {  # pyright: ignore[reportReturnType]
+        return {
             "pr_url": data.get("html_url"),
             "pr_number": data.get("number"),
             "status": data.get("state"),
