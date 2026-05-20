@@ -598,14 +598,14 @@ class GitHubIntegration:
         until: str = "",
         max_results: int = 50,
     ) -> UserActivityResult:
-        """Get user activities with optional filtering by org, repo, and date range using GraphQL API."""
+        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
         try:
             variables: dict[str, Any] = {"username": username}
             if since:
-                variables["since"] = since
+                variables["since"] = since + "T00:00:00Z" if len(since) == 10 else since
             if until:
-                variables["until"] = until
+                variables["until"] = until + "T23:59:59Z" if len(until) == 10 else until
             result = self.graphql.execute_query(
                 USER_CONTRIBUTIONS_QUERY,
                 variables=variables,
@@ -618,8 +618,8 @@ class GitHubIntegration:
             date_range = None
             if since or until:
                 date_range = {
-                    "since": since if since else collection.get("startedAt", ""),
-                    "until": until if until else collection.get("endedAt", ""),
+                    "since": variables.get("since", collection.get("startedAt", "")),
+                    "until": variables.get("until", collection.get("endedAt", "")),
                 }
             commits = []
             pull_requests = []
