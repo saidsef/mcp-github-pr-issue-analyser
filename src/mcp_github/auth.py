@@ -22,8 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import hmac
-import logging
-import time
 from os import getenv
 from urllib.parse import urlparse
 
@@ -35,8 +33,6 @@ from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.memory import MemoryStore
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
-from mcp.shared.auth import OAuthClientInformationFull
-from pydantic import AnyUrl
 from redis.asyncio import Redis as AsyncRedis
 
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
@@ -63,30 +59,6 @@ class APIKeyVerifier(TokenVerifier):
                 scopes=["api:read", "api:write"],
                 claims={"authenticated": True},
             )
-        return None
-
-
-class _PermissiveGitHubProvider(GitHubProvider):
-    """GitHubProvider that auto-registers the upstream client_id when MCP clients skip DCR."""
-
-    async def get_client(self, client_id: str) -> OAuthClientInformationFull | None:
-        client = await super().get_client(client_id)
-        if client is not None:
-            return client
-
-        if client_id == self._upstream_client_id:
-            logging.info("Auto-registering upstream client_id %s (MCP client skipped DCR)", client_id)
-            await self.register_client(
-                OAuthClientInformationFull(
-                    client_id=client_id,
-                    client_id_issued_at=int(time.time()),
-                    redirect_uris=[AnyUrl("http://localhost")],
-                    grant_types=["authorization_code", "refresh_token"],
-                    response_types=["code"],
-                )
-            )
-            return await self._client_store.get(key=client_id)
-
         return None
 
 
@@ -125,14 +97,14 @@ def _derive_jwt_signing_key() -> bytes:
     return derive_jwt_key(high_entropy_material=GITHUB_OAUTH_CLIENT_SECRET, salt="fastmcp-jwt-signing-key")  # type: ignore[arg-type]
 
 
-def get_oauth_verifier() -> _PermissiveGitHubProvider:
-    """Return a PermissiveGitHubProvider instance for OAuth2 authentication."""
+def get_oauth_verifier() -> GitHubProvider:
+    """Return a GitHubProvider instance for OAuth2 authentication."""
     if not all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL)):
         raise ValueError(
             "GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_BASE_URL must all be set"
         )
 
-    return _PermissiveGitHubProvider(
+    return GitHubProvider(
         client_id=GITHUB_OAUTH_CLIENT_ID,  # type: ignore[arg-type]
         client_secret=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
