@@ -123,7 +123,7 @@ class PRIssueAnalyser:
         try:
             logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport="http", host=HOST, port=PORT)
+                self.mcp.run(transport="http", host=HOST, port=PORT, stateless_http=True)
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
