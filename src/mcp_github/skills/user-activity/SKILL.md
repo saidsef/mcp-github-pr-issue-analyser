@@ -50,7 +50,8 @@ Returns: `UserActivityResult` — lists of commits, pull requests, issues, and P
 
 ## Date Filtering
 
-- Use ISO 8601 format: `YYYY-MM-DD` (e.g. `2024-01-01`)
+- Accepted formats: `YYYY-MM-DD` (e.g. `2024-01-01`) or full ISO 8601 (`2024-01-01T00:00:00Z`)
+- Date-only values are automatically expanded: `since` becomes `T00:00:00Z`, `until` becomes `T23:59:59Z`
 - `since` is inclusive (contributions on or after this date)
 - `until` is inclusive (contributions on or before this date)
 - Omit both to retrieve the most recent contributions up to `max_results`

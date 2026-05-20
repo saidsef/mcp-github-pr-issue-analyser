@@ -64,9 +64,46 @@ Format: `vMAJOR.MINOR.PATCH` (e.g. `v2.1.0`)
 
 Pre-release suffixes: `v1.0.0-alpha.1`, `v1.0.0-beta.2`, `v1.0.0-rc.1`
 
+## Release Body Format
+
+The `body` field must follow this structure exactly:
+
+```markdown
+## v{MAJOR}.{MINOR}.{PATCH} -- {YYYY-MM-DD}
+
+### What's Included
+
+- **Feature or fix label** -- brief description
+- **Another change** -- brief description
+
+### ⚠️ Breaking Changes (from v{PREV_MAJOR}.x)
+
+1. **Change title** -- description and migration path
+2. **Another breaking change** -- description
+
+### New Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `VAR_NAME` | Yes/No | What it controls |
+
+### What Changed
+- type(scope): commit message (SHORT_SHA) by @author
+
+**Full Changelog**: https://github.com/{owner}/{repo}/compare/v{PREV}...v{NEW}
+```
+
+Rules:
+- Use `--` (double dash), never em-dashes
+- Date is `YYYY-MM-DD` from the current date
+- Omit `Breaking Changes` and `New Environment Variables` sections when not applicable
+- `What Changed` lists every commit in the release using conventional commit format
+- Short SHA is the first 7 characters of the commit hash
+- `Full Changelog` URL compares the previous tag to the new tag
+
 ## Best Practices
 
-- Always follow semver — never re-use or delete a published tag
+- Always follow semver -- never re-use or delete a published tag
 - Set `draft=True` first to preview the release before publishing
 - Set `generate_release_notes=True` unless you need full manual control over the notes
 - Set `prerelease=True` for alpha/beta/rc versions
