@@ -7,8 +7,22 @@ requires-python = ">=3.14"
 authors = [
     { name = "saidsef" }
 ]
+license = "Apache-2.0"
+keywords = ["mcp", "github", "llm", "pull-request", "issue-tracker", "model-context-protocol"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Software Development :: Version Control :: Git",
+    "Topic :: Internet :: WWW/HTTP",
+    "Typing :: Typed",
+]
 dependencies = [
-    "fastmcp[apps]>=3.2.4",
+    "fastmcp[apps,tasks]>=3.2.4",
     "httpx>=0.28.1",
     "redis>=5.0.0",
 ]
@@ -19,15 +33,6 @@ mcp-github-pr-issue-analyser = "mcp_github.issues_pr_analyser:main"
 [project.urls]
 homepage = "https://github.com/saidsef/mcp-github-pr-issue-analyser"
 issues = "https://github.com/saidsef/mcp-github-pr-issue-analyser/issues"
-
-[tool.setuptools]
-package-dir = {"" = "src"}
-
-[tool.setuptools_scm]
-version_scheme = "guess-next-dev"
-local_scheme = "no-local-version"
-version_file = "src/mcp_github/_version.py"
-fallback_version = "0.0.0"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -40,15 +45,28 @@ reportMissingTypeStubs = false
 reportUnknownMemberType = false
 
 [build-system]
-requires = ["setuptools>=61.0", "wheel", "setuptools-scm>=10.0.5"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "uv-dynamic-versioning"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mcp_github"]
+
+[tool.uv-dynamic-versioning]
+vcs = "git"
+style = "pep440"
+bump = true
+fallback-version = "0.0.0"
+metadata = false
 
 [dependency-groups]
 dev = [
     "pyright>=1.1.400",
     "pytest>=9.0.3",
-    "ruff>=0.15.12",
-    "uv>=0.11.9",
+    "ruff>=0.15.14",
+    "uv>=0.11.16",
 ]
 
 [tool.ruff]
