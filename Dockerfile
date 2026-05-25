@@ -16,9 +16,6 @@ WORKDIR /app
 COPY pyproject.toml requirements.txt /app/
 COPY src src
 
-ARG SETUPTOOLS_SCM_PRETEND_VERSION=0.0.0
-ENV SETUPTOOLS_SCM_PRETEND_VERSION=${SETUPTOOLS_SCM_PRETEND_VERSION}
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends curl unzip ca-certificates && \
     ARCH=$(uname -m) && \
