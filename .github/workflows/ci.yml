@@ -114,9 +114,23 @@ jobs:
         tags: ${{ env.REGISTRY }}/${{ env.OWNER }}/${{ env.REPO_NAME }}:${{ env.TAG != 'main' && env.TAG || env.DATE && 'latest' }}
         labels: ${{ steps.meta.outputs.labels }}
 
+  ghcr-cleanup:
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: ${{ contains(github.ref, 'main') }}
+    steps:
+    - uses: actions/delete-package-versions@v5
+      with: 
+        package-name: 'mcp-github-pr-issue-analyser'
+        package-type: 'container'
+        min-versions-to-keep: 10 # Keep at least 10 versions
+        delete-only-untagged: false # Delete only untagged versions
+        delete-older-than-days: 30 # Delete versions older than 30 days
+        ignore-versions: '^(latest|v\\d{4}\\.\\d{2})$' # Ignore versions that match the regex pattern
+
   auto-approve:
     runs-on: ubuntu-latest
-    needs: [build, review]
+    needs: [build, review, ghcr-cleanup]
     if: ${{ github.event_name == 'pull_request' }}
     steps:
     - name: Auto Approve PR
