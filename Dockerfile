@@ -13,7 +13,7 @@ ENV PORT=${PORT}
 ENV FASTMCP_HOME=/tmp
 
 WORKDIR /app
-COPY pyproject.toml requirements.txt /app/
+COPY pyproject.toml requirements.txt README.md /app/
 COPY src src
 
 RUN apt-get update && \
