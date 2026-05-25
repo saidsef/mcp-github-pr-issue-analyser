@@ -302,9 +302,8 @@ class GitHubIntegration:
     ) -> PRContent:
         """Updates the title and description of a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        return self._request(
-            "PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description}
-        ).json()
+        self._request("PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description})
+        return self.get_pr_content(repo_owner, repo_name, pr_number)
 
     @_write
     def create_pr(

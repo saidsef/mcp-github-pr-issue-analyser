@@ -1,0 +1,42 @@
+name: GHCR Cleanup
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    branches: [main]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: ghcr-cleanup
+  cancel-in-progress: true
+
+permissions:
+  packages: write
+
+jobs:
+  cleanup:
+    name: cleanup
+    runs-on: ubuntu-latest
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
+    steps:
+      - name: Delete branch-tagged and untagged versions
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}
+          package-type: container
+          min-versions-to-keep: 0
+          ignore-versions: ^(latest|v.+)$
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep only last 5 release tags
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}
+          package-type: container
+          min-versions-to-keep: 5
+          ignore-versions: ^latest$
+          token: ${{ secrets.GITHUB_TOKEN }}
