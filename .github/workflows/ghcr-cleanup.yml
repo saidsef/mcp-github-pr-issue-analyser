@@ -23,13 +23,20 @@ jobs:
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'main')
     steps:
-      - name: Delete old GHCR images
-        uses: dataaxiom/ghcr-cleanup-action@v1
+      - name: Delete branch-tagged and untagged versions
+        uses: actions/delete-package-versions@v5
         with:
-          exclude-tags: latest
-          keep-n-tagged: 5
-          tag-regex: ^v
-          delete-untagged: true
-          owner: ${{ github.repository_owner }}
-          package: ${{ github.event.repository.name }}
+          package-name: ${{ github.event.repository.name }}
+          package-type: container
+          min-versions-to-keep: 0
+          ignore-versions: ^(latest|v.+)$
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep only last 5 release tags
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ github.event.repository.name }}
+          package-type: container
+          min-versions-to-keep: 5
+          ignore-versions: ^latest$
           token: ${{ secrets.GITHUB_TOKEN }}
