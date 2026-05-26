@@ -160,7 +160,21 @@ class GitHubIntegration:
         # GraphQL client: token overridden per-call in OAuth2 mode via _resolve_token()
         self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT)
 
+        self._http = httpx.AsyncClient(timeout=TIMEOUT)
+
         logger.info("GitHub Integration Initialised")
+
+    async def aclose(self) -> None:
+        """Close the shared HTTP client."""
+        await self._http.aclose()
+
+    async def __aenter__(self) -> GitHubIntegration:
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        """Exit async context manager and close HTTP client."""
+        await self.aclose()
 
     @property
     def _oauth_verifier(self):
@@ -244,8 +258,7 @@ class GitHubIntegration:
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
         try:
-            async with httpx.AsyncClient() as client:
-                response = await client.request(method, url, headers=self._get_headers(), timeout=TIMEOUT, **kwargs)
+            response = await self._http.request(method, url, headers=self._get_headers(), **kwargs)
             self._raise_for_status(response, context)
             logger.info(f"Success {method.upper()} {ctx}")
             return response
@@ -424,13 +437,7 @@ class GitHubIntegration:
             payload["commit_title"] = commit_title
         if commit_message is not None:
             payload["commit_message"] = commit_message
-        try:
-            return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
-        except GitHubAPIError as e:
-            github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
-            detail = github_msg or str(e)
-            logger.error(f"Error merging PR: {detail}")
-            raise ToolError(detail) from e
+        return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
 
     @_write(idempotent=True)
     async def update_pr_branch(
@@ -651,6 +658,8 @@ class GitHubIntegration:
                 variables["since"] = since + "T00:00:00Z" if len(since) == 10 else since
             if until:
                 variables["until"] = until + "T23:59:59Z" if len(until) == 10 else until
+            if ctx:
+                await ctx.info(f"Querying GitHub contributions for {username}...")
             result = await asyncio.to_thread(
                 self.graphql.execute_query,
                 USER_CONTRIBUTIONS_QUERY,
@@ -888,12 +897,12 @@ class GitHubIntegration:
             if not repo_data or not repo_data.get("pullRequest"):
                 raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
             head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
-            check_suites = head_target.get("checkSuites", {}).get("nodes", [])
             check_runs = self._flatten_check_runs(head_target)
             commit_statuses = self._extract_commit_statuses(head_target)
             if ctx:
+                n_suites = len(head_target.get("checkSuites", {}).get("nodes", []))
                 await ctx.info(
-                    f"Found {len(check_suites)} check suites, "
+                    f"Found {n_suites} check suites, "
                     f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses"
                 )
             overall = self._derive_overall(check_runs, commit_statuses)
