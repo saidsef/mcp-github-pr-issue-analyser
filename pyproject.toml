@@ -22,7 +22,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastmcp[apps,tasks]>=3.2.4",
+    "fastmcp-slim[server,apps,tasks]>=3.3.1",
     "httpx>=0.28.1",
     "redis>=5.0.0",
 ]

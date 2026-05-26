@@ -335,14 +335,21 @@ class GitHubIntegration:
     def list_open_issues_prs(
         self,
         repo_owner: str,
+        repo_name: str = "",
         issue: Literal["pr", "issue"] = "pr",
         filtering: Literal["user", "org", "repo", "involves"] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists open pull requests or issues."""
-        url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{repo_owner}&per_page={per_page}&page={page}"
-        data = self._request("GET", url, context=f"list open {issue}s for {repo_owner}").json()
+        if filtering == "repo":
+            if not repo_name:
+                raise ToolError("repo_name is required when filtering='repo'")
+            search_target = f"{repo_owner}/{repo_name}"
+        else:
+            search_target = repo_owner
+        url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{search_target}&per_page={per_page}&page={page}"
+        data = self._request("GET", url, context=f"list open {issue}s for {search_target}").json()
         return {
             "total": data["total_count"],
             f"open_{issue}s": [
