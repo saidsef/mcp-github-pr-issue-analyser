@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
@@ -122,9 +123,15 @@ logging.basicConfig(level=logging.WARNING)
 
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
-    def deco(fn: Any) -> Any:
-        fn._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive)
-        return fn
+    def deco(fn: Any = None, *, task: bool = False) -> Any:
+        def apply(f: Any) -> Any:
+            f._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive)
+            f._mcp_task = task
+            return f
+
+        if fn is not None:
+            return apply(fn)
+        return apply
 
     return deco
 
@@ -529,12 +536,13 @@ class GitHubIntegration:
             },
         ).json()
 
-    @_read_only
-    def search_user(self, username: str) -> UserSearchResult:
+    @_read_only(task=True)
+    async def search_user(self, username: str) -> UserSearchResult:
         """Search for a GitHub user by username using GraphQL API."""
         logger.info(f"Searching for GitHub user: {username}")
         try:
-            result = self.graphql.execute_query(
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
                 SEARCH_USER_QUERY,
                 variables={"username": username},
                 token=self._resolve_token(),
@@ -594,8 +602,8 @@ class GitHubIntegration:
                 continue
             yield repo_contrib, owner, repo_name
 
-    @_read_only
-    def get_user_activities(
+    @_read_only(task=True)
+    async def get_user_activities(
         self,
         username: str,
         org: str = "",
@@ -612,7 +620,8 @@ class GitHubIntegration:
                 variables["since"] = since + "T00:00:00Z" if len(since) == 10 else since
             if until:
                 variables["until"] = until + "T23:59:59Z" if len(until) == 10 else until
-            result = self.graphql.execute_query(
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
                 USER_CONTRIBUTIONS_QUERY,
                 variables=variables,
                 token=self._resolve_token(),

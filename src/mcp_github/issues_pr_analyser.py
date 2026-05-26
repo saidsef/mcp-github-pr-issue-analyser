@@ -113,7 +113,8 @@ class PRIssueAnalyser:
             if inspect.isroutine(method):
                 annotations = getattr(method, "_mcp_annotations", None)
                 if annotations is not None:
-                    self.mcp.tool(annotations=annotations)(method)
+                    task = getattr(method, "_mcp_task", False)
+                    self.mcp.tool(annotations=annotations, task=task)(method)
                 else:
                     self.mcp.add_tool(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
