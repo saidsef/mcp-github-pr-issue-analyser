@@ -206,10 +206,13 @@ class GitHubIntegration:
             self._raise_for_403(response, response_body)
 
         if status == 404:
-            raise GitHubNotFoundError(
-                f"{context}: Resource not found" if context else "Resource not found",
-                response_body=response_body,
-            )
+            msg = f"{context}: Resource not found" if context else "Resource not found"
+            if self._oauth_mode:
+                msg += (
+                    " If this is a private organisation repository, the org admin may need to"
+                    " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
+                )
+            raise GitHubNotFoundError(msg, response_body=response_body)
 
         if status == 422:
             raise GitHubValidationError("Validation failed. Check your input data.", response_body=response_body)
@@ -225,11 +228,13 @@ class GitHubIntegration:
         """Handle 403 response — distinguishes rate limit from permission error."""
         error_text = response.text.lower()
         if "rate limit" not in error_text and "api rate limit" not in error_text:
-            raise GitHubAPIError(
-                "Permission denied. Check your token permissions.",
-                status_code=403,
-                response_body=response_body,
-            )
+            msg = "Permission denied. Check your token permissions."
+            if self._oauth_mode:
+                msg += (
+                    " If accessing a private organisation repository, the org admin may need to"
+                    " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
+                )
+            raise GitHubAPIError(msg, status_code=403, response_body=response_body)
         reset_header = response.headers.get("X-RateLimit-Reset")
         raise GitHubRateLimitError(
             "GitHub API rate limit exceeded. Please wait before making more requests.",
