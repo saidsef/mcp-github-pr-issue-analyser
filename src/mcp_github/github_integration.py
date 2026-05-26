@@ -24,6 +24,7 @@ from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
+from fastmcp import Context
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -123,9 +124,9 @@ logging.basicConfig(level=logging.WARNING)
 
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
-    def deco(fn: Any = None, *, task: bool = False) -> Any:
+    def deco(fn: Any = None, *, task: bool = False, idempotent: bool = False) -> Any:
         def apply(f: Any) -> Any:
-            f._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive)
+            f._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive, idempotentHint=idempotent)
             f._mcp_task = task
             return f
 
@@ -301,7 +302,7 @@ class GitHubIntegration:
             await self._request("POST", review_url, context=f"inline comment on {path}:{line}", json=payload)
         ).json()
 
-    @_write
+    @_write(idempotent=True)
     async def update_pr_description(
         self,
         repo_owner: str,
@@ -398,7 +399,7 @@ class GitHubIntegration:
             )
         ).json()
 
-    @_destructive
+    @_write
     async def merge_pr(
         self,
         repo_owner: str,
@@ -407,8 +408,16 @@ class GitHubIntegration:
         commit_title: str | None = None,
         commit_message: str | None = None,
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Merges a specific pull request."""
+        if ctx:
+            confirmation = await ctx.elicit(
+                f"About to merge PR #{pr_number} in {repo_owner}/{repo_name} via '{merge_method}'. Confirm?",
+                response_type=None,
+            )
+            if confirmation.action != "accept":
+                raise GitHubValidationError("Merge cancelled.")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
         payload: dict[str, Any] = {"merge_method": merge_method}
         if commit_title is not None:
@@ -423,7 +432,7 @@ class GitHubIntegration:
             logger.error(f"Error merging PR: {detail}")
             raise ToolError(detail) from e
 
-    @_write
+    @_write(idempotent=True)
     async def update_pr_branch(
         self,
         repo_owner: str,
@@ -438,7 +447,7 @@ class GitHubIntegration:
             payload["expected_head_sha"] = expected_head_sha
         return (await self._request("PUT", url, context=f"PR #{pr_number} update branch", json=payload)).json()
 
-    @_write
+    @_write(idempotent=True)
     async def update_issue(
         self,
         repo_owner: str,
@@ -475,7 +484,7 @@ class GitHubIntegration:
             await self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event})
         ).json()
 
-    @_write
+    @_write(idempotent=True)
     async def update_assignees(
         self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
     ) -> dict[str, Any]:
@@ -632,6 +641,7 @@ class GitHubIntegration:
         since: str = "",
         until: str = "",
         max_results: int = 50,
+        ctx: Context | None = None,
     ) -> UserActivityResult:
         """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
@@ -661,6 +671,9 @@ class GitHubIntegration:
             pull_requests = []
             issues = []
             reviews = []
+            if ctx:
+                await ctx.report_progress(progress=0, total=4)
+                await ctx.info("Fetching commits...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "commitContributionsByRepository", org, repo
             ):
@@ -676,6 +689,9 @@ class GitHubIntegration:
                             "date": contrib.get("occurredAt", ""),
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=1, total=4)
+                await ctx.info("Fetching pull requests...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestContributionsByRepository", org, repo
             ):
@@ -695,6 +711,9 @@ class GitHubIntegration:
                             "merged": pr.get("merged", False),
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=2, total=4)
+                await ctx.info("Fetching issues...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "issueContributionsByRepository", org, repo
             ):
@@ -713,6 +732,9 @@ class GitHubIntegration:
                             "created": issue["createdAt"],
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=3, total=4)
+                await ctx.info("Fetching reviews...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestReviewContributionsByRepository", org, repo
             ):
@@ -733,6 +755,8 @@ class GitHubIntegration:
                             "date": contrib["occurredAt"],
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=4, total=4)
             activity_result: UserActivityResult = {
                 "username": username,
                 "date_range": date_range,
@@ -844,7 +868,13 @@ class GitHubIntegration:
         return "passing"
 
     @_read_only(task=True)
-    async def get_pr_status_checks(self, repo_owner: str, repo_name: str, pr_number: int) -> StatusChecksResult:
+    async def get_pr_status_checks(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        ctx: Context | None = None,
+    ) -> StatusChecksResult:
         """Return the CI check runs and commit status for a pull request's HEAD commit."""
         logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
         try:
@@ -858,8 +888,14 @@ class GitHubIntegration:
             if not repo_data or not repo_data.get("pullRequest"):
                 raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
             head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
+            check_suites = head_target.get("checkSuites", {}).get("nodes", [])
             check_runs = self._flatten_check_runs(head_target)
             commit_statuses = self._extract_commit_statuses(head_target)
+            if ctx:
+                await ctx.info(
+                    f"Found {len(check_suites)} check suites, "
+                    f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses"
+                )
             overall = self._derive_overall(check_runs, commit_statuses)
             logger.info(f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}")
             return {
