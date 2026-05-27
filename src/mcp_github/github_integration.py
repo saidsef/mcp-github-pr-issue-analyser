@@ -656,7 +656,7 @@ class GitHubIntegration:
         max_results: int = 50,
         ctx: Context | None = None,
     ) -> UserActivityResult:
-        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)."""
+        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ). Note: repo_stars returns current cumulative star counts, not stars gained within the requested period — GitHub does not expose per-period star deltas."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
         try:
             variables: dict[str, Any] = {"username": username}
