@@ -115,8 +115,6 @@ class PRIssueAnalyser:
                 if annotations is not None:
                     task = getattr(method, "_mcp_task", False)
                     self.mcp.tool(annotations=annotations, task=task)(method)
-                else:
-                    self.mcp.add_tool(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def run(self) -> None:
