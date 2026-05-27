@@ -18,11 +18,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
 
 import httpx
+from fastmcp import Context
 from fastmcp.exceptions import ToolError
 from mcp.types import ToolAnnotations
 
@@ -122,9 +124,15 @@ logging.basicConfig(level=logging.WARNING)
 
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
-    def deco(fn: Any) -> Any:
-        fn._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive)
-        return fn
+    def deco(fn: Any = None, *, task: bool = False, idempotent: bool = False) -> Any:
+        def apply(f: Any) -> Any:
+            f._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive, idempotentHint=idempotent)
+            f._mcp_task = task
+            return f
+
+        if fn is not None:
+            return apply(fn)
+        return apply
 
     return deco
 
@@ -152,7 +160,21 @@ class GitHubIntegration:
         # GraphQL client: token overridden per-call in OAuth2 mode via _resolve_token()
         self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT)
 
+        self._http = httpx.AsyncClient(timeout=TIMEOUT)
+
         logger.info("GitHub Integration Initialised")
+
+    async def aclose(self) -> None:
+        """Close the shared HTTP client."""
+        await self._http.aclose()
+
+    async def __aenter__(self) -> GitHubIntegration:
+        """Enter async context manager."""
+        return self
+
+    async def __aexit__(self, *_: Any) -> None:
+        """Exit async context manager and close HTTP client."""
+        await self.aclose()
 
     @property
     def _oauth_verifier(self):
@@ -184,10 +206,13 @@ class GitHubIntegration:
             self._raise_for_403(response, response_body)
 
         if status == 404:
-            raise GitHubNotFoundError(
-                f"{context}: Resource not found" if context else "Resource not found",
-                response_body=response_body,
-            )
+            msg = f"{context}: Resource not found" if context else "Resource not found"
+            if self._oauth_mode:
+                msg += (
+                    " If this is a private organisation repository, the org admin may need to"
+                    " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
+                )
+            raise GitHubNotFoundError(msg, response_body=response_body)
 
         if status == 422:
             raise GitHubValidationError("Validation failed. Check your input data.", response_body=response_body)
@@ -203,11 +228,13 @@ class GitHubIntegration:
         """Handle 403 response — distinguishes rate limit from permission error."""
         error_text = response.text.lower()
         if "rate limit" not in error_text and "api rate limit" not in error_text:
-            raise GitHubAPIError(
-                "Permission denied. Check your token permissions.",
-                status_code=403,
-                response_body=response_body,
-            )
+            msg = "Permission denied. Check your token permissions."
+            if self._oauth_mode:
+                msg += (
+                    " If accessing a private organisation repository, the org admin may need to"
+                    " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
+                )
+            raise GitHubAPIError(msg, status_code=403, response_body=response_body)
         reset_header = response.headers.get("X-RateLimit-Reset")
         raise GitHubRateLimitError(
             "GitHub API rate limit exceeded. Please wait before making more requests.",
@@ -231,12 +258,12 @@ class GitHubIntegration:
         }
         return headers
 
-    def _request(self, method: str, url: str, *, context: str = "", **kwargs: Any) -> httpx.Response:
+    async def _request(self, method: str, url: str, *, context: str = "", **kwargs: Any) -> httpx.Response:
         """Make an HTTP request and handle errors."""
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
         try:
-            response = httpx.request(method, url, headers=self._get_headers(), timeout=TIMEOUT, **kwargs)
+            response = await self._http.request(method, url, headers=self._get_headers(), **kwargs)
             self._raise_for_status(response, context)
             logger.info(f"Success {method.upper()} {ctx}")
             return response
@@ -246,16 +273,16 @@ class GitHubIntegration:
             raise ToolError(str(e)) from e
 
     @_read_only
-    def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
+    async def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
         """Fetches the diff/patch of a specific pull request."""
         url = f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch"
-        return self._request("GET", url, context=f"PR #{pr_number} diff").text
+        return (await self._request("GET", url, context=f"PR #{pr_number} diff")).text
 
     @_read_only
-    def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
+    async def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
         """Fetches the content/details of a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        data = self._request("GET", url, context=f"PR #{pr_number}").json()
+        data = (await self._request("GET", url, context=f"PR #{pr_number}")).json()
         return {
             "title": data["title"],
             "description": data["body"],
@@ -266,13 +293,13 @@ class GitHubIntegration:
         }
 
     @_write
-    def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
+    async def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
         """Adds a comment to a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{pr_number}/comments"
-        return self._request("POST", url, context=f"PR #{pr_number} comment", json={"body": comment}).json()
+        return (await self._request("POST", url, context=f"PR #{pr_number} comment", json={"body": comment})).json()
 
     @_write
-    def add_inline_pr_comment(
+    async def add_inline_pr_comment(
         self,
         repo_owner: str,
         repo_name: str,
@@ -283,16 +310,18 @@ class GitHubIntegration:
     ) -> CommentData:
         """Adds an inline review comment to a specific line in a file within a PR."""
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        pr_data = self._request("GET", pr_url, context=f"PR #{pr_number}").json()
+        pr_data = (await self._request("GET", pr_url, context=f"PR #{pr_number}")).json()
         commit_id = pr_data.get("head", {}).get("sha")
         if not commit_id:
             raise ToolError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
         payload = {"body": comment_body, "commit_id": commit_id, "path": path, "line": line, "side": "RIGHT"}
-        return self._request("POST", review_url, context=f"inline comment on {path}:{line}", json=payload).json()
+        return (
+            await self._request("POST", review_url, context=f"inline comment on {path}:{line}", json=payload)
+        ).json()
 
-    @_write
-    def update_pr_description(
+    @_write(idempotent=True)
+    async def update_pr_description(
         self,
         repo_owner: str,
         repo_name: str,
@@ -302,11 +331,13 @@ class GitHubIntegration:
     ) -> PRContent:
         """Updates the title and description of a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        self._request("PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description})
-        return self.get_pr_content(repo_owner, repo_name, pr_number)
+        await self._request(
+            "PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description}
+        )
+        return await self.get_pr_content(repo_owner, repo_name, pr_number)
 
     @_write
-    def create_pr(
+    async def create_pr(
         self,
         repo_owner: str,
         repo_name: str,
@@ -318,11 +349,13 @@ class GitHubIntegration:
     ) -> dict[str, Any]:
         """Creates a new pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
-        data = self._request(
-            "POST",
-            url,
-            context=f"create PR {head} -> {base}",
-            json={"title": title, "body": body, "head": head, "base": base, "draft": draft},
+        data = (
+            await self._request(
+                "POST",
+                url,
+                context=f"create PR {head} -> {base}",
+                json={"title": title, "body": body, "head": head, "base": base, "draft": draft},
+            )
         ).json()
         return {
             "pr_url": data.get("html_url"),
@@ -332,7 +365,7 @@ class GitHubIntegration:
         }
 
     @_read_only
-    def list_open_issues_prs(
+    async def list_open_issues_prs(
         self,
         repo_owner: str,
         repo_name: str = "",
@@ -349,7 +382,7 @@ class GitHubIntegration:
         else:
             search_target = repo_owner
         url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{search_target}&per_page={per_page}&page={page}"
-        data = self._request("GET", url, context=f"list open {issue}s for {search_target}").json()
+        data = (await self._request("GET", url, context=f"list open {issue}s for {search_target}")).json()
         return {
             "total": data["total_count"],
             f"open_{issue}s": [
@@ -369,19 +402,23 @@ class GitHubIntegration:
         }
 
     @_write
-    def create_issue(self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]) -> IssueData:
+    async def create_issue(
+        self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]
+    ) -> IssueData:
         """Creates a new issue."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
         issue_labels = ["mcp"] if not labels else labels + ["mcp"]
-        return self._request(
-            "POST",
-            url,
-            context=f"create issue in {repo_owner}/{repo_name}",
-            json={"title": title, "body": body, "labels": issue_labels},
+        return (
+            await self._request(
+                "POST",
+                url,
+                context=f"create issue in {repo_owner}/{repo_name}",
+                json={"title": title, "body": body, "labels": issue_labels},
+            )
         ).json()
 
-    @_destructive
-    def merge_pr(
+    @_write
+    async def merge_pr(
         self,
         repo_owner: str,
         repo_name: str,
@@ -389,24 +426,26 @@ class GitHubIntegration:
         commit_title: str | None = None,
         commit_message: str | None = None,
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
+        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Merges a specific pull request."""
+        if ctx:
+            confirmation = await ctx.elicit(
+                f"About to merge PR #{pr_number} in {repo_owner}/{repo_name} via '{merge_method}'. Confirm?",
+                response_type=None,
+            )
+            if confirmation.action != "accept":
+                raise GitHubValidationError("Merge cancelled.")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
         payload: dict[str, Any] = {"merge_method": merge_method}
         if commit_title is not None:
             payload["commit_title"] = commit_title
         if commit_message is not None:
             payload["commit_message"] = commit_message
-        try:
-            return self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload).json()
-        except GitHubAPIError as e:
-            github_msg = (e.response_body or {}).get("message", "") if e.response_body else ""
-            detail = github_msg or str(e)
-            logger.error(f"Error merging PR: {detail}")
-            raise ToolError(detail) from e
+        return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
 
-    @_write
-    def update_pr_branch(
+    @_write(idempotent=True)
+    async def update_pr_branch(
         self,
         repo_owner: str,
         repo_name: str,
@@ -418,10 +457,10 @@ class GitHubIntegration:
         payload: dict[str, Any] = {}
         if expected_head_sha is not None:
             payload["expected_head_sha"] = expected_head_sha
-        return self._request("PUT", url, context=f"PR #{pr_number} update branch", json=payload).json()
+        return (await self._request("PUT", url, context=f"PR #{pr_number} update branch", json=payload)).json()
 
-    @_write
-    def update_issue(
+    @_write(idempotent=True)
+    async def update_issue(
         self,
         repo_owner: str,
         repo_name: str,
@@ -433,15 +472,17 @@ class GitHubIntegration:
     ) -> IssueData:
         """Updates an existing issue."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
-        return self._request(
-            "PATCH",
-            url,
-            context=f"issue #{issue_number}",
-            json={"title": title, "body": body, "labels": labels, "state": state},
+        return (
+            await self._request(
+                "PATCH",
+                url,
+                context=f"issue #{issue_number}",
+                json={"title": title, "body": body, "labels": labels, "state": state},
+            )
         ).json()
 
     @_write
-    def update_reviews(
+    async def update_reviews(
         self,
         repo_owner: str,
         repo_name: str,
@@ -451,16 +492,20 @@ class GitHubIntegration:
     ) -> dict[str, Any]:
         """Submits a review for a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
-        return self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event}).json()
+        return (
+            await self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event})
+        ).json()
 
-    @_write
-    def update_assignees(
+    @_write(idempotent=True)
+    async def update_assignees(
         self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
     ) -> dict[str, Any]:
         """Updates the assignees for a specific issue or pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
-        data = self._request(
-            "PATCH", url, context=f"issue/PR #{issue_number} assignees", json={"assignees": assignees}
+        data = (
+            await self._request(
+                "PATCH", url, context=f"issue/PR #{issue_number} assignees", json={"assignees": assignees}
+            )
         ).json()
         actual_logins = {u["login"] for u in data.get("assignees", [])}
         requested = set(assignees)
@@ -477,30 +522,32 @@ class GitHubIntegration:
         return data
 
     @_read_only
-    def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
+    async def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
         """Fetches the SHA of the latest commit."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
-        data = self._request("GET", url, context=f"commits for {repo_owner}/{repo_name}").json()
+        data = (await self._request("GET", url, context=f"commits for {repo_owner}/{repo_name}")).json()
         if data:
             return data[0]["sha"]
         return "No commits found in the repository"
 
     @_write
-    def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
+    async def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
         """Creates a new tag."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs"
-        latest_sha = self.get_latest_sha(repo_owner, repo_name)
+        latest_sha = await self.get_latest_sha(repo_owner, repo_name)
         if not latest_sha:
             raise ValueError("Failed to fetch the latest commit SHA")
-        return self._request(
-            "POST",
-            url,
-            context=f"create tag {tag_name}",
-            json={"ref": f"refs/tags/{tag_name}", "sha": latest_sha, "message": message},
+        return (
+            await self._request(
+                "POST",
+                url,
+                context=f"create tag {tag_name}",
+                json={"ref": f"refs/tags/{tag_name}", "sha": latest_sha, "message": message},
+            )
         ).json()
 
     @_write
-    def create_release(
+    async def create_release(
         self,
         repo_owner: str,
         repo_name: str,
@@ -514,27 +561,30 @@ class GitHubIntegration:
     ) -> dict[str, Any]:
         """Creates a new release."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
-        return self._request(
-            "POST",
-            url,
-            context=f"create release {release_name}",
-            json={
-                "tag_name": tag_name,
-                "name": release_name,
-                "body": body,
-                "draft": draft,
-                "prerelease": prerelease,
-                "generate_release_notes": generate_release_notes,
-                "make_latest": make_latest,
-            },
+        return (
+            await self._request(
+                "POST",
+                url,
+                context=f"create release {release_name}",
+                json={
+                    "tag_name": tag_name,
+                    "name": release_name,
+                    "body": body,
+                    "draft": draft,
+                    "prerelease": prerelease,
+                    "generate_release_notes": generate_release_notes,
+                    "make_latest": make_latest,
+                },
+            )
         ).json()
 
-    @_read_only
-    def search_user(self, username: str) -> UserSearchResult:
+    @_read_only(task=True)
+    async def search_user(self, username: str) -> UserSearchResult:
         """Search for a GitHub user by username using GraphQL API."""
         logger.info(f"Searching for GitHub user: {username}")
         try:
-            result = self.graphql.execute_query(
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
                 SEARCH_USER_QUERY,
                 variables={"username": username},
                 token=self._resolve_token(),
@@ -594,8 +644,8 @@ class GitHubIntegration:
                 continue
             yield repo_contrib, owner, repo_name
 
-    @_read_only
-    def get_user_activities(
+    @_read_only(task=True)
+    async def get_user_activities(
         self,
         username: str,
         org: str = "",
@@ -603,6 +653,7 @@ class GitHubIntegration:
         since: str = "",
         until: str = "",
         max_results: int = 50,
+        ctx: Context | None = None,
     ) -> UserActivityResult:
         """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
@@ -612,7 +663,10 @@ class GitHubIntegration:
                 variables["since"] = since + "T00:00:00Z" if len(since) == 10 else since
             if until:
                 variables["until"] = until + "T23:59:59Z" if len(until) == 10 else until
-            result = self.graphql.execute_query(
+            if ctx:
+                await ctx.info(f"Querying GitHub contributions for {username}...")
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
                 USER_CONTRIBUTIONS_QUERY,
                 variables=variables,
                 token=self._resolve_token(),
@@ -631,6 +685,9 @@ class GitHubIntegration:
             pull_requests = []
             issues = []
             reviews = []
+            if ctx:
+                await ctx.report_progress(progress=0, total=4)
+                await ctx.info("Fetching commits...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "commitContributionsByRepository", org, repo
             ):
@@ -646,6 +703,9 @@ class GitHubIntegration:
                             "date": contrib.get("occurredAt", ""),
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=1, total=4)
+                await ctx.info("Fetching pull requests...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestContributionsByRepository", org, repo
             ):
@@ -665,6 +725,9 @@ class GitHubIntegration:
                             "merged": pr.get("merged", False),
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=2, total=4)
+                await ctx.info("Fetching issues...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "issueContributionsByRepository", org, repo
             ):
@@ -683,6 +746,9 @@ class GitHubIntegration:
                             "created": issue["createdAt"],
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=3, total=4)
+                await ctx.info("Fetching reviews...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestReviewContributionsByRepository", org, repo
             ):
@@ -703,6 +769,8 @@ class GitHubIntegration:
                             "date": contrib["occurredAt"],
                         }
                     )
+            if ctx:
+                await ctx.report_progress(progress=4, total=4)
             activity_result: UserActivityResult = {
                 "username": username,
                 "date_range": date_range,
@@ -728,12 +796,13 @@ class GitHubIntegration:
             logger.error(f"Error fetching user activities for {username}: {e}")
             raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e
 
-    @_read_only
-    def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
+    @_read_only(task=True)
+    async def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
         """Return the issues that will be auto-closed when a pull request is merged."""
         logger.info(f"Fetching linked issues for PR #{pr_number} in {repo_owner}/{repo_name}")
         try:
-            result = self.graphql.execute_query(
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
                 PR_LINKED_ISSUES_QUERY,
                 variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
                 token=self._resolve_token(),
@@ -812,12 +881,19 @@ class GitHubIntegration:
             return "pending"
         return "passing"
 
-    @_read_only
-    def get_pr_status_checks(self, repo_owner: str, repo_name: str, pr_number: int) -> StatusChecksResult:
+    @_read_only(task=True)
+    async def get_pr_status_checks(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        ctx: Context | None = None,
+    ) -> StatusChecksResult:
         """Return the CI check runs and commit status for a pull request's HEAD commit."""
         logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
         try:
-            result = self.graphql.execute_query(
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
                 PR_STATUS_CHECKS_QUERY,
                 variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
                 token=self._resolve_token(),
@@ -828,6 +904,12 @@ class GitHubIntegration:
             head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
             check_runs = self._flatten_check_runs(head_target)
             commit_statuses = self._extract_commit_statuses(head_target)
+            if ctx:
+                n_suites = len(head_target.get("checkSuites", {}).get("nodes", []))
+                await ctx.info(
+                    f"Found {n_suites} check suites, "
+                    f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses"
+                )
             overall = self._derive_overall(check_runs, commit_statuses)
             logger.info(f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}")
             return {
