@@ -319,6 +319,88 @@ class TestGetUserActivitiesContext:
 
 
 # ---------------------------------------------------------------------------
+# get_repo_stars_since — new stars within a date window
+# ---------------------------------------------------------------------------
+
+
+class TestGetRepoStarsSince:
+    @pytest.mark.anyio
+    async def test_returns_repos_sorted_by_new_stars(self, gi: GitHubIntegration):
+        repos_payload = [
+            {"name": "repo-a", "stargazers_count": 10, "html_url": "https://github.com/u/repo-a", "description": None},
+            {"name": "repo-b", "stargazers_count": 5, "html_url": "https://github.com/u/repo-b", "description": "B"},
+        ]
+        # GitHub returns stargazers oldest-first; reversed() gives newest-first
+        # repo-a: 2 new stars (both after cutoff); repo-b: 1 new star (one before, one after)
+        sg_a = [{"starred_at": "2099-01-01T00:00:00Z", "user": {}}, {"starred_at": "2099-01-02T00:00:00Z", "user": {}}]
+        sg_b = [{"starred_at": "2000-01-01T00:00:00Z", "user": {}}, {"starred_at": "2099-01-01T00:00:00Z", "user": {}}]
+
+        responses = iter([
+            _mock_response(json_data=repos_payload),
+            _mock_response(json_data=sg_a),
+            _mock_response(json_data=sg_b),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+
+        assert result["username"] == "u"
+        assert result["since"] == "2090-01-01T00:00:00Z"
+        assert len(result["repos"]) == 2
+        assert result["repos"][0]["repo"] == "repo-a"
+        assert result["repos"][0]["new_stars"] == 2
+        assert result["repos"][1]["repo"] == "repo-b"
+        assert result["repos"][1]["new_stars"] == 1
+
+    @pytest.mark.anyio
+    async def test_excludes_repos_with_no_new_stars(self, gi: GitHubIntegration):
+        repos_payload = [
+            {"name": "old-repo", "stargazers_count": 3, "html_url": "https://github.com/u/old-repo", "description": None},
+        ]
+        sg_old = [{"starred_at": "2000-01-01T00:00:00Z", "user": {}}]  # before cutoff → no new stars
+
+        responses = iter([
+            _mock_response(json_data=repos_payload),
+            _mock_response(json_data=sg_old),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+
+        assert result["repos"] == []
+
+    @pytest.mark.anyio
+    async def test_top_n_caps_results(self, gi: GitHubIntegration):
+        repos_payload = [
+            {"name": f"repo-{i}", "stargazers_count": 1, "html_url": f"https://github.com/u/repo-{i}", "description": None}
+            for i in range(5)
+        ]
+        sg_new = [{"starred_at": "2099-06-01T00:00:00Z", "user": {}}]
+
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: _mock_response(
+            json_data=repos_payload if "repos" in str(a) or not kw.get("params") else sg_new
+        ))
+        # Simpler: just alternate — first call returns repos, rest return sg_new
+        calls = iter(
+            [_mock_response(json_data=repos_payload)]
+            + [_mock_response(json_data=sg_new)] * 5
+        )
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(calls))
+
+        result = await gi.get_repo_stars_since("u", since="2090-01-01", top_n=3)
+
+        assert len(result["repos"]) == 3
+
+    @pytest.mark.anyio
+    async def test_default_since_is_30_days_ago(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        result = await gi.get_repo_stars_since("u")
+        # since should be ~30 days ago — just check it's a valid ISO string
+        assert result["since"].endswith("Z")
+        assert len(result["since"]) == 20
+
+
+# ---------------------------------------------------------------------------
 # get_pr_status_checks — check_suites allocation is conditional on ctx
 # ---------------------------------------------------------------------------
 
