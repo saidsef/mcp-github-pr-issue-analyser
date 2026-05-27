@@ -229,6 +229,18 @@ query($username: String!, $since: DateTime, $until: DateTime) {
         }
       }
     }
+    repositories(privacy: PUBLIC, first: 100, orderBy: {field: STARGAZERS, direction: DESC}) {
+      totalCount
+      nodes {
+        name
+        owner {
+          login
+        }
+        url
+        description
+        stargazerCount
+      }
+    }
   }
 }
 """

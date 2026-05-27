@@ -102,6 +102,7 @@ class UserActivityResult(TypedDict):
     pull_requests: list[dict[str, Any]]
     issues: list[dict[str, Any]]
     reviews: list[dict[str, Any]]
+    repo_stars: list[dict[str, Any]]
 
 
 class LinkedIssuesResult(TypedDict):
@@ -685,8 +686,9 @@ class GitHubIntegration:
             pull_requests = []
             issues = []
             reviews = []
+            repo_stars: list[dict[str, Any]] = []
             if ctx:
-                await ctx.report_progress(progress=0, total=4)
+                await ctx.report_progress(progress=0, total=5)
                 await ctx.info("Fetching commits...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "commitContributionsByRepository", org, repo
@@ -704,7 +706,7 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=1, total=4)
+                await ctx.report_progress(progress=1, total=5)
                 await ctx.info("Fetching pull requests...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestContributionsByRepository", org, repo
@@ -726,7 +728,7 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=2, total=4)
+                await ctx.report_progress(progress=2, total=5)
                 await ctx.info("Fetching issues...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "issueContributionsByRepository", org, repo
@@ -747,7 +749,7 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=3, total=4)
+                await ctx.report_progress(progress=3, total=5)
                 await ctx.info("Fetching reviews...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestReviewContributionsByRepository", org, repo
@@ -770,7 +772,22 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=4, total=4)
+                await ctx.report_progress(progress=4, total=5)
+                await ctx.info("Fetching repo stars...")
+            for node in user_data.get("repositories", {}).get("nodes", []):
+                if len(repo_stars) >= max_results:
+                    break
+                repo_stars.append(
+                    {
+                        "repo": node["name"],
+                        "owner": node["owner"]["login"],
+                        "url": node["url"],
+                        "description": node.get("description"),
+                        "star_count": node["stargazerCount"],
+                    }
+                )
+            if ctx:
+                await ctx.report_progress(progress=5, total=5)
             activity_result: UserActivityResult = {
                 "username": username,
                 "date_range": date_range,
@@ -779,15 +796,18 @@ class GitHubIntegration:
                     "pull_requests": collection.get("totalPullRequestContributions", 0),
                     "issues": collection.get("totalIssueContributions", 0),
                     "reviews": collection.get("totalPullRequestReviewContributions", 0),
+                    "repo_stars": sum(n.get("stargazerCount", 0) for n in user_data.get("repositories", {}).get("nodes", [])),
                 },
                 "commits": commits,
                 "pull_requests": pull_requests,
                 "issues": issues,
                 "reviews": reviews,
+                "repo_stars": repo_stars,
             }
             logger.info(
                 f"Successfully fetched activities: {len(commits)} commits, "
-                f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews"
+                f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews, "
+                f"{len(repo_stars)} starred repos"
             )
             return activity_result
         except GitHubNotFoundError:

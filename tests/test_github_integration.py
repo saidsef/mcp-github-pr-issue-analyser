@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import httpx
 import pytest
-
 from fastmcp.exceptions import ToolError
+
 from mcp_github.exceptions import GitHubValidationError
 from mcp_github.github_integration import (
     GitHubIntegration,
@@ -16,7 +16,6 @@ from mcp_github.github_integration import (
     _read_only,
     _write,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -53,7 +52,8 @@ _EMPTY_CONTRIBUTIONS = {
             "totalPullRequestContributions": 0,
             "totalIssueContributions": 0,
             "totalPullRequestReviewContributions": 0,
-        }
+        },
+        "repositories": {"totalCount": 0, "nodes": []},
     }
 }
 
@@ -287,13 +287,13 @@ class TestGetUserActivitiesContext:
         assert order[1] == "graphql"
 
     @pytest.mark.anyio
-    async def test_progress_reported_five_times(self, gi: GitHubIntegration):
+    async def test_progress_reported_six_times(self, gi: GitHubIntegration):
         ctx = _mock_ctx()
         with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             await gi.get_user_activities("user1", ctx=ctx)
-        assert ctx.report_progress.call_count == 5
+        assert ctx.report_progress.call_count == 6
         progress_values = [c.kwargs["progress"] for c in ctx.report_progress.call_args_list]
-        assert progress_values == [0, 1, 2, 3, 4]
+        assert progress_values == [0, 1, 2, 3, 4, 5]
 
     @pytest.mark.anyio
     async def test_stage_info_messages_sent(self, gi: GitHubIntegration):
@@ -301,20 +301,21 @@ class TestGetUserActivitiesContext:
         with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             await gi.get_user_activities("user1", ctx=ctx)
         info_calls = [c.args[0] for c in ctx.info.call_args_list]
-        # pre-call + 4 stage messages
-        assert len(info_calls) == 5
+        # pre-call + 5 stage messages
+        assert len(info_calls) == 6
         assert any("commits" in m.lower() for m in info_calls)
         assert any("pull requests" in m.lower() for m in info_calls)
         assert any("issues" in m.lower() for m in info_calls)
         assert any("reviews" in m.lower() for m in info_calls)
+        assert any("repo stars" in m.lower() for m in info_calls)
 
     @pytest.mark.anyio
-    async def test_progress_total_is_always_four(self, gi: GitHubIntegration):
+    async def test_progress_total_is_always_five(self, gi: GitHubIntegration):
         ctx = _mock_ctx()
         with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             await gi.get_user_activities("user1", ctx=ctx)
         totals = {c.kwargs["total"] for c in ctx.report_progress.call_args_list}
-        assert totals == {4}
+        assert totals == {5}
 
 
 # ---------------------------------------------------------------------------

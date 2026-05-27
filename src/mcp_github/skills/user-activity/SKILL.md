@@ -37,7 +37,7 @@ Returns: `UserSearchResult` — login, name, bio, company, location, public repo
 | `until` | str | `""` | End date in ISO 8601 format: `YYYY-MM-DD` |
 | `max_results` | int | `50` | Maximum number of contribution entries to return |
 
-Returns: `UserActivityResult` — lists of commits, pull requests, issues, and PR reviews with counts and URLs.
+Returns: `UserActivityResult` — lists of commits, pull requests, issues, PR reviews, and starred repositories with counts and URLs.
 
 ## Activity Types Returned
 
@@ -47,6 +47,7 @@ Returns: `UserActivityResult` — lists of commits, pull requests, issues, and P
 | Pull Requests | PR title, state, URL, creation date |
 | Issues | Issue title, state, URL, creation date |
 | PR Reviews | Review state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`), PR URL |
+| Repo Stars | `repo`, `owner`, `url`, `description`, `star_count` |
 
 ## Date Filtering
 
@@ -55,6 +56,7 @@ Returns: `UserActivityResult` — lists of commits, pull requests, issues, and P
 - `since` is inclusive (contributions on or after this date)
 - `until` is inclusive (contributions on or before this date)
 - Omit both to retrieve the most recent contributions up to `max_results`
+- **Note:** Date filtering does not apply to repo stars - GitHub provides no timestamp for when a star was received. `repo_stars` always reflects current star counts ordered by most-starred.
 
 ## Best Practices
 
