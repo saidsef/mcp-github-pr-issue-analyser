@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
+from datetime import UTC, datetime, timedelta
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
 
@@ -102,6 +104,13 @@ class UserActivityResult(TypedDict):
     pull_requests: list[dict[str, Any]]
     issues: list[dict[str, Any]]
     reviews: list[dict[str, Any]]
+    repo_stars: list[dict[str, Any]]
+
+
+class RepoStarsSinceResult(TypedDict):
+    username: str
+    since: str
+    repos: list[dict[str, Any]]
 
 
 class LinkedIssuesResult(TypedDict):
@@ -655,7 +664,7 @@ class GitHubIntegration:
         max_results: int = 50,
         ctx: Context | None = None,
     ) -> UserActivityResult:
-        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ)."""
+        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ). Note: repo_stars returns current cumulative star counts, not stars gained within the requested period — GitHub does not expose per-period star deltas."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
         try:
             variables: dict[str, Any] = {"username": username}
@@ -685,8 +694,9 @@ class GitHubIntegration:
             pull_requests = []
             issues = []
             reviews = []
+            repo_stars: list[dict[str, Any]] = []
             if ctx:
-                await ctx.report_progress(progress=0, total=4)
+                await ctx.report_progress(progress=0, total=5)
                 await ctx.info("Fetching commits...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "commitContributionsByRepository", org, repo
@@ -704,7 +714,7 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=1, total=4)
+                await ctx.report_progress(progress=1, total=5)
                 await ctx.info("Fetching pull requests...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestContributionsByRepository", org, repo
@@ -726,7 +736,7 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=2, total=4)
+                await ctx.report_progress(progress=2, total=5)
                 await ctx.info("Fetching issues...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "issueContributionsByRepository", org, repo
@@ -747,7 +757,7 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=3, total=4)
+                await ctx.report_progress(progress=3, total=5)
                 await ctx.info("Fetching reviews...")
             for repo_contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestReviewContributionsByRepository", org, repo
@@ -770,7 +780,22 @@ class GitHubIntegration:
                         }
                     )
             if ctx:
-                await ctx.report_progress(progress=4, total=4)
+                await ctx.report_progress(progress=4, total=5)
+                await ctx.info("Fetching repo stars...")
+            for node in user_data.get("repositories", {}).get("nodes", []):
+                if len(repo_stars) >= max_results:
+                    break
+                repo_stars.append(
+                    {
+                        "repo": node["name"],
+                        "owner": node["owner"]["login"],
+                        "url": node["url"],
+                        "description": node.get("description"),
+                        "star_count": node["stargazerCount"],
+                    }
+                )
+            if ctx:
+                await ctx.report_progress(progress=5, total=5)
             activity_result: UserActivityResult = {
                 "username": username,
                 "date_range": date_range,
@@ -779,15 +804,18 @@ class GitHubIntegration:
                     "pull_requests": collection.get("totalPullRequestContributions", 0),
                     "issues": collection.get("totalIssueContributions", 0),
                     "reviews": collection.get("totalPullRequestReviewContributions", 0),
+                    "repo_stars": sum(n.get("stargazerCount", 0) for n in user_data.get("repositories", {}).get("nodes", [])),
                 },
                 "commits": commits,
                 "pull_requests": pull_requests,
                 "issues": issues,
                 "reviews": reviews,
+                "repo_stars": repo_stars,
             }
             logger.info(
                 f"Successfully fetched activities: {len(commits)} commits, "
-                f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews"
+                f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews, "
+                f"{len(repo_stars)} starred repos"
             )
             return activity_result
         except GitHubNotFoundError:
@@ -795,6 +823,92 @@ class GitHubIntegration:
         except Exception as e:
             logger.error(f"Error fetching user activities for {username}: {e}")
             raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e
+
+    @_read_only(task=True)
+    async def get_repo_stars_since(
+        self,
+        username: str,
+        since: str = "",
+        top_n: int = 5,
+        max_repos: int = 20,
+        ctx: Context | None = None,
+    ) -> RepoStarsSinceResult:
+        """Return the repos owned by username that received the most new stars since a given date. since accepts YYYY-MM-DD or ISO 8601; defaults to 30 days ago. Answers prompts like 'which repos gained the most stars in the last 30 days'. One REST call is made per repo checked — set max_repos conservatively."""
+        if not since:
+            cutoff = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
+        elif len(since) == 10:
+            cutoff = since + "T00:00:00Z"
+        else:
+            cutoff = since
+        logger.info(f"Fetching repo stars since {cutoff} for {username} (top_n={top_n}, max_repos={max_repos})")
+        try:
+            if ctx:
+                await ctx.info(f"Fetching public repos for {username}...")
+            repos_resp = await self._http.request(
+                "GET",
+                f"https://api.github.com/users/{username}/repos",
+                headers=self._get_headers(),
+                params={"per_page": 100, "type": "public", "sort": "updated"},
+            )
+            self._raise_for_status(repos_resp, f"repos for {username}")
+            all_repos = repos_resp.json()
+            if not isinstance(all_repos, list):
+                raise GitHubNotFoundError(f"User '{username}' not found")
+            # Sort by total stars desc — repos with more stars are most likely to have recent activity
+            candidates = sorted(
+                [r for r in all_repos if r.get("stargazers_count", 0) > 0],
+                key=lambda r: r["stargazers_count"],
+                reverse=True,
+            )[:max_repos]
+            if ctx:
+                await ctx.report_progress(progress=0, total=len(candidates))
+            results: list[dict[str, Any]] = []
+            for i, repo in enumerate(candidates):
+                repo_name = repo["name"]
+                total_stars: int = repo["stargazers_count"]
+                new_stars = 0
+                last_page = max(1, math.ceil(total_stars / 100))
+                for page in range(last_page, 0, -1):
+                    sg_resp = await self._http.request(
+                        "GET",
+                        f"https://api.github.com/repos/{username}/{repo_name}/stargazers",
+                        headers={**self._get_headers(), "Accept": "application/vnd.github.star+json"},
+                        params={"per_page": 100, "page": page},
+                    )
+                    self._raise_for_status(sg_resp, f"stargazers {username}/{repo_name} p{page}")
+                    stargazers = sg_resp.json()
+                    if not stargazers:
+                        break
+                    all_newer = True
+                    for sg in reversed(stargazers):
+                        if sg["starred_at"] >= cutoff:
+                            new_stars += 1
+                        else:
+                            all_newer = False
+                            break
+                    if not all_newer:
+                        break
+                if new_stars > 0:
+                    results.append(
+                        {
+                            "repo": repo_name,
+                            "owner": username,
+                            "url": repo["html_url"],
+                            "description": repo.get("description"),
+                            "new_stars": new_stars,
+                            "total_stars": total_stars,
+                        }
+                    )
+                if ctx:
+                    await ctx.report_progress(progress=i + 1, total=len(candidates))
+            results.sort(key=lambda r: r["new_stars"], reverse=True)
+            logger.info(f"Found {len(results)} repos with new stars since {cutoff} for {username}")
+            return {"username": username, "since": cutoff, "repos": results[:top_n]}
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error fetching repo stars since {cutoff} for {username}: {e}")
+            raise GitHubAPIError(f"Failed to fetch repo stars: {e}") from e
 
     @_read_only(task=True)
     async def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
