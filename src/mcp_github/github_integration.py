@@ -537,7 +537,7 @@ class GitHubIntegration:
         data = (await self._request("GET", url, context=f"commits for {repo_owner}/{repo_name}")).json()
         if data:
             return data[0]["sha"]
-        return "No commits found in the repository"
+        return None
 
     @_write
     async def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
@@ -545,7 +545,7 @@ class GitHubIntegration:
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs"
         latest_sha = await self.get_latest_sha(repo_owner, repo_name)
         if not latest_sha:
-            raise ValueError("Failed to fetch the latest commit SHA")
+            raise GitHubNotFoundError(f"No commits found in {repo_owner}/{repo_name}; cannot create tag {tag_name}")
         return (
             await self._request(
                 "POST",

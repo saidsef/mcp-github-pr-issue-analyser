@@ -9,7 +9,7 @@ import httpx
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_github.exceptions import GitHubValidationError
+from mcp_github.exceptions import GitHubNotFoundError, GitHubValidationError
 from mcp_github.github_integration import (
     GitHubIntegration,
     _destructive,
@@ -450,3 +450,29 @@ class TestGetPrStatusChecks:
         with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert result["overall"] == "unknown"
+
+
+# ---------------------------------------------------------------------------
+# get_latest_sha + create_tag — empty-repo contract
+# ---------------------------------------------------------------------------
+
+
+class TestGetLatestShaAndCreateTag:
+    @pytest.mark.anyio
+    async def test_get_latest_sha_empty_repo_returns_none(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        result = await gi.get_latest_sha("owner", "empty-repo")
+        assert result is None
+
+    @pytest.mark.anyio
+    async def test_get_latest_sha_returns_sha_when_commits_exist(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "abc123"}]))
+        result = await gi.get_latest_sha("owner", "repo")
+        assert result == "abc123"
+
+    @pytest.mark.anyio
+    async def test_create_tag_empty_repo_raises_github_not_found(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        with pytest.raises(GitHubNotFoundError, match="No commits found"):
+            await gi.create_tag("owner", "empty-repo", "v1.0.0", "First tag")
+        gi._http.request.assert_awaited_once()
