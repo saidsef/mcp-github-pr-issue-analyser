@@ -236,8 +236,12 @@ class GitHubIntegration:
             raise GitHubValidationError("Validation failed. Check your input data.", response_body=response_body)
 
         message = f"GitHub API error ({context})" if context else "GitHub API error"
+        gh_message = response_body.get("message") if isinstance(response_body, dict) else None
+        detail = f"{status} - {response.reason_phrase}"
+        if gh_message:
+            detail = f"{detail} - {gh_message}"
         raise GitHubAPIError(
-            f"{message}: {status} - {response.reason_phrase}",
+            f"{message}: {detail}",
             status_code=status,
             response_body=response_body,
         )
@@ -444,16 +448,8 @@ class GitHubIntegration:
         commit_title: str | None = None,
         commit_message: str | None = None,
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
-        ctx: Context | None = None,
     ) -> dict[str, Any]:
         """Merges a specific pull request."""
-        if ctx:
-            confirmation = await ctx.elicit(
-                f"About to merge PR #{pr_number} in {repo_owner}/{repo_name} via '{merge_method}'. Confirm?",
-                response_type=None,
-            )
-            if confirmation.action != "accept":
-                raise GitHubValidationError("Merge cancelled.")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
         payload: dict[str, Any] = {"merge_method": merge_method}
         if commit_title is not None:

@@ -9,7 +9,7 @@ import httpx
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_github.exceptions import GitHubNotFoundError, GitHubValidationError
+from mcp_github.exceptions import GitHubNotFoundError
 from mcp_github.github_integration import (
     GitHubIntegration,
     _destructive,
@@ -199,7 +199,7 @@ class TestLifecycle:
 
 
 # ---------------------------------------------------------------------------
-# merge_pr — elicitation and dead-except removal
+# merge_pr — request shape and GitHub error surfacing
 # ---------------------------------------------------------------------------
 
 
@@ -211,48 +211,64 @@ class TestMergePr:
         assert result == {"merged": True}
 
     @pytest.mark.anyio
-    async def test_elicitation_accepted_proceeds_with_merge(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"merged": True}))
-        ctx = _mock_ctx()
-        ctx.elicit.return_value = MagicMock(action="accept")
-        result = await gi.merge_pr("owner", "repo", 42, ctx=ctx)
-        ctx.elicit.assert_called_once()
-        assert "squash" in ctx.elicit.call_args[0][0]
-        assert result == {"merged": True}
-
-    @pytest.mark.anyio
-    async def test_elicitation_declined_raises_validation_error(self, gi: GitHubIntegration):
-        ctx = _mock_ctx()
-        ctx.elicit.return_value = MagicMock(action="decline")
-        with pytest.raises(GitHubValidationError, match="Merge cancelled"):
-            await gi.merge_pr("owner", "repo", 42, ctx=ctx)
-        gi._http.request.assert_not_called()
-
-    @pytest.mark.anyio
-    async def test_elicitation_cancel_raises_validation_error(self, gi: GitHubIntegration):
-        ctx = _mock_ctx()
-        ctx.elicit.return_value = MagicMock(action="cancel")
-        with pytest.raises(GitHubValidationError):
-            await gi.merge_pr("owner", "repo", 42, ctx=ctx)
-        gi._http.request.assert_not_called()
-
-    @pytest.mark.anyio
-    async def test_http_error_propagates_as_tool_error(self, gi: GitHubIntegration):
+    async def test_http_error_propagates_as_tool_error_with_github_message(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(
             return_value=_mock_response(status_code=405, json_data={"message": "Not mergeable"})
         )
-        with pytest.raises(ToolError):
+        with pytest.raises(ToolError) as excinfo:
             await gi.merge_pr("owner", "repo", 42)
+        assert "Not mergeable" in str(excinfo.value)
+        assert "405" in str(excinfo.value)
 
     @pytest.mark.anyio
-    async def test_merge_method_included_in_elicitation_prompt(self, gi: GitHubIntegration):
+    async def test_merge_405_includes_github_message(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(
+                status_code=405, json_data={"message": "Pull Request is not mergeable"}
+            )
+        )
+        with pytest.raises(ToolError) as excinfo:
+            await gi.merge_pr("owner", "repo", 251)
+        text = str(excinfo.value)
+        assert "Pull Request is not mergeable" in text
+        assert "405" in text
+
+    @pytest.mark.anyio
+    async def test_merge_409_includes_github_message(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(
+                status_code=409, json_data={"message": "Head branch was modified"}
+            )
+        )
+        with pytest.raises(ToolError) as excinfo:
+            await gi.merge_pr("owner", "repo", 42)
+        text = str(excinfo.value)
+        assert "Head branch was modified" in text
+        assert "409" in text
+
+    @pytest.mark.anyio
+    async def test_merge_does_not_accept_ctx_kwarg(self, gi: GitHubIntegration):
+        with pytest.raises(TypeError):
+            await gi.merge_pr("owner", "repo", 42, ctx=object())  # type: ignore[call-arg]
+
+    @pytest.mark.anyio
+    async def test_merge_payload_includes_optional_commit_fields(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data={"merged": True}))
-        ctx = _mock_ctx()
-        ctx.elicit.return_value = MagicMock(action="accept")
-        await gi.merge_pr("owner", "repo", 42, merge_method="rebase", ctx=ctx)
-        prompt = ctx.elicit.call_args[0][0]
-        assert "rebase" in prompt
-        assert "42" in prompt
+        await gi.merge_pr(
+            "owner",
+            "repo",
+            42,
+            commit_title="Custom title",
+            commit_message="Custom message",
+            merge_method="rebase",
+        )
+        kwargs = gi._http.request.call_args.kwargs
+        payload = kwargs["json"]
+        assert payload == {
+            "merge_method": "rebase",
+            "commit_title": "Custom title",
+            "commit_message": "Custom message",
+        }
 
 
 # ---------------------------------------------------------------------------
