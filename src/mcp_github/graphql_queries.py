@@ -88,22 +88,35 @@ query($owner: String!, $repo: String!, $number: Int!) {
 }
 """
 
-# Query to fetch check runs and commit status for a PR's HEAD commit
+# Query to fetch check runs and commit status for a PR's HEAD commit.
+# Paginates check suites via $suitesAfter. Runs-within-suite are returned
+# 100 at a time alongside an endCursor and hasNextPage; if a suite has
+# more, the caller follows up with CHECK_SUITE_RUNS_QUERY using the
+# suite's node id.
 PR_STATUS_CHECKS_QUERY = """
-query($owner: String!, $repo: String!, $number: Int!) {
+query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
       headRef {
         target {
           ... on Commit {
-            checkSuites(first: 20) {
+            checkSuites(first: 50, after: $suitesAfter) {
+              pageInfo {
+                hasNextPage
+                endCursor
+              }
               nodes {
+                id
                 app {
                   name
                 }
                 status
                 conclusion
-                checkRuns(first: 20) {
+                checkRuns(first: 100) {
+                  pageInfo {
+                    hasNextPage
+                    endCursor
+                  }
                   nodes {
                     name
                     status
@@ -123,6 +136,30 @@ query($owner: String!, $repo: String!, $number: Int!) {
               }
             }
           }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Supplemental query: paginate check runs for a single check suite by id.
+# Used to drain the runs of a suite whose first page was truncated by
+# PR_STATUS_CHECKS_QUERY.
+CHECK_SUITE_RUNS_QUERY = """
+query($suiteId: ID!, $after: String) {
+  node(id: $suiteId) {
+    ... on CheckSuite {
+      checkRuns(first: 100, after: $after) {
+        pageInfo {
+          hasNextPage
+          endCursor
+        }
+        nodes {
+          name
+          status
+          conclusion
+          detailsUrl
         }
       }
     }
