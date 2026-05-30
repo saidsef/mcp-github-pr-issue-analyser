@@ -1013,7 +1013,6 @@ class GitHubIntegration:
             return "unknown"
         return "passing"
 
-    @_read_only(task=True)
     async def _drain_suite_runs(
         self, suite_id: str, app_name: str, after: str | None, token: str
     ) -> tuple[list[dict[str, Any]], bool]:
@@ -1050,6 +1049,7 @@ class GitHubIntegration:
             cursor = page_info.get("endCursor")
         return runs, True
 
+    @_read_only(task=True)
     async def get_pr_status_checks(
         self,
         repo_owner: str,
