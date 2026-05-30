@@ -26,9 +26,9 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 
 ### Merging a PR
 
-1. Confirm the PR is approved and all checks pass (check `mergeable` via `get_pr_content`)
+1. Confirm the PR is approved and all checks pass (check status via `get_pr_status_checks` and `get_pr_content`)
 2. Call `merge_pr` with the appropriate merge method
-3. **Always confirm with the user before merging**
+3. **Always confirm with the user in chat before calling `merge_pr` — the tool does not prompt**
 
 ## Tool Parameters
 
