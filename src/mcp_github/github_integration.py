@@ -46,7 +46,13 @@ from .exceptions import (
     GitHubValidationError,
 )
 from .graphql_client import GraphQLClient
-from .graphql_queries import PR_LINKED_ISSUES_QUERY, PR_STATUS_CHECKS_QUERY, SEARCH_USER_QUERY, USER_CONTRIBUTIONS_QUERY
+from .graphql_queries import (
+    CHECK_SUITE_RUNS_QUERY,
+    PR_LINKED_ISSUES_QUERY,
+    PR_STATUS_CHECKS_QUERY,
+    SEARCH_USER_QUERY,
+    USER_CONTRIBUTIONS_QUERY,
+)
 
 
 class PRContent(TypedDict):
@@ -123,10 +129,13 @@ class StatusChecksResult(TypedDict):
     overall: str
     check_runs: list[dict[str, Any]]
     commit_statuses: list[dict[str, Any]]
+    truncated: bool
 
 
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
+MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
+MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
@@ -984,8 +993,19 @@ class GitHubIntegration:
         in_progress = {r["status"] for r in check_runs if r["status"] != "COMPLETED"}
         return bool(in_progress & pending) or "PENDING" in legacy
 
-    def _derive_overall(self, check_runs: list[dict[str, Any]], commit_statuses: list[dict[str, Any]]) -> str:
-        """Derive a single overall status string from check runs and commit statuses."""
+    def _derive_overall(
+        self,
+        check_runs: list[dict[str, Any]],
+        commit_statuses: list[dict[str, Any]],
+        truncated: bool = False,
+    ) -> str:
+        """Derive a single overall status string from check runs and commit statuses.
+
+        When truncated is True and no failure or pending signal is observed,
+        return 'unknown' rather than 'passing' — the missed pages could
+        contain a failing run. Failure and pending signals stay authoritative.
+
+        """
         if not check_runs and not commit_statuses:
             return "unknown"
         legacy = {ctx["state"] for ctx in commit_statuses}
@@ -993,9 +1013,47 @@ class GitHubIntegration:
             return "failing"
         if self._has_pending_checks(check_runs, legacy):
             return "pending"
+        if truncated:
+            return "unknown"
         return "passing"
 
     @_read_only(task=True)
+    async def _drain_suite_runs(
+        self, suite_id: str, app_name: str, after: str | None, token: str
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Page through remaining check runs for a single suite via CHECK_SUITE_RUNS_QUERY.
+
+        Returns the accumulated run dicts and whether the per-suite page cap
+        was hit before exhausting the connection.
+
+        """
+        runs: list[dict[str, Any]] = []
+        cursor = after
+        for _ in range(MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE):
+            result = await asyncio.to_thread(
+                self.graphql.execute_query,
+                CHECK_SUITE_RUNS_QUERY,
+                variables={"suiteId": suite_id, "after": cursor},
+                token=token,
+            )
+            node = result.get("node") or {}
+            run_conn = node.get("checkRuns") or {}
+            for run in run_conn.get("nodes") or []:
+                runs.append(
+                    {
+                        "name": run["name"],
+                        "status": run["status"],
+                        "conclusion": run.get("conclusion"),
+                        "details_url": run.get("detailsUrl"),
+                        "suite_app": app_name,
+                    }
+                )
+            page_info = run_conn.get("pageInfo") or {}
+            if not page_info.get("hasNextPage"):
+                return runs, False
+            cursor = page_info.get("endCursor")
+        return runs, True
+
     async def get_pr_status_checks(
         self,
         repo_owner: str,
@@ -1003,34 +1061,89 @@ class GitHubIntegration:
         pr_number: int,
         ctx: Context | None = None,
     ) -> StatusChecksResult:
-        """Return the CI check runs and commit status for a pull request's HEAD commit."""
+        """Return the CI check runs and commit status for a pull request's HEAD commit.
+
+        Pages through up to MAX_STATUS_CHECKS_SUITE_PAGES of check suites
+        (50 per page). For any suite whose first 100 runs are not the full
+        set, drains up to MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE additional
+        pages via the supplemental query. If either cap is hit before the
+        connection is exhausted, the result is flagged truncated=True and
+        overall is downgraded from 'passing' to 'unknown' so the caller
+        does not act on a partial view.
+
+        """
         logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
         try:
-            result = await asyncio.to_thread(
-                self.graphql.execute_query,
-                PR_STATUS_CHECKS_QUERY,
-                variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
-                token=self._resolve_token(),
-            )
-            repo_data = result.get("repository")
-            if not repo_data or not repo_data.get("pullRequest"):
-                raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
-            head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
-            check_runs = self._flatten_check_runs(head_target)
-            commit_statuses = self._extract_commit_statuses(head_target)
+            check_runs: list[dict[str, Any]] = []
+            commit_statuses: list[dict[str, Any]] = []
+            n_suites = 0
+            truncated = False
+            suites_after: str | None = None
+            token = self._resolve_token()
+
+            for _ in range(MAX_STATUS_CHECKS_SUITE_PAGES):
+                result = await asyncio.to_thread(
+                    self.graphql.execute_query,
+                    PR_STATUS_CHECKS_QUERY,
+                    variables={
+                        "owner": repo_owner,
+                        "repo": repo_name,
+                        "number": pr_number,
+                        "suitesAfter": suites_after,
+                    },
+                    token=token,
+                )
+                repo_data = result.get("repository")
+                if not repo_data or not repo_data.get("pullRequest"):
+                    raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
+                head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
+
+                if suites_after is None:
+                    commit_statuses = self._extract_commit_statuses(head_target)
+
+                suites_page = head_target.get("checkSuites") or {}
+                suites_nodes = suites_page.get("nodes") or []
+                n_suites += len(suites_nodes)
+                check_runs.extend(self._flatten_check_runs(head_target))
+
+                for suite in suites_nodes:
+                    runs_page = (suite.get("checkRuns") or {}).get("pageInfo") or {}
+                    if not runs_page.get("hasNextPage"):
+                        continue
+                    extra_runs, runs_capped = await self._drain_suite_runs(
+                        suite_id=suite["id"],
+                        app_name=(suite.get("app") or {}).get("name", "unknown"),
+                        after=runs_page.get("endCursor"),
+                        token=token,
+                    )
+                    check_runs.extend(extra_runs)
+                    if runs_capped:
+                        truncated = True
+
+                page_info = suites_page.get("pageInfo") or {}
+                if not page_info.get("hasNextPage"):
+                    break
+                suites_after = page_info.get("endCursor")
+            else:
+                truncated = True
+
             if ctx:
-                n_suites = len(head_target.get("checkSuites", {}).get("nodes", []))
+                trailer = " (truncated)" if truncated else ""
                 await ctx.info(
                     f"Found {n_suites} check suites, "
-                    f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses"
+                    f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses{trailer}"
                 )
-            overall = self._derive_overall(check_runs, commit_statuses)
-            logger.info(f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}")
+            overall = self._derive_overall(check_runs, commit_statuses, truncated=truncated)
+            logger.info(
+                f"Status checks for PR #{pr_number}: overall={overall}, "
+                f"runs={len(check_runs)}, truncated={truncated}"
+            )
             return {
                 "pr_number": pr_number,
                 "overall": overall,
                 "check_runs": check_runs,
                 "commit_statuses": commit_statuses,
+                "truncated": truncated,
             }
         except GitHubNotFoundError:
             raise
