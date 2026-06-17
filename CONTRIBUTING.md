@@ -25,12 +25,6 @@ pip install uv
 uv sync
 ```
 
-Or using pip:
-
-```shell
-pip install -r requirements.txt
-```
-
 ### Testing
 
 Run tests using pytest:
@@ -63,10 +57,10 @@ ruff format .
 
 ### Type Checking
 
-Run type checking with mypy:
+Run type checking with pyright:
 
 ```shell
-mypy src/mcp_github/
+uv run pyright src/mcp_github/
 ```
 
 ## Benchmark

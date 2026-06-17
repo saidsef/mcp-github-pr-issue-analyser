@@ -22,9 +22,9 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastmcp-slim[server,apps,tasks]>=3.3.1",
+    "fastmcp-slim[server,apps,tasks]>=3.4.2",
     "httpx>=0.28.1",
-    "redis>=5.0.0",
+    "redis>=8.0.0",
 ]
 
 [project.scripts]
@@ -63,10 +63,10 @@ metadata = false
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.400",
-    "pytest>=9.0.3",
-    "ruff>=0.15.14",
-    "uv>=0.11.16",
+    "pyright>=1.1.410",
+    "pytest>=9.1.0",
+    "ruff>=0.15.17",
+    "uv>=0.11.21",
 ]
 
 [tool.ruff]

@@ -7,7 +7,7 @@ on:
       - "src/mcp_github/*.py"
       - "Dockerfile"
       - ".github/workflows/ci.yml"
-      - "requirements.txt"
+      - "uv.lock"
       - "pyproject.toml"
   pull_request:
     branches:
@@ -16,7 +16,7 @@ on:
       - "src/mcp_github/*.py"
       - "Dockerfile"
       - ".github/workflows/ci.yml"
-      - "requirements.txt"
+      - "uv.lock"
       - "pyproject.toml"
   workflow_dispatch:
 

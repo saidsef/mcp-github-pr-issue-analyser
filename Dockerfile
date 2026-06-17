@@ -13,7 +13,7 @@ ENV PORT=${PORT}
 ENV FASTMCP_HOME=/tmp
 
 WORKDIR /app
-COPY pyproject.toml requirements.txt README.md /app/
+COPY pyproject.toml README.md /app/
 COPY src src
 
 RUN apt-get update && \
@@ -30,9 +30,7 @@ RUN apt-get update && \
     rm /tmp/deno.zip && \
     rm -rf /var/lib/apt/lists/* && \
     pip install --no-cache-dir uv && \
-    grep -v "^-e " requirements.txt > /tmp/requirements.txt && \
-    uv pip install --system -v -r /tmp/requirements.txt && \
-    uv pip install --system --no-deps .
+    uv pip install --system .
 
 EXPOSE ${PORT}/tcp
 
