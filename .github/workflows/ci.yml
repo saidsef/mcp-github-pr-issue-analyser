@@ -35,7 +35,7 @@ jobs:
         language: ['python']
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         fetch-depth: 0
     - name: Initialise CodeQL
@@ -57,7 +57,7 @@ jobs:
     needs: [analyze]
     steps:
     - name: Checkout source code
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         lfs: 'true'
     - name: Set Tag Name
