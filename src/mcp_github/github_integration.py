@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import math
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
@@ -592,17 +593,36 @@ class GitHubIntegration:
             )
         ).json()
 
+    async def _execute_graphql(
+        self, query: str, variables: dict[str, Any], *, token: str | None = None
+    ) -> dict[str, Any]:
+        """Run a GraphQL query off-thread (the client is sync), resolving the
+        request token unless one is supplied."""
+        return await asyncio.to_thread(
+            self.graphql.execute_query,
+            query,
+            variables=variables,
+            token=token or self._resolve_token(),
+        )
+
+    @asynccontextmanager
+    async def _guard(self, action: str):
+        """Let GitHubNotFoundError pass through; wrap any other failure in a
+        GitHubAPIError labelled with the action that failed."""
+        try:
+            yield
+        except GitHubNotFoundError:
+            raise
+        except Exception as e:
+            logger.error(f"Error during {action}: {e}")
+            raise GitHubAPIError(f"Failed to {action}: {e}") from e
+
     @_read_only(task=True)
     async def search_user(self, username: str) -> UserSearchResult:
         """Search for a GitHub user by username using GraphQL API."""
         logger.info(f"Searching for GitHub user: {username}")
-        try:
-            result = await asyncio.to_thread(
-                self.graphql.execute_query,
-                SEARCH_USER_QUERY,
-                variables={"username": username},
-                token=self._resolve_token(),
-            )
+        async with self._guard("search for user"):
+            result = await self._execute_graphql(SEARCH_USER_QUERY, {"username": username})
             user_data = result.get("user")
             if not user_data:
                 raise GitHubNotFoundError(f"User '{username}' not found")
@@ -641,11 +661,6 @@ class GitHubIntegration:
             }
             logger.info(f"Successfully found user: {username}")
             return user_info
-        except GitHubNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Error searching for user {username}: {e}")
-            raise GitHubAPIError(f"Failed to search for user: {e}") from e
 
     def _filtered_contributions(self, collection: dict[str, Any], key: str, org: str, repo: str):
         for repo_contrib in collection.get(key, []):
@@ -671,7 +686,7 @@ class GitHubIntegration:
     ) -> UserActivityResult:
         """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ). Note: repo_stars returns current cumulative star counts, not stars gained within the requested period — GitHub does not expose per-period star deltas."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
-        try:
+        async with self._guard("fetch user activities"):
             variables: dict[str, Any] = {"username": username}
             if since:
                 variables["since"] = since + "T00:00:00Z" if len(since) == 10 else since
@@ -679,12 +694,7 @@ class GitHubIntegration:
                 variables["until"] = until + "T23:59:59Z" if len(until) == 10 else until
             if ctx:
                 await ctx.info(f"Querying GitHub contributions for {username}...")
-            result = await asyncio.to_thread(
-                self.graphql.execute_query,
-                USER_CONTRIBUTIONS_QUERY,
-                variables=variables,
-                token=self._resolve_token(),
-            )
+            result = await self._execute_graphql(USER_CONTRIBUTIONS_QUERY, variables)
             user_data = result.get("user")
             if not user_data:
                 raise GitHubNotFoundError(f"User '{username}' not found")
@@ -823,11 +833,6 @@ class GitHubIntegration:
                 f"{len(repo_stars)} starred repos"
             )
             return activity_result
-        except GitHubNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Error fetching user activities for {username}: {e}")
-            raise GitHubAPIError(f"Failed to fetch user activities: {e}") from e
 
     @_read_only(task=True)
     async def get_repo_stars_since(
@@ -846,7 +851,7 @@ class GitHubIntegration:
         else:
             cutoff = since
         logger.info(f"Fetching repo stars since {cutoff} for {username} (top_n={top_n}, max_repos={max_repos})")
-        try:
+        async with self._guard("fetch repo stars"):
             if ctx:
                 await ctx.info(f"Fetching public repos for {username}...")
             repos_resp = await self._http.request(
@@ -909,22 +914,15 @@ class GitHubIntegration:
             results.sort(key=lambda r: r["new_stars"], reverse=True)
             logger.info(f"Found {len(results)} repos with new stars since {cutoff} for {username}")
             return {"username": username, "since": cutoff, "repos": results[:top_n]}
-        except GitHubNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Error fetching repo stars since {cutoff} for {username}: {e}")
-            raise GitHubAPIError(f"Failed to fetch repo stars: {e}") from e
 
     @_read_only(task=True)
     async def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
         """Return the issues that will be auto-closed when a pull request is merged."""
         logger.info(f"Fetching linked issues for PR #{pr_number} in {repo_owner}/{repo_name}")
-        try:
-            result = await asyncio.to_thread(
-                self.graphql.execute_query,
+        async with self._guard("fetch linked issues"):
+            result = await self._execute_graphql(
                 PR_LINKED_ISSUES_QUERY,
-                variables={"owner": repo_owner, "repo": repo_name, "number": pr_number},
-                token=self._resolve_token(),
+                {"owner": repo_owner, "repo": repo_name, "number": pr_number},
             )
             repo_data = result.get("repository")
             if not repo_data or not repo_data.get("pullRequest"):
@@ -943,11 +941,6 @@ class GitHubIntegration:
             ]
             logger.info(f"Found {len(linked_issues)} linked issue(s) for PR #{pr_number}")
             return {"pr_number": pr_number, "linked_issues": linked_issues}
-        except GitHubNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Error fetching linked issues for PR #{pr_number}: {e}")
-            raise GitHubAPIError(f"Failed to fetch linked issues: {e}") from e
 
     def _flatten_check_runs(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
         """Flatten check suites into a single list of check run dicts."""
@@ -1025,11 +1018,8 @@ class GitHubIntegration:
         runs: list[dict[str, Any]] = []
         cursor = after
         for _ in range(MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE):
-            result = await asyncio.to_thread(
-                self.graphql.execute_query,
-                CHECK_SUITE_RUNS_QUERY,
-                variables={"suiteId": suite_id, "after": cursor},
-                token=token,
+            result = await self._execute_graphql(
+                CHECK_SUITE_RUNS_QUERY, {"suiteId": suite_id, "after": cursor}, token=token
             )
             node = result.get("node") or {}
             run_conn = node.get("checkRuns") or {}
@@ -1069,7 +1059,7 @@ class GitHubIntegration:
 
         """
         logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
-        try:
+        async with self._guard("fetch status checks"):
             check_runs: list[dict[str, Any]] = []
             commit_statuses: list[dict[str, Any]] = []
             n_suites = 0
@@ -1078,10 +1068,9 @@ class GitHubIntegration:
             token = self._resolve_token()
 
             for _ in range(MAX_STATUS_CHECKS_SUITE_PAGES):
-                result = await asyncio.to_thread(
-                    self.graphql.execute_query,
+                result = await self._execute_graphql(
                     PR_STATUS_CHECKS_QUERY,
-                    variables={
+                    {
                         "owner": repo_owner,
                         "repo": repo_name,
                         "number": pr_number,
@@ -1141,8 +1130,3 @@ class GitHubIntegration:
                 "commit_statuses": commit_statuses,
                 "truncated": truncated,
             }
-        except GitHubNotFoundError:
-            raise
-        except Exception as e:
-            logger.error(f"Error fetching status checks for PR #{pr_number}: {e}")
-            raise GitHubAPIError(f"Failed to fetch status checks: {e}") from e
