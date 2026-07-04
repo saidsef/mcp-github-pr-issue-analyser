@@ -663,6 +663,8 @@ class GitHubIntegration:
             return user_info
 
     def _filtered_contributions(self, collection: dict[str, Any], key: str, org: str, repo: str):
+        """Yield (contribution_node, owner, repo_name) for every contribution under the
+        given collection key, applying the optional org/repo filters."""
         for repo_contrib in collection.get(key, []):
             repo_info = repo_contrib["repository"]
             owner = repo_info["owner"]["login"]
@@ -671,7 +673,8 @@ class GitHubIntegration:
                 continue
             if repo and repo_name.lower() != repo.lower():
                 continue
-            yield repo_contrib, owner, repo_name
+            for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
+                yield contrib, owner, repo_name
 
     @_read_only(task=True)
     async def get_user_activities(
@@ -713,87 +716,83 @@ class GitHubIntegration:
             if ctx:
                 await ctx.report_progress(progress=0, total=5)
                 await ctx.info("Fetching commits...")
-            for repo_contrib, owner, repo_name in self._filtered_contributions(
+            for contrib, owner, repo_name in self._filtered_contributions(
                 collection, "commitContributionsByRepository", org, repo
             ):
-                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
-                    if len(commits) >= max_results:
-                        break
-                    commits.append(
-                        {
-                            "repo": repo_name,
-                            "owner": owner,
-                            "commit_count": contrib.get("commitCount", 0),
-                            "url": contrib.get("url", ""),
-                            "date": contrib.get("occurredAt", ""),
-                        }
-                    )
+                if len(commits) >= max_results:
+                    break
+                commits.append(
+                    {
+                        "repo": repo_name,
+                        "owner": owner,
+                        "commit_count": contrib.get("commitCount", 0),
+                        "url": contrib.get("url", ""),
+                        "date": contrib.get("occurredAt", ""),
+                    }
+                )
             if ctx:
                 await ctx.report_progress(progress=1, total=5)
                 await ctx.info("Fetching pull requests...")
-            for repo_contrib, owner, repo_name in self._filtered_contributions(
+            for contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestContributionsByRepository", org, repo
             ):
-                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
-                    if len(pull_requests) >= max_results:
-                        break
-                    pr = contrib["pullRequest"]
-                    pull_requests.append(
-                        {
-                            "repo": repo_name,
-                            "owner": owner,
-                            "number": pr["number"],
-                            "title": pr["title"],
-                            "state": pr["state"],
-                            "url": pr["url"],
-                            "created": pr["createdAt"],
-                            "merged": pr.get("merged", False),
-                        }
-                    )
+                if len(pull_requests) >= max_results:
+                    break
+                pr = contrib["pullRequest"]
+                pull_requests.append(
+                    {
+                        "repo": repo_name,
+                        "owner": owner,
+                        "number": pr["number"],
+                        "title": pr["title"],
+                        "state": pr["state"],
+                        "url": pr["url"],
+                        "created": pr["createdAt"],
+                        "merged": pr.get("merged", False),
+                    }
+                )
             if ctx:
                 await ctx.report_progress(progress=2, total=5)
                 await ctx.info("Fetching issues...")
-            for repo_contrib, owner, repo_name in self._filtered_contributions(
+            for contrib, owner, repo_name in self._filtered_contributions(
                 collection, "issueContributionsByRepository", org, repo
             ):
-                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
-                    if len(issues) >= max_results:
-                        break
-                    issue = contrib["issue"]
-                    issues.append(
-                        {
-                            "repo": repo_name,
-                            "owner": owner,
-                            "number": issue["number"],
-                            "title": issue["title"],
-                            "state": issue["state"],
-                            "url": issue["url"],
-                            "created": issue["createdAt"],
-                        }
-                    )
+                if len(issues) >= max_results:
+                    break
+                issue = contrib["issue"]
+                issues.append(
+                    {
+                        "repo": repo_name,
+                        "owner": owner,
+                        "number": issue["number"],
+                        "title": issue["title"],
+                        "state": issue["state"],
+                        "url": issue["url"],
+                        "created": issue["createdAt"],
+                    }
+                )
             if ctx:
                 await ctx.report_progress(progress=3, total=5)
                 await ctx.info("Fetching reviews...")
-            for repo_contrib, owner, repo_name in self._filtered_contributions(
+            for contrib, owner, repo_name in self._filtered_contributions(
                 collection, "pullRequestReviewContributionsByRepository", org, repo
             ):
-                for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
-                    if len(reviews) >= max_results:
-                        break
-                    review = contrib["pullRequestReview"]
-                    pr = contrib["pullRequest"]
-                    reviews.append(
-                        {
-                            "repo": repo_name,
-                            "owner": owner,
-                            "pr_number": pr["number"],
-                            "pr_title": pr["title"],
-                            "pr_url": pr["url"],
-                            "review_state": review["state"],
-                            "review_url": review["url"],
-                            "date": contrib["occurredAt"],
-                        }
-                    )
+                if len(reviews) >= max_results:
+                    break
+                review = contrib["pullRequestReview"]
+                pr = contrib["pullRequest"]
+                reviews.append(
+                    {
+                        "repo": repo_name,
+                        "owner": owner,
+                        "pr_number": pr["number"],
+                        "pr_title": pr["title"],
+                        "pr_url": pr["url"],
+                        "review_state": review["state"],
+                        "review_url": review["url"],
+                        "date": contrib["occurredAt"],
+                    }
+                )
             if ctx:
                 await ctx.report_progress(progress=4, total=5)
                 await ctx.info("Fetching repo stars...")
