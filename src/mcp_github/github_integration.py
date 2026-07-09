@@ -68,21 +68,21 @@ class PRContent(TypedDict):
 class CommentData(TypedDict):
     id: int
     body: str
-    user: dict[str, Any]
+    author: str
+    html_url: str
     created_at: str
-    updated_at: str
 
 
 class IssueData(TypedDict):
-    id: int
     number: int
     title: str
     body: str | None
     state: str
-    user: dict[str, Any]
+    author: str
+    labels: list[str]
+    html_url: str
     created_at: str
     updated_at: str
-    labels: list[dict[str, Any]]
 
 
 class UserSearchResult(TypedDict):
@@ -140,6 +140,37 @@ MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ce
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
+
+
+def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
+    """Trim a GitHub API payload to the given keys (absent keys become None)."""
+    return {k: data.get(k) for k in keys}
+
+
+def _comment_result(data: dict[str, Any]) -> CommentData:
+    """Trim a GitHub comment payload to the CommentData contract."""
+    return {
+        "id": data["id"],
+        "body": data["body"],
+        "author": (data.get("user") or {}).get("login", ""),
+        "html_url": data["html_url"],
+        "created_at": data["created_at"],
+    }
+
+
+def _issue_result(data: dict[str, Any]) -> IssueData:
+    """Trim a GitHub issue payload to the IssueData contract."""
+    return {
+        "number": data["number"],
+        "title": data["title"],
+        "body": data.get("body"),
+        "state": data["state"],
+        "author": (data.get("user") or {}).get("login", ""),
+        "labels": [label["name"] for label in data.get("labels", [])],
+        "html_url": data["html_url"],
+        "created_at": data["created_at"],
+        "updated_at": data["updated_at"],
+    }
 
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
@@ -319,7 +350,8 @@ class GitHubIntegration:
     async def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
         """Adds a comment to a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{pr_number}/comments"
-        return (await self._request("POST", url, context=f"PR #{pr_number} comment", json={"body": comment})).json()
+        data = (await self._request("POST", url, context=f"PR #{pr_number} comment", json={"body": comment})).json()
+        return _comment_result(data)
 
     @_write
     async def add_inline_pr_comment(
@@ -339,9 +371,10 @@ class GitHubIntegration:
             raise ToolError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
         payload = {"body": comment_body, "commit_id": commit_id, "path": path, "line": line, "side": "RIGHT"}
-        return (
+        data = (
             await self._request("POST", review_url, context=f"inline comment on {path}:{line}", json=payload)
         ).json()
+        return _comment_result(data)
 
     @_write(idempotent=True)
     async def update_pr_description(
@@ -431,7 +464,7 @@ class GitHubIntegration:
         """Creates a new issue."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
         issue_labels = ["mcp"] if not labels else labels + ["mcp"]
-        return (
+        data = (
             await self._request(
                 "POST",
                 url,
@@ -439,6 +472,7 @@ class GitHubIntegration:
                 json={"title": title, "body": body, "labels": issue_labels},
             )
         ).json()
+        return _issue_result(data)
 
     @_write
     async def merge_pr(
@@ -487,7 +521,7 @@ class GitHubIntegration:
     ) -> IssueData:
         """Updates an existing issue."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
-        return (
+        data = (
             await self._request(
                 "PATCH",
                 url,
@@ -495,6 +529,7 @@ class GitHubIntegration:
                 json={"title": title, "body": body, "labels": labels, "state": state},
             )
         ).json()
+        return _issue_result(data)
 
     @_write
     async def update_reviews(
@@ -507,9 +542,10 @@ class GitHubIntegration:
     ) -> dict[str, Any]:
         """Submits a review for a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
-        return (
+        data = (
             await self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event})
         ).json()
+        return _pick(data, "id", "state", "body", "html_url", "submitted_at")
 
     @_write(idempotent=True)
     async def update_assignees(
@@ -525,16 +561,18 @@ class GitHubIntegration:
         actual_logins = {u["login"] for u in data.get("assignees", [])}
         requested = set(assignees)
         missing = requested - actual_logins
+        result: dict[str, Any] = {
+            "status": "partial" if missing else "ok",
+            "assignees_requested": sorted(requested),
+            "assignees_applied": sorted(actual_logins),
+            "issue_url": data.get("html_url"),
+        }
         if missing:
             logger.warning(f"Some assignees were not applied: {missing}")
-            return {
-                "status": "partial",
-                "message": f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}",
-                "assignees_requested": sorted(requested),
-                "assignees_applied": sorted(actual_logins),
-                "issue": data,
-            }
-        return data
+            result["message"] = (
+                f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}"
+            )
+        return result
 
     @_read_only
     async def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
@@ -576,7 +614,7 @@ class GitHubIntegration:
     ) -> dict[str, Any]:
         """Creates a new release."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
-        return (
+        data = (
             await self._request(
                 "POST",
                 url,
@@ -592,6 +630,7 @@ class GitHubIntegration:
                 },
             )
         ).json()
+        return _pick(data, "id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
 
     async def _execute_graphql(
         self, query: str, variables: dict[str, Any], *, token: str | None = None
