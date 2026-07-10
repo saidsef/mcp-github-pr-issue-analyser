@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, call, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -78,6 +78,7 @@ _EMPTY_STATUS_CHECKS = {
 
 @pytest.fixture
 def gi() -> GitHubIntegration:
+    """GitHubIntegration instance with a mocked HTTP client and test token."""
     with patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"):
         instance = GitHubIntegration()
     instance._http = AsyncMock()
@@ -650,3 +651,237 @@ class TestStatusChecksPagination:
             await gi.get_pr_status_checks("owner", "repo", 1, ctx=ctx)
         msg = ctx.info.call_args[0][0]
         assert "truncated" in msg
+
+
+# ---------------------------------------------------------------------------
+# Response trimming — write tools return compact contracts, not raw payloads
+# ---------------------------------------------------------------------------
+
+_NOISE_USER = {
+    "login": "octocat",
+    "id": 1,
+    "node_id": "MDQ6VXNlcjE=",
+    "avatar_url": "https://avatars.githubusercontent.com/u/1",
+    "url": "https://api.github.com/users/octocat",
+    "html_url": "https://github.com/octocat",
+    "gravatar_id": "",
+    "type": "User",
+    "site_admin": False,
+    "followers_url": "https://api.github.com/users/octocat/followers",
+}
+
+_NOISE_REACTIONS = {
+    "url": "https://api.github.com/repos/o/r/issues/comments/1/reactions",
+    "total_count": 0,
+    "+1": 0,
+    "-1": 0,
+    "laugh": 0,
+    "confused": 0,
+    "heart": 0,
+    "hooray": 0,
+    "rocket": 0,
+    "eyes": 0,
+}
+
+
+def _issue_payload(**overrides) -> dict:
+    payload = {
+        "id": 999,
+        "node_id": "I_abc",
+        "url": "https://api.github.com/repos/o/r/issues/7",
+        "repository_url": "https://api.github.com/repos/o/r",
+        "number": 7,
+        "title": "A bug",
+        "body": "Details",
+        "state": "open",
+        "user": _NOISE_USER,
+        "labels": [
+            {"id": 1, "node_id": "L_1", "name": "bug", "color": "d73a4a", "default": True},
+            {"id": 2, "node_id": "L_2", "name": "mcp", "color": "ededed", "default": False},
+        ],
+        "assignee": None,
+        "assignees": [],
+        "milestone": None,
+        "locked": False,
+        "comments": 0,
+        "html_url": "https://github.com/o/r/issues/7",
+        "created_at": "2026-07-01T00:00:00Z",
+        "updated_at": "2026-07-02T00:00:00Z",
+        "closed_at": None,
+        "author_association": "OWNER",
+        "reactions": _NOISE_REACTIONS,
+        "timeline_url": "https://api.github.com/repos/o/r/issues/7/timeline",
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestResponseTrimming:
+    @pytest.mark.anyio
+    async def test_add_pr_comments_returns_trimmed_comment(self, gi: GitHubIntegration):
+        payload = {
+            "id": 11,
+            "node_id": "IC_abc",
+            "url": "https://api.github.com/repos/o/r/issues/comments/11",
+            "html_url": "https://github.com/o/r/pull/5#issuecomment-11",
+            "body": "hello",
+            "user": _NOISE_USER,
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-01T00:00:00Z",
+            "issue_url": "https://api.github.com/repos/o/r/issues/5",
+            "author_association": "OWNER",
+            "reactions": _NOISE_REACTIONS,
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.add_pr_comments("o", "r", 5, "hello")
+        assert result == {
+            "id": 11,
+            "body": "hello",
+            "author": "octocat",
+            "html_url": "https://github.com/o/r/pull/5#issuecomment-11",
+            "created_at": "2026-07-01T00:00:00Z",
+        }
+
+    @pytest.mark.anyio
+    async def test_add_inline_pr_comment_returns_trimmed_comment(self, gi: GitHubIntegration):
+        comment_payload = {
+            "id": 22,
+            "node_id": "PRRC_abc",
+            "pull_request_review_id": 33,
+            "diff_hunk": "@@ -1,3 +1,3 @@",
+            "path": "app.py",
+            "body": "fix this",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#discussion_r22",
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-01T00:00:00Z",
+            "_links": {"self": {"href": "https://api.github.com/x"}},
+            "reactions": _NOISE_REACTIONS,
+        }
+        responses = iter([
+            _mock_response(json_data={"head": {"sha": "abc123"}}),
+            _mock_response(json_data=comment_payload),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.add_inline_pr_comment("o", "r", 5, "app.py", 3, "fix this")
+        assert result == {
+            "id": 22,
+            "body": "fix this",
+            "author": "octocat",
+            "html_url": "https://github.com/o/r/pull/5#discussion_r22",
+            "created_at": "2026-07-01T00:00:00Z",
+        }
+        post_kwargs = gi._http.request.call_args_list[1].kwargs
+        assert post_kwargs["json"]["commit_id"] == "abc123"
+
+    @pytest.mark.anyio
+    async def test_create_issue_returns_trimmed_issue(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        result = await gi.create_issue("o", "r", "A bug", "Details", ["bug"])
+        assert result == {
+            "number": 7,
+            "title": "A bug",
+            "body": "Details",
+            "state": "open",
+            "author": "octocat",
+            "labels": ["bug", "mcp"],
+            "html_url": "https://github.com/o/r/issues/7",
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-02T00:00:00Z",
+        }
+        assert gi._http.request.call_args.kwargs["json"]["labels"] == ["bug", "mcp"]
+
+    @pytest.mark.anyio
+    async def test_update_issue_returns_trimmed_issue(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(json_data=_issue_payload(state="closed"))
+        )
+        result = await gi.update_issue("o", "r", 7, "A bug", "Details", state="closed")
+        assert result["state"] == "closed"
+        assert result["author"] == "octocat"
+        assert set(result) == {
+            "number", "title", "body", "state", "author", "labels", "html_url", "created_at", "updated_at",
+        }
+
+    @pytest.mark.anyio
+    async def test_update_reviews_returns_trimmed_review(self, gi: GitHubIntegration):
+        payload = {
+            "id": 80,
+            "node_id": "PRR_abc",
+            "user": _NOISE_USER,
+            "body": "LGTM",
+            "state": "APPROVED",
+            "html_url": "https://github.com/o/r/pull/5#pullrequestreview-80",
+            "pull_request_url": "https://api.github.com/repos/o/r/pulls/5",
+            "_links": {"html": {"href": "https://github.com/x"}},
+            "submitted_at": "2026-07-01T00:00:00Z",
+            "commit_id": "abc123",
+            "author_association": "OWNER",
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.update_reviews("o", "r", 5, "APPROVE", "LGTM")
+        assert result == {
+            "id": 80,
+            "state": "APPROVED",
+            "body": "LGTM",
+            "html_url": "https://github.com/o/r/pull/5#pullrequestreview-80",
+            "submitted_at": "2026-07-01T00:00:00Z",
+        }
+
+    @pytest.mark.anyio
+    async def test_update_assignees_all_applied(self, gi: GitHubIntegration):
+        payload = _issue_payload(
+            assignees=[{**_NOISE_USER, "login": "a"}, {**_NOISE_USER, "login": "b"}]
+        )
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.update_assignees("o", "r", 7, ["b", "a"])
+        assert result == {
+            "status": "ok",
+            "assignees_requested": ["a", "b"],
+            "assignees_applied": ["a", "b"],
+            "issue_url": "https://github.com/o/r/issues/7",
+        }
+
+    @pytest.mark.anyio
+    async def test_update_assignees_partial(self, gi: GitHubIntegration):
+        payload = _issue_payload(assignees=[{**_NOISE_USER, "login": "a"}])
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.update_assignees("o", "r", 7, ["a", "b"])
+        assert result["status"] == "partial"
+        assert result["assignees_applied"] == ["a"]
+        assert "'b'" in result["message"]
+        assert "issue" not in result
+
+    @pytest.mark.anyio
+    async def test_create_release_returns_trimmed_release(self, gi: GitHubIntegration):
+        payload = {
+            "id": 55,
+            "node_id": "RE_abc",
+            "url": "https://api.github.com/repos/o/r/releases/55",
+            "assets_url": "https://api.github.com/repos/o/r/releases/55/assets",
+            "upload_url": "https://uploads.github.com/repos/o/r/releases/55/assets{?name,label}",
+            "html_url": "https://github.com/o/r/releases/tag/v1.0.0",
+            "author": _NOISE_USER,
+            "tag_name": "v1.0.0",
+            "target_commitish": "main",
+            "name": "v1.0.0",
+            "draft": False,
+            "prerelease": False,
+            "created_at": "2026-07-01T00:00:00Z",
+            "published_at": "2026-07-01T00:00:00Z",
+            "assets": [],
+            "tarball_url": "https://api.github.com/repos/o/r/tarball/v1.0.0",
+            "zipball_url": "https://api.github.com/repos/o/r/zipball/v1.0.0",
+            "body": "Generated notes",
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "notes")
+        assert result == {
+            "id": 55,
+            "tag_name": "v1.0.0",
+            "name": "v1.0.0",
+            "html_url": "https://github.com/o/r/releases/tag/v1.0.0",
+            "draft": False,
+            "prerelease": False,
+            "body": "Generated notes",
+        }
