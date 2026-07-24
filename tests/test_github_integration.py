@@ -273,6 +273,40 @@ class TestMergePr:
 
 
 # ---------------------------------------------------------------------------
+# update_pr_description — reuses the PATCH response (no redundant GET)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdatePrDescription:
+    @pytest.mark.anyio
+    async def test_reuses_patch_response_with_single_call(self, gi: GitHubIntegration):
+        pr_payload = {
+            "id": 1,
+            "node_id": "PR_x",
+            "title": "New title",
+            "body": "New body",
+            "user": _NOISE_USER,
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-02T00:00:00Z",
+            "state": "open",
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=pr_payload))
+        result = await gi.update_pr_description("o", "r", 5, "New title", "New body")
+        # A single PATCH — the old implementation issued a follow-up GET.
+        gi._http.request.assert_awaited_once()
+        assert gi._http.request.call_args.args[0] == "PATCH"
+        assert gi._http.request.call_args.kwargs["json"] == {"title": "New title", "body": "New body"}
+        assert result == {
+            "title": "New title",
+            "description": "New body",
+            "author": "octocat",
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-02T00:00:00Z",
+            "state": "open",
+        }
+
+
+# ---------------------------------------------------------------------------
 # get_user_activities — Context progress ordering and completeness
 # ---------------------------------------------------------------------------
 
