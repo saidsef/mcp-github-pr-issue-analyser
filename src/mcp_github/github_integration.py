@@ -147,6 +147,18 @@ def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
     return {k: data.get(k) for k in keys}
 
 
+def _pr_content(data: dict[str, Any]) -> PRContent:
+    """Trim a GitHub pull request payload to the PRContent contract."""
+    return {
+        "title": data["title"],
+        "description": data["body"],
+        "author": data["user"]["login"],
+        "created_at": data["created_at"],
+        "updated_at": data["updated_at"],
+        "state": data["state"],
+    }
+
+
 def _comment_result(data: dict[str, Any]) -> CommentData:
     """Trim a GitHub comment payload to the CommentData contract."""
     return {
@@ -171,6 +183,68 @@ def _issue_result(data: dict[str, Any]) -> IssueData:
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
     }
+
+
+def _map_commit(contrib: dict[str, Any], owner: str, repo_name: str) -> dict[str, Any]:
+    return {
+        "repo": repo_name,
+        "owner": owner,
+        "commit_count": contrib.get("commitCount", 0),
+        "url": contrib.get("url", ""),
+        "date": contrib.get("occurredAt", ""),
+    }
+
+
+def _map_pull_request(contrib: dict[str, Any], owner: str, repo_name: str) -> dict[str, Any]:
+    pr = contrib["pullRequest"]
+    return {
+        "repo": repo_name,
+        "owner": owner,
+        "number": pr["number"],
+        "title": pr["title"],
+        "state": pr["state"],
+        "url": pr["url"],
+        "created": pr["createdAt"],
+        "merged": pr.get("merged", False),
+    }
+
+
+def _map_issue(contrib: dict[str, Any], owner: str, repo_name: str) -> dict[str, Any]:
+    issue = contrib["issue"]
+    return {
+        "repo": repo_name,
+        "owner": owner,
+        "number": issue["number"],
+        "title": issue["title"],
+        "state": issue["state"],
+        "url": issue["url"],
+        "created": issue["createdAt"],
+    }
+
+
+def _map_review(contrib: dict[str, Any], owner: str, repo_name: str) -> dict[str, Any]:
+    review = contrib["pullRequestReview"]
+    pr = contrib["pullRequest"]
+    return {
+        "repo": repo_name,
+        "owner": owner,
+        "pr_number": pr["number"],
+        "pr_title": pr["title"],
+        "pr_url": pr["url"],
+        "review_state": review["state"],
+        "review_url": review["url"],
+        "date": contrib["occurredAt"],
+    }
+
+
+# (result_field, collection_key, progress_message, mapper) for get_user_activities.
+# Order defines the ctx.report_progress / ctx.info sequence (indices 0-3).
+_ACTIVITY_SECTIONS: tuple[tuple[str, str, str, Any], ...] = (
+    ("commits", "commitContributionsByRepository", "Fetching commits...", _map_commit),
+    ("pull_requests", "pullRequestContributionsByRepository", "Fetching pull requests...", _map_pull_request),
+    ("issues", "issueContributionsByRepository", "Fetching issues...", _map_issue),
+    ("reviews", "pullRequestReviewContributionsByRepository", "Fetching reviews...", _map_review),
+)
 
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
@@ -337,14 +411,7 @@ class GitHubIntegration:
         """Fetches the content/details of a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
         data = (await self._request("GET", url, context=f"PR #{pr_number}")).json()
-        return {
-            "title": data["title"],
-            "description": data["body"],
-            "author": data["user"]["login"],
-            "created_at": data["created_at"],
-            "updated_at": data["updated_at"],
-            "state": data["state"],
-        }
+        return _pr_content(data)
 
     @_write
     async def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
@@ -387,10 +454,12 @@ class GitHubIntegration:
     ) -> PRContent:
         """Updates the title and description of a specific pull request."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        await self._request(
-            "PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description}
-        )
-        return await self.get_pr_content(repo_owner, repo_name, pr_number)
+        data = (
+            await self._request(
+                "PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description}
+            )
+        ).json()
+        return _pr_content(data)
 
     @_write
     async def create_pr(
@@ -715,6 +784,17 @@ class GitHubIntegration:
             for contrib in repo_contrib.get("contributions", {}).get("nodes", []):
                 yield contrib, owner, repo_name
 
+    def _capped_contributions(
+        self, collection: dict[str, Any], key: str, org: str, repo: str, max_results: int, mapper: Any
+    ) -> list[dict[str, Any]]:
+        """Map up to max_results contributions under the given collection key."""
+        out: list[dict[str, Any]] = []
+        for contrib, owner, repo_name in self._filtered_contributions(collection, key, org, repo):
+            if len(out) >= max_results:
+                break
+            out.append(mapper(contrib, owner, repo_name))
+        return out
+
     @_read_only(task=True)
     async def get_user_activities(
         self,
@@ -747,106 +827,26 @@ class GitHubIntegration:
                     "since": variables.get("since", collection.get("startedAt", "")),
                     "until": variables.get("until", collection.get("endedAt", "")),
                 }
-            commits = []
-            pull_requests = []
-            issues = []
-            reviews = []
-            repo_stars: list[dict[str, Any]] = []
-            if ctx:
-                await ctx.report_progress(progress=0, total=5)
-                await ctx.info("Fetching commits...")
-            for contrib, owner, repo_name in self._filtered_contributions(
-                collection, "commitContributionsByRepository", org, repo
-            ):
-                if len(commits) >= max_results:
-                    break
-                commits.append(
-                    {
-                        "repo": repo_name,
-                        "owner": owner,
-                        "commit_count": contrib.get("commitCount", 0),
-                        "url": contrib.get("url", ""),
-                        "date": contrib.get("occurredAt", ""),
-                    }
-                )
-            if ctx:
-                await ctx.report_progress(progress=1, total=5)
-                await ctx.info("Fetching pull requests...")
-            for contrib, owner, repo_name in self._filtered_contributions(
-                collection, "pullRequestContributionsByRepository", org, repo
-            ):
-                if len(pull_requests) >= max_results:
-                    break
-                pr = contrib["pullRequest"]
-                pull_requests.append(
-                    {
-                        "repo": repo_name,
-                        "owner": owner,
-                        "number": pr["number"],
-                        "title": pr["title"],
-                        "state": pr["state"],
-                        "url": pr["url"],
-                        "created": pr["createdAt"],
-                        "merged": pr.get("merged", False),
-                    }
-                )
-            if ctx:
-                await ctx.report_progress(progress=2, total=5)
-                await ctx.info("Fetching issues...")
-            for contrib, owner, repo_name in self._filtered_contributions(
-                collection, "issueContributionsByRepository", org, repo
-            ):
-                if len(issues) >= max_results:
-                    break
-                issue = contrib["issue"]
-                issues.append(
-                    {
-                        "repo": repo_name,
-                        "owner": owner,
-                        "number": issue["number"],
-                        "title": issue["title"],
-                        "state": issue["state"],
-                        "url": issue["url"],
-                        "created": issue["createdAt"],
-                    }
-                )
-            if ctx:
-                await ctx.report_progress(progress=3, total=5)
-                await ctx.info("Fetching reviews...")
-            for contrib, owner, repo_name in self._filtered_contributions(
-                collection, "pullRequestReviewContributionsByRepository", org, repo
-            ):
-                if len(reviews) >= max_results:
-                    break
-                review = contrib["pullRequestReview"]
-                pr = contrib["pullRequest"]
-                reviews.append(
-                    {
-                        "repo": repo_name,
-                        "owner": owner,
-                        "pr_number": pr["number"],
-                        "pr_title": pr["title"],
-                        "pr_url": pr["url"],
-                        "review_state": review["state"],
-                        "review_url": review["url"],
-                        "date": contrib["occurredAt"],
-                    }
-                )
+            sections: dict[str, list[dict[str, Any]]] = {}
+            for i, (field, key, message, mapper) in enumerate(_ACTIVITY_SECTIONS):
+                if ctx:
+                    await ctx.report_progress(progress=i, total=5)
+                    await ctx.info(message)
+                sections[field] = self._capped_contributions(collection, key, org, repo, max_results, mapper)
             if ctx:
                 await ctx.report_progress(progress=4, total=5)
                 await ctx.info("Fetching repo stars...")
-            for node in user_data.get("repositories", {}).get("nodes", []):
-                if len(repo_stars) >= max_results:
-                    break
-                repo_stars.append(
-                    {
-                        "repo": node["name"],
-                        "owner": node["owner"]["login"],
-                        "url": node["url"],
-                        "description": node.get("description"),
-                        "star_count": node["stargazerCount"],
-                    }
-                )
+            repo_nodes = user_data.get("repositories", {}).get("nodes", [])
+            repo_stars = [
+                {
+                    "repo": node["name"],
+                    "owner": node["owner"]["login"],
+                    "url": node["url"],
+                    "description": node.get("description"),
+                    "star_count": node["stargazerCount"],
+                }
+                for node in repo_nodes[:max_results]
+            ]
             if ctx:
                 await ctx.report_progress(progress=5, total=5)
             activity_result: UserActivityResult = {
@@ -857,18 +857,18 @@ class GitHubIntegration:
                     "pull_requests": collection.get("totalPullRequestContributions", 0),
                     "issues": collection.get("totalIssueContributions", 0),
                     "reviews": collection.get("totalPullRequestReviewContributions", 0),
-                    "repo_stars": sum(n.get("stargazerCount", 0) for n in user_data.get("repositories", {}).get("nodes", [])),
+                    "repo_stars": sum(n.get("stargazerCount", 0) for n in repo_nodes),
                 },
-                "commits": commits,
-                "pull_requests": pull_requests,
-                "issues": issues,
-                "reviews": reviews,
+                "commits": sections["commits"],
+                "pull_requests": sections["pull_requests"],
+                "issues": sections["issues"],
+                "reviews": sections["reviews"],
                 "repo_stars": repo_stars,
             }
             logger.info(
-                f"Successfully fetched activities: {len(commits)} commits, "
-                f"{len(pull_requests)} PRs, {len(issues)} issues, {len(reviews)} reviews, "
-                f"{len(repo_stars)} starred repos"
+                f"Successfully fetched activities: {len(sections['commits'])} commits, "
+                f"{len(sections['pull_requests'])} PRs, {len(sections['issues'])} issues, "
+                f"{len(sections['reviews'])} reviews, {len(repo_stars)} starred repos"
             )
             return activity_result
 
@@ -980,21 +980,24 @@ class GitHubIntegration:
             logger.info(f"Found {len(linked_issues)} linked issue(s) for PR #{pr_number}")
             return {"pr_number": pr_number, "linked_issues": linked_issues}
 
+    @staticmethod
+    def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
+        """Trim a GraphQL check-run node to the check_runs contract."""
+        return {
+            "name": run["name"],
+            "status": run["status"],
+            "conclusion": run.get("conclusion"),
+            "details_url": run.get("detailsUrl"),
+            "suite_app": app_name,
+        }
+
     def _flatten_check_runs(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
         """Flatten check suites into a single list of check run dicts."""
         check_runs: list[dict[str, Any]] = []
         for suite in (head_target.get("checkSuites") or {}).get("nodes", []):
             app_name = (suite.get("app") or {}).get("name", "unknown")
             for run in (suite.get("checkRuns") or {}).get("nodes", []):
-                check_runs.append(
-                    {
-                        "name": run["name"],
-                        "status": run["status"],
-                        "conclusion": run.get("conclusion"),
-                        "details_url": run.get("detailsUrl"),
-                        "suite_app": app_name,
-                    }
-                )
+                check_runs.append(self._run_dict(run, app_name))
         return check_runs
 
     def _extract_commit_statuses(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1062,15 +1065,7 @@ class GitHubIntegration:
             node = result.get("node") or {}
             run_conn = node.get("checkRuns") or {}
             for run in run_conn.get("nodes") or []:
-                runs.append(
-                    {
-                        "name": run["name"],
-                        "status": run["status"],
-                        "conclusion": run.get("conclusion"),
-                        "details_url": run.get("detailsUrl"),
-                        "suite_app": app_name,
-                    }
-                )
+                runs.append(self._run_dict(run, app_name))
             page_info = run_conn.get("pageInfo") or {}
             if not page_info.get("hasNextPage"):
                 return runs, False
