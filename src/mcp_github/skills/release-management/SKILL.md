@@ -97,7 +97,10 @@ Rules:
 - Use `--` (double dash), never em-dashes
 - Date is `YYYY-MM-DD` from the current date
 - Omit `Breaking Changes` and `New Environment Variables` sections when not applicable
-- `What Changed` lists every commit in the release using conventional commit format
+- `What Changed` lists every commit in the release as `<type>(<scope>): <prose summary>` -- the same
+  form used for issue and PR titles. `<type>` is one of `feat`, `fix`, `chore`, `docs`, `refactor`,
+  `test`, `perf`, `ci`, `build`; `<scope>` is the lowercase area touched (`auth`, `deps`, `cache`);
+  the summary is prose, not a kebab-case slug
 - Short SHA is the first 7 characters of the commit hash
 - `Full Changelog` URL compares the previous tag to the new tag
 
