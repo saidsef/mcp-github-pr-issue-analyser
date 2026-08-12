@@ -62,6 +62,34 @@ Create new issues, update existing ones, and list open issues or PRs with filter
 | `per_page` | int | `50` | Results per page (max 100) |
 | `page` | int | `1` | Page number |
 
+## Title Convention
+
+Every issue title uses the same shape as PR titles and commit subjects:
+
+```
+<type>(<scope>): <short prose summary>
+```
+
+| Part | Rules |
+|---|---|
+| `<type>` | One of `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build` |
+| `<scope>` | Lowercase area the change touches -- `auth`, `tools`, `deps`, `cache`, `skills`, `readme`, `k8s`. Use `/` for a compound scope (`docker/k8s`) |
+| Summary | Prose, not a slug. Lowercase start, imperative mood, no trailing full stop, roughly 72 characters or fewer |
+
+Examples:
+
+- `fix(cache): redis client leaks connections after reconnect`
+- `feat(auth): support GitHub App installation tokens`
+- `chore(deps): bump fastmcp-slim to 3.4.7`
+- `docs(readme): document the skill:// resource URIs`
+
+Avoid:
+
+- Bare titles -- `Update README`
+- Bracketed prefixes -- `[BUG] cache broken`
+- A kebab-case slug where prose belongs -- `fix(cache): redis-connection-leak`
+- A type with no scope -- `fix: cache broken`
+
 ## Filtering Guide
 
 | Filter | Returns issues/PRs where you are... |
@@ -74,6 +102,8 @@ Create new issues, update existing ones, and list open issues or PRs with filter
 ## Best Practices
 
 - Always search for duplicates with `list_open_issues_prs` before creating a new issue
+- Title every issue as `<type>(<scope>): <prose summary>` -- see Title Convention above
+- Keep the type honest: `fix` for defects, `feat` for new behaviour, `chore` for maintenance
 - Write issue bodies in Markdown; include steps to reproduce for bugs, or acceptance criteria for features
 - Use labels consistently — common labels: `bug`, `enhancement`, `documentation`, `good first issue`
 - Close issues with `state="closed"` once resolved rather than deleting them

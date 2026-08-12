@@ -74,6 +74,38 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 | `commit_message` | str | optional | Custom merge commit message |
 | `merge_method` | str | `squash` | One of: `merge`, `squash`, `rebase` |
 
+## Title Convention
+
+PR titles and commit subjects share one shape with issue titles:
+
+```
+<type>(<scope>): <short prose summary>
+```
+
+| Part | Rules |
+|---|---|
+| `<type>` | One of `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build` |
+| `<scope>` | Lowercase area the change touches -- `auth`, `tools`, `deps`, `cache`, `skills`, `readme`, `k8s`. Use `/` for a compound scope (`docker/k8s`) |
+| Summary | Prose, not a slug. Lowercase start, imperative mood, no trailing full stop, roughly 72 characters or fewer |
+
+This applies to `title` in `create_pr`, `new_title` in `update_pr_description`, and
+`commit_title` in `merge_pr`. When squashing, set `commit_title` explicitly so the
+subject landing on the default branch keeps this form rather than inheriting a
+branch commit -- append the PR reference, e.g. `feat(auth): support GitHub App tokens (#123)`.
+
+Examples:
+
+- `fix(tools): handle empty diff response from the compare endpoint`
+- `feat(cache): add Redis-backed PR diff cache`
+- `chore(deps): bump fastmcp-slim to 3.4.7, refresh lock`
+
+Avoid:
+
+- Bare titles -- `Update README`
+- Bracketed prefixes -- `[WIP] cache work`
+- A kebab-case slug where prose belongs -- `fix(tools): empty-diff-handling`
+- A type with no scope -- `fix: empty diff`
+
 ## Merge Method Guide
 
 | Method | When to use |
@@ -84,6 +116,8 @@ Create new pull requests, keep them up to date, and safely merge them when ready
 
 ## Best Practices
 
+- Title every PR as `<type>(<scope>): <prose summary>` -- see Title Convention above
+- Pass an explicit `commit_title` in the same form when merging, so the branch history stays parseable
 - Write PR bodies in Markdown; include a summary, motivation, and testing steps
 - Always verify `mergeable` status before calling `merge_pr`
 - Use `draft=True` for work-in-progress PRs to prevent premature merges
