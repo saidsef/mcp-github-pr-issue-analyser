@@ -39,13 +39,13 @@ jobs:
       with:
         fetch-depth: 0
     - name: Initialise CodeQL
-      uses: github/codeql-action/init@v4.37.6
+      uses: github/codeql-action/init@v4.37.7
       with:
         languages: ${{ matrix.language }}
     - name: Autobuild
-      uses: github/codeql-action/autobuild@v4.37.6
+      uses: github/codeql-action/autobuild@v4.37.7
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4.37.6
+      uses: github/codeql-action/analyze@v4.37.7
 
   review:
     uses: saidsef/saidsef/.github/workflows/dependency-review.yaml@main
