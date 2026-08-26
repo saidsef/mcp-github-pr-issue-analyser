@@ -24,6 +24,7 @@ classifiers = [
 dependencies = [
     "fastmcp-slim[server,apps,tasks]>=3.4.7",
     "httpx>=0.28.1",
+    "prometheus-client>=0.26.0",
     "redis>=8.1.0",
 ]
 

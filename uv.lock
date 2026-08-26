@@ -616,6 +616,7 @@ source = { editable = "." }
 dependencies = [
     { name = "fastmcp-slim", extra = ["apps", "server", "tasks"] },
     { name = "httpx" },
+    { name = "prometheus-client" },
     { name = "redis" },
 ]
 
@@ -631,6 +632,7 @@ dev = [
 requires-dist = [
     { name = "fastmcp-slim", extras = ["apps", "server", "tasks"], specifier = ">=3.4.7" },
     { name = "httpx", specifier = ">=0.28.1" },
+    { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "redis", specifier = ">=8.1.0" },
 ]
 
