@@ -71,12 +71,12 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Skills
 Workflow guidance is available as MCP resources under the skill:// URI scheme:
-- skill://pr-analysis/SKILL.md -- fetch and analyse PR diffs and metadata
+- skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
 - skill://pr-review/SKILL.md -- post inline comments and submit review decisions
-- skill://pr-management/SKILL.md -- create, update, assign, and merge PRs
-- skill://issue-management/SKILL.md -- create, update, and list issues
+- skill://pr-management/SKILL.md -- create, update, assign, refresh and merge PRs
+- skill://issue-management/SKILL.md -- create, update and list issues and open PRs
 - skill://release-management/SKILL.md -- tag commits and publish releases
-- skill://user-activity/SKILL.md -- look up user profiles and contribution history
+- skill://user-activity/SKILL.md -- look up user profiles, contributions and star growth
 """
 
 

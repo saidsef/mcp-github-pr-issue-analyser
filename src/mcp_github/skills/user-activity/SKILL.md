@@ -1,92 +1,117 @@
 ---
-description: Look up a GitHub user's profile and retrieve their contribution activity with optional date and repository filtering
+description: Look up a GitHub user's profile, their contribution history, and which of their repos gained stars recently
 ---
 
 # User Activity
 
-Retrieve a GitHub user's profile information and their contribution history (commits, PRs, issues, reviews).
+Retrieve a user's profile, their contributions (commits, PRs, issues, reviews), and star growth per repository.
 
 ## Prerequisites
 
-- Target GitHub `username`
-- GitHub token with `read:user` scope (GraphQL API)
+- The target GitHub `username`
+- GitHub token with `read:user` scope, since these tools use the GraphQL API
+
+All three tools run as long-running tasks and report progress while they work.
 
 ## Workflow
 
-1. **Look up the user profile** — call `search_user` to get bio, organisation membership, pinned repos, and follower counts
-2. **Retrieve contributions** — call `get_user_activities` to get a detailed breakdown of their activity, optionally filtered by org, repo, or date range
+1. **Look up the profile** - call `search_user` to confirm the user exists and get context
+2. **Retrieve contributions** - call `get_user_activities`, optionally filtered by org, repo or date range
+3. **Measure star growth** - call `get_repo_stars_since` when the question is about stars in a time window
 
-## Tool Parameters
-
-### `search_user`
+## `search_user`
 
 | Parameter | Type | Description |
 |---|---|---|
 | `username` | str | GitHub username to look up |
 
-Returns: `UserSearchResult` — login, name, bio, company, location, public repos count, followers/following, organisation memberships, pinned repositories.
+Returns `UserSearchResult`: `login`, `name`, `email`, `company`, `location`,
+`bio`, `url`, `avatar_url`, `created_at`, `updated_at`, `followers`,
+`following`, `public_repos`, `recent_repos`, `organizations`.
 
-### `get_user_activities`
+`recent_repos` is the 10 most recently updated public repositories, not the
+user's pinned ones. Public repositories only.
+
+## `get_user_activities`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `username` | str | — | GitHub username |
-| `org` | str | `""` | Filter by organisation name (optional) |
-| `repo` | str | `""` | Filter by repository name (optional) |
-| `since` | str | `""` | Start date in ISO 8601 format: `YYYY-MM-DD` |
-| `until` | str | `""` | End date in ISO 8601 format: `YYYY-MM-DD` |
-| `max_results` | int | `50` | Maximum number of contribution entries to return |
+| `username` | str | - | GitHub username |
+| `org` | str | `""` | Keep only contributions in repos owned by this org or user |
+| `repo` | str | `""` | Keep only contributions in repos with this name |
+| `since` | str | `""` | Start date, `YYYY-MM-DD` or full ISO 8601 |
+| `until` | str | `""` | End date, `YYYY-MM-DD` or full ISO 8601 |
+| `max_results` | int | `50` | Cap applied to each section separately |
 
-Returns: `UserActivityResult` — lists of commits, pull requests, issues, PR reviews, and the user's repos with current star counts.
+Returns `UserActivityResult`: `username`, `date_range`, `total_contributions`,
+`commits`, `pull_requests`, `issues`, `reviews`, `repo_stars`.
 
-## Activity Types Returned
-
-| Type | Fields |
+| Section | Fields per entry |
 |---|---|
-| Commits | `commitCount`, `url`, `occurredAt` |
-| Pull Requests | PR title, state, URL, creation date |
-| Issues | Issue title, state, URL, creation date |
-| PR Reviews | Review state (`APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`), PR URL |
-| Repo Stars | `repo`, `owner`, `url`, `description`, `star_count` |
+| `commits` | `repo`, `owner`, `commitCount`, `url`, `occurredAt` |
+| `pull_requests` | title, state, url, creation date |
+| `issues` | title, state, url, creation date |
+| `reviews` | review state of `APPROVED`, `CHANGES_REQUESTED` or `COMMENTED`, and the PR url |
+| `repo_stars` | `repo`, `owner`, `url`, `description`, `star_count` |
 
-## Answering "Which repos gained the most stars in the last N days?"
+Four things about this tool are easy to get wrong:
 
-Use `get_repo_stars_since` — not `get_user_activities`. It paginates the GitHub stargazers REST endpoint (which carries `starred_at` timestamps) from the most recent page backwards to count stars received within the window.
+- **`max_results` is per section.** It caps commits, pull requests, issues, reviews and repo_stars independently, so `max_results=50` can return up to 250 entries
+- **`total_contributions` is not filtered.** It reports the account-wide totals for the period, so it will exceed the length of the returned lists whenever `org`, `repo` or `max_results` trims them. Do not present it as a count of the listed items
+- **`org` and `repo` do not touch `repo_stars`**, which always lists the user's own top public repos by star count
+- **The window cannot exceed one year.** GitHub's contributions API rejects a `since`/`until` range longer than that. Split a longer question into per-year calls
+
+### Date filtering
+
+- Accepts `YYYY-MM-DD` or full ISO 8601 such as `2024-01-01T00:00:00Z`
+- A date-only value is expanded: `since` gains `T00:00:00Z`, `until` gains `T23:59:59Z`
+- Both bounds are inclusive
+- Omit both to get the most recent contributions up to `max_results`
+- Filtering applies to commits, PRs, issues and reviews, never to `repo_stars`
+
+## `get_repo_stars_since`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `username` | str | - | GitHub username |
+| `since` | str | 30 days ago | Start date, `YYYY-MM-DD` or ISO 8601 |
+| `top_n` | int | `5` | Number of repos to return |
+| `max_repos` | int | `20` | Maximum repos to inspect |
+
+Returns `RepoStarsSinceResult`: `username`, the normalised `since` cutoff, and
+`repos` sorted by `new_stars` descending, each with `repo`, `owner`, `url`,
+`description`, `new_stars` and `total_stars`.
+
+This is the tool for any question of the form "which repos gained the most
+stars recently".
 
 ```
 get_repo_stars_since(username="saidsef", since="2024-04-01", top_n=5)
 ```
 
-Returns repos sorted by `new_stars` (stars received since `since`) descending, with `total_stars` for context. `since` defaults to 30 days ago if omitted.
+How it picks and counts:
 
-## Known Limitation: repo_stars in get_user_activities Is Cumulative
+- Reads the user's first 100 public repos, drops any with zero stars, then inspects the `max_repos` with the highest total star count
+- For each, it walks the stargazers endpoint backwards from the last page and stops at the first star older than the cutoff
+- Repos that gained no stars in the window are omitted rather than returned with `new_stars: 0`
 
-`repo_stars` in `get_user_activities` returns each repo's **current total star count**, not stars gained within `since`/`until`. Use `get_repo_stars_since` instead when the question is about a time window.
+Cost scales with how popular the repos are, since a repo with 5,000 stars can
+need many pages before the walk stops. Keep `max_repos` low on accounts with
+large repositories.
 
-## Date Filtering
+## Star Counts: Which Tool to Use
 
-- Accepted formats: `YYYY-MM-DD` (e.g. `2024-01-01`) or full ISO 8601 (`2024-01-01T00:00:00Z`)
-- Date-only values are automatically expanded: `since` becomes `T00:00:00Z`, `until` becomes `T23:59:59Z`
-- `since` is inclusive (contributions on or after this date)
-- `until` is inclusive (contributions on or before this date)
-- Omit both to retrieve the most recent contributions up to `max_results`
-- Date filtering applies to commits, PRs, issues, and reviews only — not to `repo_stars`
-
-### `get_repo_stars_since`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `username` | str | — | GitHub username |
-| `since` | str | 30 days ago | Start date: `YYYY-MM-DD` or ISO 8601 |
-| `top_n` | int | `5` | Number of top repos to return |
-| `max_repos` | int | `20` | Max repos to check (one REST call per repo) |
-
-Returns: `RepoStarsSinceResult` — repos sorted by `new_stars` desc, each with `repo`, `owner`, `url`, `description`, `new_stars`, `total_stars`.
+`repo_stars` in `get_user_activities` is each repo's **current cumulative
+total** and ignores `since` and `until`. GitHub does not expose per-period
+deltas there. Use `get_repo_stars_since` whenever the question is about a time
+window, and `get_user_activities` only for a snapshot of where a user stands
+today.
 
 ## Best Practices
 
-- Call `search_user` first — it confirms the user exists and provides context before fetching activity
-- Use `org` and `repo` filters together to scope activity to a specific project
-- Set `max_results` conservatively (50–100) for broad date ranges to avoid large payloads
-- Use date ranges when investigating contributions during a specific sprint or quarter
-- PR review state `APPROVED` means the user approved that PR; `CHANGES_REQUESTED` means they blocked it
+- Call `search_user` first, since it confirms the user exists and gives context before the heavier calls
+- Combine `org` and `repo` to scope activity to one project
+- Keep `max_results` at 50 to 100 for wide date ranges, remembering the cap is per section
+- Use date ranges when investigating a specific sprint or quarter, and split anything over a year
+- Quote `total_contributions` as the account-wide figure, not as a count of the entries listed
+- A review state of `APPROVED` means the user approved that PR, and `CHANGES_REQUESTED` means they blocked it
