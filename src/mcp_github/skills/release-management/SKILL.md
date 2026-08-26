@@ -1,22 +1,22 @@
 ---
-description: Create annotated git tags and publish GitHub releases following semantic versioning
+description: Tag a commit and publish a GitHub release, following semantic versioning
 ---
 
 # Release Management
 
-Tag a commit and publish a GitHub release with generated or custom release notes.
+Create a tag on the default branch and publish a GitHub release against it.
 
 ## Prerequisites
 
 - `repo_owner` and `repo_name` for the target repository
-- The target branch/commit must be in a releasable state (CI passing, PRs merged)
-- GitHub token with `repo` write access (requires `contents: write` permission)
+- The default branch must be releasable: CI passing, every intended PR merged
+- GitHub token with `contents: write` access
 
 ## Workflow
 
-1. **Get the latest SHA** — call `get_latest_sha` to retrieve the HEAD commit of the default branch
-2. **Create a tag** — call `create_tag` with a semantic version string and descriptive message
-3. **Publish the release** — call `create_release` referencing the new tag
+1. **Check the target** - call `get_latest_sha` to see which commit will be tagged
+2. **Create the tag** - call `create_tag` with a semantic version string
+3. **Publish the release** - call `create_release` against that tag
 
 ## Tool Parameters
 
@@ -27,7 +27,8 @@ Tag a commit and publish a GitHub release with generated or custom release notes
 | `repo_owner` | str | GitHub organisation or username |
 | `repo_name` | str | Repository name |
 
-Returns: SHA string of the HEAD commit on the default branch.
+Returns the SHA of the newest commit on the default branch, or `None` if the
+repository has no commits.
 
 ### `create_tag`
 
@@ -35,26 +36,43 @@ Returns: SHA string of the HEAD commit on the default branch.
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
 | `repo_name` | str | Repository name |
-| `tag_name` | str | Tag name (e.g. `v1.2.3`) |
-| `message` | str | Annotated tag message describing the release |
+| `tag_name` | str | Tag name, e.g. `v1.2.3` |
+| `message` | str | Description of the release |
+
+Two limits to work within:
+
+- The commit is not selectable. `create_tag` resolves the default branch HEAD itself, so it always tags the newest commit at the moment of the call. There is no way to tag an older commit or a different branch through this tool
+- The tag is a lightweight ref, not an annotated tag object, so `message` is not stored on the tag. Put the release prose in the `body` of `create_release`, which is what readers actually see
+
+Calling `get_latest_sha` first does not pin the commit, it only shows you what
+`create_tag` is about to pick up. Re-read it if time has passed or a merge may
+have landed.
+
+Fails with a not-found error if the repository has no commits.
 
 ### `create_release`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
-| `repo_owner` | str | — | GitHub organisation or username |
-| `repo_name` | str | — | Repository name |
-| `tag_name` | str | — | Existing tag to release from |
-| `release_name` | str | — | Human-readable release title |
-| `body` | str | — | Release notes (Markdown) |
-| `draft` | bool | `False` | Publish as draft (not publicly visible) |
-| `prerelease` | bool | `False` | Mark as pre-release (alpha/beta/rc) |
-| `generate_release_notes` | bool | `True` | Auto-generate notes from merged PRs |
-| `make_latest` | str | `"true"` | Mark as the latest release |
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `tag_name` | str | - | Existing tag to release from |
+| `release_name` | str | - | Release title |
+| `body` | str | - | Release notes in Markdown |
+| `draft` | bool | `False` | Create as a draft, not publicly visible |
+| `prerelease` | bool | `False` | Mark as a pre-release |
+| `generate_release_notes` | bool | `True` | Append GitHub's auto-generated notes to `body` |
+| `make_latest` | str | `"true"` | One of `"true"`, `"false"`, `"legacy"`, as strings not booleans |
+
+Returns `id`, `tag_name`, `name`, `html_url`, `draft`, `prerelease`, `body`.
+
+`generate_release_notes=True` appends GitHub's merged-PR list to your `body`
+rather than replacing it, so a hand-written `What Changed` section will be
+duplicated. Set it to `False` when you supply that section yourself.
 
 ## Semantic Versioning Guide
 
-Format: `vMAJOR.MINOR.PATCH` (e.g. `v2.1.0`)
+Format `vMAJOR.MINOR.PATCH`, e.g. `v2.1.0`.
 
 | Part | Increment when |
 |---|---|
@@ -62,24 +80,22 @@ Format: `vMAJOR.MINOR.PATCH` (e.g. `v2.1.0`)
 | MINOR | New backwards-compatible features |
 | PATCH | Backwards-compatible bug fixes |
 
-Pre-release suffixes: `v1.0.0-alpha.1`, `v1.0.0-beta.2`, `v1.0.0-rc.1`
+Pre-release suffixes: `v1.0.0-alpha.1`, `v1.0.0-beta.2`, `v1.0.0-rc.1`.
 
 ## Release Body Format
 
-The `body` field must follow this structure exactly:
-
 ```markdown
-## v{MAJOR}.{MINOR}.{PATCH} -- {YYYY-MM-DD}
+## v{MAJOR}.{MINOR}.{PATCH} - {YYYY-MM-DD}
 
 ### What's Included
 
-- **Feature or fix label** -- brief description
-- **Another change** -- brief description
+- **Feature or fix label** - brief description
+- **Another change** - brief description
 
-### ⚠️ Breaking Changes (from v{PREV_MAJOR}.x)
+### Breaking Changes (from v{PREV_MAJOR}.x)
 
-1. **Change title** -- description and migration path
-2. **Another breaking change** -- description
+1. **Change title** - description and migration path
+2. **Another breaking change** - description
 
 ### New Environment Variables
 
@@ -88,27 +104,27 @@ The `body` field must follow this structure exactly:
 | `VAR_NAME` | Yes/No | What it controls |
 
 ### What Changed
+
 - type(scope): commit message (SHORT_SHA) by @author
 
 **Full Changelog**: https://github.com/{owner}/{repo}/compare/v{PREV}...v{NEW}
 ```
 
 Rules:
-- Use `--` (double dash), never em-dashes
-- Date is `YYYY-MM-DD` from the current date
-- Omit `Breaking Changes` and `New Environment Variables` sections when not applicable
-- `What Changed` lists every commit in the release as `<type>(<scope>): <prose summary>` -- the same
-  form used for issue and PR titles. `<type>` is one of `feat`, `fix`, `chore`, `docs`, `refactor`,
-  `test`, `perf`, `ci`, `build`; `<scope>` is the lowercase area touched (`auth`, `deps`, `cache`);
-  the summary is prose, not a kebab-case slug
+
+- Single dashes only, never em-dashes
+- Date is `YYYY-MM-DD` and is today's date
+- Drop `Breaking Changes` and `New Environment Variables` when they do not apply
+- `What Changed` lists every commit as `<type>(<scope>): <prose summary>`, the same form used for issue and PR titles. `<type>` is one of `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build`. `<scope>` is the lowercase area touched such as `auth`, `deps`, `cache`, and the summary is prose, not a kebab-case slug
 - Short SHA is the first 7 characters of the commit hash
-- `Full Changelog` URL compares the previous tag to the new tag
+- `Full Changelog` compares the previous tag to the new one
+- Write this section yourself only with `generate_release_notes=False`, otherwise GitHub appends its own copy
 
 ## Best Practices
 
-- Always follow semver -- never re-use or delete a published tag
-- Set `draft=True` first to preview the release before publishing
-- Set `generate_release_notes=True` unless you need full manual control over the notes
-- Set `prerelease=True` for alpha/beta/rc versions
-- Tag messages should summarise the scope of the release (e.g. "Release v1.2.0: add caching layer and improve error handling")
-- Ensure all target PRs are merged before tagging
+- Follow semver, and never re-use or delete a published tag
+- Confirm every intended PR is merged before tagging, since the tag follows the default branch HEAD
+- Publish with `draft=True` first to preview, then flip it once the notes read correctly
+- Set `prerelease=True` for alpha, beta and rc versions, which also keeps them off the latest-release badge
+- Put the release prose in `create_release`'s `body`, because the `create_tag` message does not survive
+- Pick one source for the commit list: either `generate_release_notes=True` or a hand-written `What Changed`, not both
