@@ -77,6 +77,8 @@ Workflow guidance is available as MCP resources under the skill:// URI scheme:
 - skill://issue-management/SKILL.md -- create, update and list issues and open PRs
 - skill://release-management/SKILL.md -- tag commits and publish releases
 - skill://user-activity/SKILL.md -- look up user profiles, contributions and star growth
+- skill://error-handling/SKILL.md -- read the error codes and decide whether to retry
+- skill://interactive-ui/SKILL.md -- ask the user to choose, or render data as a UI panel
 """
 
 
