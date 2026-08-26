@@ -24,12 +24,26 @@ import sys
 import traceback
 from os import getenv
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
+from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
+from prometheus_client import (
+    CONTENT_TYPE_LATEST,
+    REGISTRY,
+    Counter,
+    Gauge,
+    Histogram,
+    PlatformCollector,
+    ProcessCollector,
+    generate_latest,
+)
+from starlette.requests import Request
+from starlette.responses import Response
 
 from .auth import (
     GITHUB_OAUTH_BASE_URL,
@@ -44,6 +58,38 @@ logging.basicConfig(level=logging.WARNING)
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
 MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
+
+try:
+    # CPU, memory and runtime metrics alongside the tool counters below
+    ProcessCollector(registry=REGISTRY)
+    PlatformCollector(registry=REGISTRY)
+except ValueError:
+    pass
+
+TOOL_CALLS = Counter("mcp_tool_invocations_total", "Total tool calls", ["tool_name"])
+TOOL_DURATION = Histogram("mcp_tool_duration_seconds", "Tool call duration", ["tool_name"])
+TOOL_IN_PROGRESS = Gauge("mcp_tool_in_progress", "Tool calls currently running")
+
+
+class MetricsMiddleware(Middleware):
+    """Counts and times each tool call.
+
+    Only the success path is labelled, so unknown tool names from clients
+    cannot create unbounded time-series.
+    """
+
+    async def on_call_tool(self, context: MiddlewareContext, call_next: Any) -> Any:
+        start = perf_counter()
+        TOOL_IN_PROGRESS.inc()
+        try:
+            result = await call_next(context)
+        finally:
+            TOOL_IN_PROGRESS.dec()
+        name = getattr(context.message, "name", "unknown")
+        TOOL_CALLS.labels(tool_name=name).inc()
+        TOOL_DURATION.labels(tool_name=name).observe(perf_counter() - start)
+        return result
+
 
 _MCP_INSTRUCTIONS = """
 # GitHub PR and Issue Analyser
@@ -102,6 +148,13 @@ class PRIssueAnalyser:
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
+        self.mcp.add_middleware(MetricsMiddleware())
+
+        @self.mcp.custom_route("/metrics", methods=["GET"])
+        def metrics_route(_request: Request) -> Response:
+            """Prometheus scrape endpoint, served in HTTP mode only."""
+            return Response(generate_latest(registry=REGISTRY), media_type=CONTENT_TYPE_LATEST)
+
         logger.info("MCP Server initialised")
         self.register_tools()
 

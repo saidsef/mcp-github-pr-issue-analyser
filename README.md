@@ -60,6 +60,26 @@ Two auth modes are supported. The active mode is selected automatically from env
 
 > To create a GitHub OAuth App, go to **Settings → Developer settings → OAuth Apps → New OAuth App** and set the Authorization callback URL to `<GITHUB_OAUTH_BASE_URL>/auth/callback` (e.g. `https://mcp.example.com/auth/callback`).
 
+### Metrics
+
+In HTTP mode the server exposes Prometheus metrics at `GET /metrics`, on the same port as `/mcp` (`PORT`, default `8081`). The endpoint is unauthenticated so it can be scraped directly.
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `mcp_tool_invocations_total` | counter | Tool calls that completed, labelled by `tool_name` |
+| `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` |
+| `mcp_tool_in_progress` | gauge | Tool calls currently running |
+| `process_*` | gauge | CPU, memory and file descriptor usage of the server process (Linux only) |
+| `python_info` | gauge | Interpreter version |
+
+```sh
+curl http://localhost:8081/metrics
+```
+
+Only completed calls are counted, which keeps the `tool_name` label bounded to registered tools. A call that raises is recorded in neither the counter nor the histogram.
+
+The Kubernetes manifests under `deployment/` already set `prometheus.io/scrape: "true"` and `prometheus.io/port: "8081"` on the pod, so a Prometheus instance using pod annotations picks the endpoint up with no further configuration.
+
 ## Architecture Diagram
 
 ```ascii
