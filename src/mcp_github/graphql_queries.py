@@ -167,11 +167,20 @@ query($suiteId: ID!, $after: String) {
 }
 """
 
-# Query to get user contributions with optional date filtering
+# Query to get user contributions with optional date filtering.
+# Only fields the mappers in activity.py actually read are requested -- the
+# collection is fetched wide (100 repos x 100 contributions) because org and
+# repo filtering has no server-side equivalent on contributionsCollection.
 USER_CONTRIBUTIONS_QUERY = """
+fragment RepoRef on Repository {
+  name
+  owner {
+    login
+  }
+}
+
 query($username: String!, $since: DateTime, $until: DateTime) {
   user(login: $username) {
-    login
     contributionsCollection(from: $since, to: $until) {
       startedAt
       endedAt
@@ -181,14 +190,9 @@ query($username: String!, $since: DateTime, $until: DateTime) {
       totalPullRequestReviewContributions
       commitContributionsByRepository(maxRepositories: 100) {
         repository {
-          name
-          owner {
-            login
-          }
-          url
+          ...RepoRef
         }
         contributions(first: 100) {
-          totalCount
           nodes {
             occurredAt
             commitCount
@@ -198,14 +202,9 @@ query($username: String!, $since: DateTime, $until: DateTime) {
       }
       pullRequestContributionsByRepository(maxRepositories: 100) {
         repository {
-          name
-          owner {
-            login
-          }
-          url
+          ...RepoRef
         }
         contributions(first: 100) {
-          totalCount
           nodes {
             occurredAt
             pullRequest {
@@ -221,14 +220,9 @@ query($username: String!, $since: DateTime, $until: DateTime) {
       }
       issueContributionsByRepository(maxRepositories: 100) {
         repository {
-          name
-          owner {
-            login
-          }
-          url
+          ...RepoRef
         }
         contributions(first: 100) {
-          totalCount
           nodes {
             occurredAt
             issue {
@@ -243,14 +237,9 @@ query($username: String!, $since: DateTime, $until: DateTime) {
       }
       pullRequestReviewContributionsByRepository(maxRepositories: 100) {
         repository {
-          name
-          owner {
-            login
-          }
-          url
+          ...RepoRef
         }
         contributions(first: 100) {
-          totalCount
           nodes {
             occurredAt
             pullRequest {
@@ -267,7 +256,6 @@ query($username: String!, $since: DateTime, $until: DateTime) {
       }
     }
     repositories(privacy: PUBLIC, first: 100, orderBy: {field: STARGAZERS, direction: DESC}) {
-      totalCount
       nodes {
         name
         owner {

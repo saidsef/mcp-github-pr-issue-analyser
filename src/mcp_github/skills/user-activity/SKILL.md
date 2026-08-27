@@ -48,11 +48,15 @@ Returns `UserActivityResult`: `username`, `date_range`, `total_contributions`,
 
 | Section | Fields per entry |
 |---|---|
-| `commits` | `repo`, `owner`, `commitCount`, `url`, `occurredAt` |
-| `pull_requests` | title, state, url, creation date |
-| `issues` | title, state, url, creation date |
-| `reviews` | review state of `APPROVED`, `CHANGES_REQUESTED` or `COMMENTED`, and the PR url |
+| `commits` | `repo`, `owner`, `commit_count`, `url`, `date` |
+| `pull_requests` | `repo`, `owner`, `number`, `title`, `state`, `url`, `created`, `merged` |
+| `issues` | `repo`, `owner`, `number`, `title`, `state`, `url`, `created` |
+| `reviews` | `repo`, `owner`, `pr_number`, `pr_title`, `pr_url`, `review_state`, `review_url`, `date` |
 | `repo_stars` | `repo`, `owner`, `url`, `description`, `star_count` |
+
+`review_state` is `APPROVED`, `CHANGES_REQUESTED` or `COMMENTED`. The `date` on
+a commit or review entry is when the contribution occurred, whereas `created`
+on a pull request or issue is when that item was opened.
 
 Four things about this tool are easy to get wrong:
 
