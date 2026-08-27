@@ -173,6 +173,67 @@ class ActivityMixin:
             out.append({"repo": repo_name, "owner": owner, **mapper(contrib)})
         return out
 
+    @staticmethod
+    def _activity_variables(username: str, since: str, until: str) -> dict[str, Any]:
+        """GraphQL variables, expanding date-only bounds to whole days."""
+        variables: dict[str, Any] = {"username": username}
+        if since:
+            variables["since"] = _normalise_since(since)
+        if until:
+            variables["until"] = _normalise_until(until)
+        return variables
+
+    @staticmethod
+    def _date_range(
+        since: str, until: str, variables: dict[str, Any], collection: dict[str, Any]
+    ) -> dict[str, str] | None:
+        """The requested window, falling back to the bounds the collection reports."""
+        if not (since or until):
+            return None
+        return {
+            "since": variables.get("since", collection.get("startedAt", "")),
+            "until": variables.get("until", collection.get("endedAt", "")),
+        }
+
+    @staticmethod
+    def _activity_totals(collection: dict[str, Any], repo_nodes: list[dict[str, Any]]) -> dict[str, int]:
+        """Account-wide totals for the period, before org, repo or cap filtering."""
+        return {
+            "commits": collection.get("totalCommitContributions", 0),
+            "pull_requests": collection.get("totalPullRequestContributions", 0),
+            "issues": collection.get("totalIssueContributions", 0),
+            "reviews": collection.get("totalPullRequestReviewContributions", 0),
+            "repo_stars": sum(n.get("stargazerCount", 0) for n in repo_nodes),
+        }
+
+    @staticmethod
+    def _map_repo_stars(repo_nodes: list[dict[str, Any]], max_results: int) -> list[dict[str, Any]]:
+        """The user's top public repos by current cumulative star count."""
+        return [
+            {
+                "repo": node["name"],
+                "owner": node["owner"]["login"],
+                "url": node["url"],
+                "description": node.get("description"),
+                "star_count": node["stargazerCount"],
+            }
+            for node in repo_nodes[:max_results]
+        ]
+
+    async def _collect_sections(
+        self, collection: dict[str, Any], org: str, repo: str, max_results: int, ctx: Context | None
+    ) -> dict[str, list[dict[str, Any]]]:
+        """Map every contribution section, reporting one progress tick each."""
+        sections: dict[str, list[dict[str, Any]]] = {}
+        for i, section in enumerate(ACTIVITY_SECTIONS):
+            if ctx:
+                await ctx.report_progress(progress=i, total=ACTIVITY_STAGES)
+                await ctx.info(section.message)
+            sections[section.field] = self._capped_contributions(
+                collection, section.key, org, repo, max_results, section.mapper
+            )
+        return sections
+
     @_read_only(task=True)
     async def get_user_activities(
         self,
@@ -187,11 +248,7 @@ class ActivityMixin:
         """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ). Note: repo_stars returns current cumulative star counts, not stars gained within the requested period — GitHub does not expose per-period star deltas."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
         async with self._guard("fetch user activities"):
-            variables: dict[str, Any] = {"username": username}
-            if since:
-                variables["since"] = _normalise_since(since)
-            if until:
-                variables["until"] = _normalise_until(until)
+            variables = self._activity_variables(username, since, until)
             if ctx:
                 await ctx.info(f"Querying GitHub contributions for {username}...")
             result = await self._execute_graphql(USER_CONTRIBUTIONS_QUERY, variables)
@@ -199,46 +256,19 @@ class ActivityMixin:
             if not user_data:
                 raise GitHubNotFoundError(f"User '{username}' not found")
             collection = user_data.get("contributionsCollection", {})
-            date_range = None
-            if since or until:
-                date_range = {
-                    "since": variables.get("since", collection.get("startedAt", "")),
-                    "until": variables.get("until", collection.get("endedAt", "")),
-                }
-            sections: dict[str, list[dict[str, Any]]] = {}
-            for i, section in enumerate(ACTIVITY_SECTIONS):
-                if ctx:
-                    await ctx.report_progress(progress=i, total=ACTIVITY_STAGES)
-                    await ctx.info(section.message)
-                sections[section.field] = self._capped_contributions(
-                    collection, section.key, org, repo, max_results, section.mapper
-                )
+            date_range = self._date_range(since, until, variables, collection)
+            sections = await self._collect_sections(collection, org, repo, max_results, ctx)
             if ctx:
                 await ctx.report_progress(progress=len(ACTIVITY_SECTIONS), total=ACTIVITY_STAGES)
                 await ctx.info("Fetching repo stars...")
             repo_nodes = user_data.get("repositories", {}).get("nodes", [])
-            repo_stars = [
-                {
-                    "repo": node["name"],
-                    "owner": node["owner"]["login"],
-                    "url": node["url"],
-                    "description": node.get("description"),
-                    "star_count": node["stargazerCount"],
-                }
-                for node in repo_nodes[:max_results]
-            ]
+            repo_stars = self._map_repo_stars(repo_nodes, max_results)
             if ctx:
                 await ctx.report_progress(progress=ACTIVITY_STAGES, total=ACTIVITY_STAGES)
             activity_result: UserActivityResult = {
                 "username": username,
                 "date_range": date_range,
-                "total_contributions": {
-                    "commits": collection.get("totalCommitContributions", 0),
-                    "pull_requests": collection.get("totalPullRequestContributions", 0),
-                    "issues": collection.get("totalIssueContributions", 0),
-                    "reviews": collection.get("totalPullRequestReviewContributions", 0),
-                    "repo_stars": sum(n.get("stargazerCount", 0) for n in repo_nodes),
-                },
+                "total_contributions": self._activity_totals(collection, repo_nodes),
                 "commits": sections["commits"],
                 "pull_requests": sections["pull_requests"],
                 "issues": sections["issues"],
