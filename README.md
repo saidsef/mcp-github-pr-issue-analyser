@@ -25,6 +25,7 @@ The toolset enables automated PR analysis, issue tracking, tagging and release m
 | Update PR Assignees                                  | Assign or update users on a PR or issue.                                                           |
 | Create and update GitHub Issues                      | Open new issues or update existing ones with title, body, labels, and state.                       |
 | List all open Issues or Pull Requests                | View all open PRs or issues for any user or organisation.                                          |
+| List a repository's labels                           | Read the name, description and colour of every label a repository defines.                         |
 | Create tags and releases                             | Tag repository commits and publish releases with changelogs.                                       |
 | Search GitHub Users                                  | Retrieve user profile information via GraphQL.                                                     |
 | Get User Activity                                    | Fetch commit, PR, issue, and review contributions with org/repo/date filtering.                    |
