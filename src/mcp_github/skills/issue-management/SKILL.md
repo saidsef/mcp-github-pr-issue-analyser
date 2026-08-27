@@ -1,10 +1,11 @@
 ---
-description: Create, update and list GitHub issues and open PRs, with label handling and duplicate checking
+description: Create, update and list GitHub issues and open PRs, list a repository's labels, and check for duplicates
 ---
 
 # Issue Management
 
-Create issues, update existing ones, and list the open issues or PRs in a repo, org or user account.
+Create issues, update existing ones, list the open issues or PRs in a repo, org or user
+account, and read the labels a repository defines.
 
 ## Prerequisites
 
@@ -16,8 +17,9 @@ Create issues, update existing ones, and list the open issues or PRs in a repo, 
 ### Creating an Issue
 
 1. Call `list_open_issues_prs` with `issue="issue"` and `filtering="repo"` to check for a duplicate
-2. Call `create_issue` with a title, body and labels
-3. The `mcp` label is appended automatically, so do not pass it yourself
+2. Call `list_repo_labels` to see the label names the repository defines
+3. Call `create_issue` with a title, body and labels
+4. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Updating an Issue
 
@@ -27,6 +29,11 @@ Create issues, update existing ones, and list the open issues or PRs in a repo, 
 ### Listing Issues and PRs
 
 1. Call `list_open_issues_prs`, choosing `filtering` for the scope you want
+
+### Listing Labels
+
+1. Call `list_repo_labels` for the repository
+2. Page through with `page` if the repository defines more than `per_page` labels
 
 ## Tool Parameters
 
@@ -90,6 +97,22 @@ Only open items are returned, since the search is hardcoded to `is:open`.
 `is_draft` here is the one place the server exposes draft status, so use this
 tool when a review or merge decision depends on it.
 
+### `list_repo_labels`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
+| `page` | int | `1` | Page number |
+
+Returns `{"total": int, "labels": [{"name", "description", "color"}]}`, where
+`total` counts the labels on the page returned, not the repository total.
+`description` is `null` for a label that has none.
+
+Returns every label the repository defines, not only those in use. Reading
+labels needs no more access than reading the repository.
+
 ## Filtering Guide
 
 `filtering` selects the GitHub search qualifier, which changes what
@@ -133,6 +156,7 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 ## Best Practices
 
 - Search for duplicates with `filtering="repo"` before creating an issue
+- Call `list_repo_labels` before writing labels rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Title every issue as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Keep the type honest: `fix` for defects, `feat` for new behaviour, `chore` for maintenance
 - Write bodies in Markdown, with steps to reproduce for a bug or acceptance criteria for a feature

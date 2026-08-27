@@ -526,6 +526,20 @@ class GitHubIntegration:
             ],
         }
 
+    @_read_only
+    async def list_repo_labels(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists the labels defined in a repository."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/labels?per_page={per_page}&page={page}"
+        data = (await self._request("GET", url, context=f"labels for {repo_owner}/{repo_name}")).json()
+        labels = [_pick(label, "name", "description", "color") for label in data]
+        return {"total": len(labels), "labels": labels}
+
     @_write
     async def create_issue(
         self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]

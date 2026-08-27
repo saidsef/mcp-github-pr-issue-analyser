@@ -919,3 +919,53 @@ class TestResponseTrimming:
             "prerelease": False,
             "body": "Generated notes",
         }
+
+
+# ---------------------------------------------------------------------------
+# Repository labels
+# ---------------------------------------------------------------------------
+
+
+class TestListRepoLabels:
+    @pytest.mark.anyio
+    async def test_returns_trimmed_labels_with_total(self, gi: GitHubIntegration):
+        payload = [
+            {
+                "id": 1,
+                "node_id": "LA_abc",
+                "url": "https://api.github.com/repos/o/r/labels/bug",
+                "name": "bug",
+                "description": "Something is not working",
+                "color": "d73a4a",
+                "default": True,
+            },
+            {
+                "id": 2,
+                "node_id": "LA_def",
+                "url": "https://api.github.com/repos/o/r/labels/mcp",
+                "name": "mcp",
+                "description": None,
+                "color": "ededed",
+                "default": False,
+            },
+        ]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.list_repo_labels("o", "r")
+        assert result == {
+            "total": 2,
+            "labels": [
+                {"name": "bug", "description": "Something is not working", "color": "d73a4a"},
+                {"name": "mcp", "description": None, "color": "ededed"},
+            ],
+        }
+
+    @pytest.mark.anyio
+    async def test_paging_params_sent_in_url(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        result = await gi.list_repo_labels("o", "r", per_page=100, page=2)
+        url = gi._http.request.call_args.args[1]
+        assert url == "https://api.github.com/repos/o/r/labels?per_page=100&page=2"
+        assert result == {"total": 0, "labels": []}
+
+    def test_is_read_only(self, gi: GitHubIntegration):
+        assert gi.list_repo_labels._mcp_annotations.readOnlyHint is True
