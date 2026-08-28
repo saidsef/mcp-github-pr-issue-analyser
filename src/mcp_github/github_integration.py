@@ -578,7 +578,9 @@ class GitHubIntegration(ActivityMixin):
     @_read_only
     async def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
         """Fetches the SHA of the latest commit."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits"
+        # per_page=1 because only the newest SHA is read. The default of 30
+        # returns every field of 30 commits to answer with 40 characters.
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits?per_page=1"
         data = (await self._request("GET", url, context=f"commits for {repo_owner}/{repo_name}")).json()
         if data:
             return data[0]["sha"]
