@@ -35,11 +35,13 @@ class GraphQLClient:
 
     GRAPHQL_URL = "https://api.github.com/graphql"
 
-    def __init__(self, token: str, timeout: int = 10):
-        """Initialise the GraphQL client."""
+    def __init__(self, token: str, timeout: int = 10, connect_timeout: int | None = None):
+        """Initialise the GraphQL client. connect_timeout defaults to timeout,
+        so an existing caller keeps the single budget it had."""
         self.token = token
         self.timeout = timeout
-        self.client = httpx.Client(timeout=httpx.Timeout(self.timeout))
+        self.connect_timeout = timeout if connect_timeout is None else connect_timeout
+        self.client = httpx.Client(timeout=httpx.Timeout(self.timeout, connect=self.connect_timeout))
         self.client.headers.update(
             {
                 "Authorization": f"Bearer {token}",

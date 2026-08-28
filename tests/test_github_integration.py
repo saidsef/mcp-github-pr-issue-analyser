@@ -11,7 +11,8 @@ from fastmcp.exceptions import ToolError
 
 from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES
 from mcp_github.exceptions import GitHubNotFoundError, GitHubValidationError
-from mcp_github.github_integration import GitHubIntegration
+from mcp_github.github_integration import GitHubIntegration, _timeout
+from mcp_github.graphql_client import GraphQLClient
 from mcp_github.tool_annotations import _destructive, _read_only, _write
 
 # ---------------------------------------------------------------------------
@@ -166,6 +167,34 @@ class TestConnectionPooling:
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "abc"}]))
         await gi.get_latest_sha("owner", "repo")
         assert gi._http is client_before
+
+
+# ---------------------------------------------------------------------------
+# Timeouts
+# ---------------------------------------------------------------------------
+
+
+class TestTimeouts:
+    """Connecting and reading are bounded separately. See #313."""
+
+    def test_connect_and_read_budgets_are_distinct(self, gi: GitHubIntegration):
+        with patch("mcp_github.github_integration.TIMEOUT", 30), patch(
+            "mcp_github.github_integration.CONNECT_TIMEOUT", 3
+        ):
+            timeout = _timeout()
+        assert timeout.connect == 3
+        assert timeout.read == 30
+
+    def test_graphql_client_connect_defaults_to_the_read_budget(self):
+        client = GraphQLClient("token", timeout=7)
+        assert client.connect_timeout == 7
+        client.close()
+
+    def test_graphql_client_takes_a_separate_connect_budget(self):
+        client = GraphQLClient("token", timeout=30, connect_timeout=3)
+        assert client.client.timeout.connect == 3
+        assert client.client.timeout.read == 30
+        client.close()
 
 
 # ---------------------------------------------------------------------------
