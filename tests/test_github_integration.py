@@ -833,6 +833,41 @@ class TestGetLatestShaAndCreateTag:
         assert result == "abc123"
 
     @pytest.mark.anyio
+    async def test_create_tag_uses_the_sha_it_is_given(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"ref": "refs/tags/v1"}))
+        await gi.create_tag("o", "r", "v1", sha="deadbee")
+        # One call only: the latest-SHA lookup is skipped when a commit is named.
+        assert gi._http.request.call_count == 1
+        assert gi._http.request.call_args.kwargs["json"]["sha"] == "deadbee"
+
+    @pytest.mark.anyio
+    async def test_create_tag_without_a_message_is_a_plain_ref(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=[{"sha": "abc123"}]),
+            _mock_response(json_data={"ref": "refs/tags/v1"}),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.create_tag("o", "r", "v1")
+        assert gi._http.request.call_args.args[1].endswith("/git/refs")
+        assert gi._http.request.call_args.kwargs["json"] == {"ref": "refs/tags/v1", "sha": "abc123"}
+
+    @pytest.mark.anyio
+    async def test_create_tag_with_a_message_creates_an_annotated_tag(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data={"sha": "tagobj1"}),
+            _mock_response(json_data={"ref": "refs/tags/v1"}),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.create_tag("o", "r", "v1", message="ship it", sha="deadbee")
+        calls = gi._http.request.call_args_list
+        assert calls[0].args[1].endswith("/git/tags")
+        assert calls[0].kwargs["json"] == {
+            "tag": "v1", "message": "ship it", "object": "deadbee", "type": "commit",
+        }
+        # The ref points at the tag object, not the commit, or the message is lost.
+        assert calls[1].kwargs["json"]["sha"] == "tagobj1"
+
+    @pytest.mark.anyio
     async def test_create_tag_empty_repo_raises_github_not_found(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
         with pytest.raises(GitHubNotFoundError, match="No commits found"):

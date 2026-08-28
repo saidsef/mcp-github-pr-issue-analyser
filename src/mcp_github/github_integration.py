@@ -580,18 +580,38 @@ class GitHubIntegration(ActivityMixin):
         return None
 
     @_write
-    async def create_tag(self, repo_owner: str, repo_name: str, tag_name: str, message: str) -> dict[str, Any]:
-        """Creates a new tag."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs"
-        latest_sha = await self.get_latest_sha(repo_owner, repo_name)
-        if not latest_sha:
+    async def create_tag(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        tag_name: str,
+        message: str = "",
+        sha: Annotated[str | None, "Commit to tag. Omit to tag the newest commit on the default branch"] = None,
+    ) -> dict[str, Any]:
+        """Creates a new tag. With a message it is an annotated tag, which stores
+        the message; without one it is a lightweight ref."""
+        base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        target = sha or await self.get_latest_sha(repo_owner, repo_name)
+        if not target:
             raise GitHubNotFoundError(f"No commits found in {repo_owner}/{repo_name}; cannot create tag {tag_name}")
+        ref_target = target
+        if message:
+            # POST /git/refs has no message field. An annotated tag is a separate
+            # object that holds one, and the ref then points at that object.
+            ref_target = (
+                await self._request(
+                    "POST",
+                    f"{base}/git/tags",
+                    context=f"create annotated tag {tag_name}",
+                    json={"tag": tag_name, "message": message, "object": target, "type": "commit"},
+                )
+            ).json()["sha"]
         return (
             await self._request(
                 "POST",
-                url,
+                f"{base}/git/refs",
                 context=f"create tag {tag_name}",
-                json={"ref": f"refs/tags/{tag_name}", "sha": latest_sha, "message": message},
+                json={"ref": f"refs/tags/{tag_name}", "sha": ref_target},
             )
         ).json()
 

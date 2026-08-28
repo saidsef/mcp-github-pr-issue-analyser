@@ -33,7 +33,7 @@ The server registers every public method on the GitHub integration that carries 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `get_latest_sha` | read | The latest commit SHA on a repository's default branch |
-| `create_tag` | write | Tag a repository commit |
+| `create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
 | `create_release` | write | Publish a release with a changelog |
 
 ## Users and activity
