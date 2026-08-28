@@ -28,7 +28,8 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | `REDIS_PASSWORD` | No | Redis AUTH password fallback, used when the password is not embedded in the URI |
 | `PORT` | No, default `8081` | HTTP server port |
 | `HOST` | No, default `localhost` | HTTP server bind address |
-| `GITHUB_API_TIMEOUT` | No, default `5` | Timeout in seconds for GitHub API requests |
+| `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
+| `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection. Kept separate so raising the read timeout does not also make an unreachable host hang for that long |
 
 ## Creating the GitHub OAuth App
 

@@ -78,10 +78,14 @@ no change of arguments will fix it.
 
 ## Timeouts
 
-Requests use a 5 second timeout by default, set by `GITHUB_API_TIMEOUT`. A
-timeout surfaces as a `ToolError` carrying the underlying httpx message rather
-than one of the codes above. Large diffs and busy status-check queries are the
-usual causes, and the operator raises the value.
+Reading a response is bounded by `GITHUB_API_TIMEOUT`, 5 seconds by default.
+Opening the connection is bounded separately by `GITHUB_API_CONNECT_TIMEOUT`,
+3 seconds by default. Either surfaces as a `ToolError` carrying the underlying
+httpx message rather than one of the codes above.
+
+Large diffs and busy status-check queries are the usual causes, and the
+operator raises `GITHUB_API_TIMEOUT` for them. That no longer changes how long
+the server waits on a host it cannot reach.
 
 ## Best Practices
 

@@ -115,12 +115,20 @@ class StatusChecksResult(TypedDict):
 
 
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
-TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, configurable via env
+TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, bounds reading the response
+CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))  # seconds, bounds opening the connection
 MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.WARNING)
+
+
+def _timeout() -> httpx.Timeout:
+    """Connecting and reading want different budgets. A host that has not
+    answered in a few seconds is unreachable, while a large diff legitimately
+    takes a while to stream. See #313."""
+    return httpx.Timeout(TIMEOUT, connect=CONNECT_TIMEOUT)
 
 
 def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
@@ -182,9 +190,9 @@ class GitHubIntegration(ActivityMixin):
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
         # GraphQL client: token overridden per-call in OAuth2 mode via _resolve_token()
-        self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT)
+        self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT, connect_timeout=CONNECT_TIMEOUT)
 
-        self._http = httpx.AsyncClient(timeout=TIMEOUT)
+        self._http = httpx.AsyncClient(timeout=_timeout())
 
         logger.info("GitHub Integration Initialised")
 
