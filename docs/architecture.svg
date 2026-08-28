@@ -51,7 +51,7 @@
   </g>
   <text class="t" x="276" y="58" fill="#1f2328" font-size="16" font-weight="600">MCP Clients</text>
   <text class="s" x="244" y="84" fill="#656d76" font-size="12">Claude Code, Claude Desktop, Cursor,</text>
-  <text class="s" x="244" y="102" fill="#656d76" font-size="12">VS Code, Windsurf</text>
+  <text class="s" x="244" y="102" fill="#656d76" font-size="12">VS Code, Codex</text>
 
   <path class="edge" d="M350 116 V180" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
   <text class="l" x="342" y="143" text-anchor="end" fill="#24292f" font-size="12">stdio</text>

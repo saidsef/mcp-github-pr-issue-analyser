@@ -10,7 +10,7 @@ Every client needs a server name, plus either a command to launch the server ove
 
 In OAuth2 mode the client discovers the auth server, registers itself and opens a browser for consent. There is no token in the config file.
 
-## Claude Desktop, Cursor and Windsurf
+## Claude Desktop, Claude Code and Cursor
 
 These clients share the `mcpServers` schema. Config file locations:
 
@@ -19,7 +19,6 @@ These clients share the `mcpServers` schema. Config file locations:
 | Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows |
 | Claude Code | `~/.claude.json`, or `.mcp.json` in the project root |
 | Cursor | `~/.cursor/mcp.json`, or `.cursor/mcp.json` in the project root |
-| Windsurf | `~/.codeium/windsurf/mcp_config.json` |
 
 <details>
 <summary>stdio with a personal access token</summary>
@@ -93,6 +92,60 @@ claude mcp add --transport http github_prs_issues https://mcp.example.com/mcp
 ```
 
 Add `--scope project` to write the entry to `.mcp.json` and share it with the repository. Run `/mcp` inside Claude Code to check the connection and to trigger the OAuth flow.
+
+## Codex CLI
+
+Codex uses TOML rather than the `mcpServers` JSON schema. Config lives in `~/.codex/config.toml`, or `.codex/config.toml` for a single project.
+
+<details>
+<summary>stdio with a personal access token</summary>
+
+```toml
+[mcp_servers.github_prs_issues]
+command = "uvx"
+args = ["https://github.com/saidsef/mcp-github-pr-issue-analyser.git"]
+
+[mcp_servers.github_prs_issues.env]
+GITHUB_TOKEN = "<your-github-token>"
+```
+
+The same entry from the CLI:
+
+```sh
+codex mcp add github_prs_issues \
+  --env GITHUB_TOKEN=<your-github-token> \
+  -- uvx https://github.com/saidsef/mcp-github-pr-issue-analyser.git
+```
+</details>
+
+<details>
+<summary>Remote HTTP with a static token</summary>
+
+```toml
+[mcp_servers.github_prs_issues]
+url = "https://mcp.example.com/mcp"
+bearer_token_env_var = "GITHUB_TOKEN"
+```
+
+`bearer_token_env_var` names the variable Codex reads the token from, so the token itself stays out of the config file. Export `GITHUB_TOKEN` before starting Codex.
+</details>
+
+<details>
+<summary>Remote HTTP with GitHub OAuth2</summary>
+
+```toml
+[mcp_servers.github_prs_issues]
+url = "https://mcp.example.com/mcp"
+```
+
+Then authenticate:
+
+```sh
+codex mcp login github_prs_issues
+```
+
+Codex registers itself through dynamic client registration and opens GitHub's consent screen. Approve the `repo`, `read:org` and `user` scopes.
+</details>
 
 ## VS Code
 
