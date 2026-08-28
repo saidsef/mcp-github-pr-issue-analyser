@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -11,8 +10,7 @@ from fastmcp.exceptions import ToolError
 
 from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_REPO_PAGES
 from mcp_github.exceptions import GitHubNotFoundError, GitHubValidationError
-from mcp_github.github_integration import GitHubIntegration, _timeout
-from mcp_github.graphql_client import GraphQLClient
+from mcp_github.github_integration import CONNECT_TIMEOUT, TIMEOUT, GitHubIntegration, _timeout
 from mcp_github.tool_annotations import _destructive, _read_only, _write
 
 # ---------------------------------------------------------------------------
@@ -185,16 +183,11 @@ class TestTimeouts:
         assert timeout.connect == 3
         assert timeout.read == 30
 
-    def test_graphql_client_connect_defaults_to_the_read_budget(self):
-        client = GraphQLClient("token", timeout=7)
-        assert client.connect_timeout == 7
-        client.close()
-
-    def test_graphql_client_takes_a_separate_connect_budget(self):
-        client = GraphQLClient("token", timeout=30, connect_timeout=3)
-        assert client.client.timeout.connect == 3
-        assert client.client.timeout.read == 30
-        client.close()
+    def test_the_shared_client_carries_both_budgets(self):
+        with patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"):
+            instance = GitHubIntegration()
+        assert instance._http.timeout.connect == CONNECT_TIMEOUT
+        assert instance._http.timeout.read == TIMEOUT
 
 
 # ---------------------------------------------------------------------------
@@ -225,19 +218,12 @@ class TestLifecycle:
         gi._http.aclose.assert_called_once()
 
     @pytest.mark.anyio
-    async def test_aclose_closes_the_graphql_client_too(self, gi: GitHubIntegration):
-        gi._http.aclose = AsyncMock()
-        gi.graphql.close = MagicMock()
-        await gi.aclose()
-        gi.graphql.close.assert_called_once()
-
-    @pytest.mark.anyio
-    async def test_graphql_client_closes_when_the_rest_client_fails(self, gi: GitHubIntegration):
-        gi._http.aclose = AsyncMock(side_effect=RuntimeError("boom"))
-        gi.graphql.close = MagicMock()
-        with pytest.raises(RuntimeError):
-            await gi.aclose()
-        gi.graphql.close.assert_called_once()
+    async def test_closing_the_shared_client_closes_graphql_too(self):
+        # One client serves both, so there is nothing else left open. See #305.
+        with patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"):
+            instance = GitHubIntegration()
+        await instance.aclose()
+        assert instance._http.is_closed
 
 
 # ---------------------------------------------------------------------------
@@ -358,24 +344,24 @@ class TestGetUserActivitiesContext:
 
     @pytest.mark.anyio
     async def test_no_ctx_runs_without_error(self, gi: GitHubIntegration):
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             result = await gi.get_user_activities("user1")
         assert result["username"] == "user1"
         assert result["commits"] == []
 
     @pytest.mark.anyio
     async def test_pre_call_info_fires_before_graphql(self, gi: GitHubIntegration):
-        """ctx.info('Querying...') must appear before the asyncio.to_thread call."""
+        """ctx.info('Querying...') must appear before the GraphQL call."""
         order: list[str] = []
 
-        async def fake_to_thread(fn, *args, **kwargs):
+        async def fake_graphql(*args, **kwargs):
             order.append("graphql")
             return _EMPTY_CONTRIBUTIONS
 
         ctx = _mock_ctx()
         ctx.info.side_effect = lambda msg: order.append(f"info:{msg}")
 
-        with patch.object(asyncio, "to_thread", side_effect=fake_to_thread):
+        with patch.object(GitHubIntegration, "_execute_graphql", side_effect=fake_graphql):
             await gi.get_user_activities("user1", ctx=ctx)
 
         assert order[0].startswith("info:Querying")
@@ -385,7 +371,7 @@ class TestGetUserActivitiesContext:
     async def test_progress_runs_from_zero_to_total(self, gi: GitHubIntegration):
         """One tick per section, plus the repo-stars stage, plus a final tick."""
         ctx = _mock_ctx()
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             await gi.get_user_activities("user1", ctx=ctx)
         progress = [c.kwargs["progress"] for c in ctx.report_progress.call_args_list]
         assert progress == list(range(ACTIVITY_STAGES + 1))
@@ -393,7 +379,7 @@ class TestGetUserActivitiesContext:
     @pytest.mark.anyio
     async def test_progress_total_matches_stage_count(self, gi: GitHubIntegration):
         ctx = _mock_ctx()
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             await gi.get_user_activities("user1", ctx=ctx)
         totals = {c.kwargs["total"] for c in ctx.report_progress.call_args_list}
         assert totals == {ACTIVITY_STAGES}
@@ -402,7 +388,7 @@ class TestGetUserActivitiesContext:
     async def test_every_section_announces_itself(self, gi: GitHubIntegration):
         """The pre-call message, one per section, then repo stars."""
         ctx = _mock_ctx()
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             await gi.get_user_activities("user1", ctx=ctx)
         info_calls = [c.args[0] for c in ctx.info.call_args_list]
         assert len(info_calls) == ACTIVITY_STAGES + 1
@@ -413,7 +399,7 @@ class TestGetUserActivitiesContext:
     async def test_result_carries_a_key_per_section(self, gi: GitHubIntegration):
         """Every declared section must reach the result, so a new section cannot
         be added to the table and silently dropped from the payload."""
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_CONTRIBUTIONS):
             result = await gi.get_user_activities("user1")
         for section in ACTIVITY_SECTIONS:
             assert section.field in result
@@ -474,7 +460,7 @@ _FILTERABLE_CONTRIBUTIONS = {
 
 
 async def _activities(gi: GitHubIntegration, **kwargs):
-    with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_FILTERABLE_CONTRIBUTIONS):
+    with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_FILTERABLE_CONTRIBUTIONS):
         return await gi.get_user_activities("user1", **kwargs)
 
 
@@ -557,11 +543,11 @@ class TestGetUserActivitiesDates:
     async def _variables(self, gi: GitHubIntegration, **kwargs) -> dict:
         captured: dict = {}
 
-        async def fake_to_thread(fn, query, *, variables, token):
+        async def fake_graphql(query, variables, *, token=None):
             captured.update(variables)
             return _EMPTY_CONTRIBUTIONS
 
-        with patch.object(asyncio, "to_thread", side_effect=fake_to_thread):
+        with patch.object(GitHubIntegration, "_execute_graphql", side_effect=fake_graphql):
             await gi.get_user_activities("user1", **kwargs)
         return captured
 
@@ -605,7 +591,7 @@ class TestGetUserActivitiesDates:
                 "repositories": {"nodes": []},
             }
         }
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=payload):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=payload):
             result = await gi.get_user_activities("user1", since="2025-02-02")
         assert result["date_range"] == {
             "since": "2025-02-02T00:00:00Z",
@@ -778,7 +764,7 @@ class TestGetRepoStarsSince:
 class TestGetPrStatusChecks:
     @pytest.mark.anyio
     async def test_no_ctx_returns_result_without_info_call(self, gi: GitHubIntegration):
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
             result = await gi.get_pr_status_checks("owner", "repo", 1, ctx=None)
         assert "overall" in result
         assert "check_runs" in result
@@ -786,7 +772,7 @@ class TestGetPrStatusChecks:
     @pytest.mark.anyio
     async def test_ctx_info_includes_suite_run_and_status_counts(self, gi: GitHubIntegration):
         ctx = _mock_ctx()
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
             await gi.get_pr_status_checks("owner", "repo", 1, ctx=ctx)
         ctx.info.assert_called_once()
         msg = ctx.info.call_args[0][0]
@@ -810,14 +796,14 @@ class TestGetPrStatusChecks:
             }
         }
         ctx = _mock_ctx()
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=data):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=data):
             await gi.get_pr_status_checks("owner", "repo", 1, ctx=ctx)
         msg = ctx.info.call_args[0][0]
         assert "5 check suites" in msg
 
     @pytest.mark.anyio
     async def test_overall_status_derived_correctly(self, gi: GitHubIntegration):
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert result["overall"] == "unknown"
 
@@ -922,7 +908,7 @@ class TestStatusChecksPagination:
     async def test_paginates_suites_until_complete(self, gi: GitHubIntegration):
         page1 = _status_page([_suite_with_id("s1", [_run("a")])], has_next=True, end_cursor="cursor-1")
         page2 = _status_page([_suite_with_id("s2", [_run("b")])], has_next=False)
-        with patch.object(asyncio, "to_thread", new_callable=AsyncMock, side_effect=[page1, page2]) as p:
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, side_effect=[page1, page2]) as p:
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert p.await_count == 2
         assert {r["name"] for r in result["check_runs"]} == {"a", "b"}
@@ -933,7 +919,7 @@ class TestStatusChecksPagination:
     async def test_truncated_when_suite_cap_hit(self, gi: GitHubIntegration):
         infinite_page = _status_page([_suite_with_id("s1", [_run("x")])], has_next=True, end_cursor="more")
         with patch.object(
-            asyncio, "to_thread", new_callable=AsyncMock, side_effect=[infinite_page] * 10
+            GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, side_effect=[infinite_page] * 10
         ) as p:
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert p.await_count == 5
@@ -944,7 +930,7 @@ class TestStatusChecksPagination:
         suite_page = _status_page([_suite_with_id("s1", [_run("a")], runs_has_next=True)])
         extra_runs = _runs_page([_run("b"), _run("c")], has_next=False)
         with patch.object(
-            asyncio, "to_thread", new_callable=AsyncMock, side_effect=[suite_page, extra_runs]
+            GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, side_effect=[suite_page, extra_runs]
         ) as p:
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert p.await_count == 2
@@ -957,8 +943,8 @@ class TestStatusChecksPagination:
         suite_page = _status_page([_suite_with_id("s1", [_run("a")], runs_has_next=True)])
         infinite_runs = _runs_page([_run("more")], has_next=True)
         with patch.object(
-            asyncio,
-            "to_thread",
+            GitHubIntegration,
+            "_execute_graphql",
             new_callable=AsyncMock,
             side_effect=[suite_page, *([infinite_runs] * 10)],
         ) as p:
@@ -975,8 +961,8 @@ class TestStatusChecksPagination:
         )
         infinite_runs = _runs_page([_run("more")], has_next=True)
         with patch.object(
-            asyncio,
-            "to_thread",
+            GitHubIntegration,
+            "_execute_graphql",
             new_callable=AsyncMock,
             side_effect=[suite_page, *([infinite_runs] * 10)],
         ):
@@ -991,7 +977,7 @@ class TestStatusChecksPagination:
         )
         extra_runs = _runs_page([_run("b")], has_next=False)
         with patch.object(
-            asyncio, "to_thread", new_callable=AsyncMock, side_effect=[suite_page, extra_runs]
+            GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, side_effect=[suite_page, extra_runs]
         ):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert all(r["suite_app"] == "Codacy Production" for r in result["check_runs"])
@@ -1002,8 +988,8 @@ class TestStatusChecksPagination:
         infinite_runs = _runs_page([_run("x")], has_next=True)
         ctx = _mock_ctx()
         with patch.object(
-            asyncio,
-            "to_thread",
+            GitHubIntegration,
+            "_execute_graphql",
             new_callable=AsyncMock,
             side_effect=[suite_page, *([infinite_runs] * 10)],
         ):

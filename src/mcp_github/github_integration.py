@@ -18,7 +18,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from contextlib import asynccontextmanager
 from os import getenv
@@ -44,7 +43,7 @@ from .exceptions import (
     GitHubRateLimitError,
     GitHubValidationError,
 )
-from .graphql_client import GraphQLClient
+from .graphql_client import GRAPHQL_URL, handle_graphql_errors
 from .graphql_queries import (
     CHECK_SUITE_RUNS_QUERY,
     PR_LINKED_ISSUES_QUERY,
@@ -188,19 +187,13 @@ class GitHubIntegration(ActivityMixin):
         # APIKeyVerifier only used in static-token mode
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
-        # GraphQL client: token overridden per-call in OAuth2 mode via _resolve_token()
-        self.graphql = GraphQLClient(self.github_token or "", timeout=TIMEOUT, connect_timeout=CONNECT_TIMEOUT)
-
         self._http = httpx.AsyncClient(timeout=_timeout())
 
         logger.info("GitHub Integration Initialised")
 
     async def aclose(self) -> None:
-        """Close both HTTP clients, the async REST one and the sync GraphQL one."""
-        try:
-            await self._http.aclose()
-        finally:
-            self.graphql.close()
+        """Close the shared HTTP client, which REST and GraphQL both use."""
+        await self._http.aclose()
 
     async def __aenter__(self) -> GitHubIntegration:
         """Enter async context manager."""
@@ -638,14 +631,29 @@ class GitHubIntegration(ActivityMixin):
     async def _execute_graphql(
         self, query: str, variables: dict[str, Any], *, token: str | None = None
     ) -> dict[str, Any]:
-        """Run a GraphQL query off-thread (the client is sync), resolving the
-        request token unless one is supplied."""
-        return await asyncio.to_thread(
-            self.graphql.execute_query,
-            query,
-            variables=variables,
-            token=token or self._resolve_token(),
-        )
+        """Run a GraphQL query on the same async client the REST calls use,
+        resolving the request token unless one is supplied."""
+        payload: dict[str, Any] = {"query": query}
+        if variables:
+            payload["variables"] = variables
+        logger.debug(f"Executing GraphQL query with variables: {variables}")
+        try:
+            response = await self._http.post(
+                GRAPHQL_URL,
+                json=payload,
+                headers={
+                    **self._get_headers(),
+                    "Authorization": f"Bearer {token or self._resolve_token()}",
+                    "Content-Type": "application/json",
+                },
+            )
+        except httpx.HTTPError as e:
+            raise GitHubAPIError(f"GraphQL request failed: {e}") from e
+        self._raise_for_status(response, "GraphQL query")
+        data = response.json()
+        if "errors" in data:
+            handle_graphql_errors(data["errors"])
+        return data.get("data", {})
 
     @asynccontextmanager
     async def _guard(self, action: str):
