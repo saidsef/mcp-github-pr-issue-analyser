@@ -42,7 +42,7 @@ The server registers every public method on the GitHub integration that carries 
 |------|------|-------------|
 | `search_user` | read, task | Fetch a user's profile via GraphQL |
 | `get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
-| `get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date |
+| `get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing was cut short |
 
 ## Interactive UI
 

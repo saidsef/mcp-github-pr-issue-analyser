@@ -52,6 +52,7 @@ class RepoStarsSinceResult(TypedDict):
     username: str
     since: str
     repos: list[dict[str, Any]]
+    truncated: bool
 
 
 def _map_commit(contrib: dict[str, Any]) -> dict[str, Any]:
@@ -118,6 +119,7 @@ ACTIVITY_SECTIONS: tuple[_Section, ...] = (
 
 # Sections plus the trailing repo-stars stage.
 ACTIVITY_STAGES = len(ACTIVITY_SECTIONS) + 1
+MAX_REPO_PAGES = 5  # 100 repos per page × 5 = 500 repo ceiling
 
 
 def _normalise_since(value: str) -> str:
@@ -308,24 +310,36 @@ class ActivityMixin:
                 break
         return new_stars
 
-    async def _star_candidates(self, username: str, max_repos: int) -> list[dict[str, Any]]:
-        """The user's starred public repos, most-starred first, capped at max_repos."""
-        resp = await self._http.request(
-            "GET",
-            f"https://api.github.com/users/{username}/repos",
-            headers=self._get_headers(),
-            params={"per_page": 100, "type": "public", "sort": "updated"},
-        )
-        self._raise_for_status(resp, f"repos for {username}")
-        all_repos = resp.json()
-        if not isinstance(all_repos, list):
-            raise GitHubNotFoundError(f"User '{username}' not found")
+    async def _star_candidates(self, username: str, max_repos: int) -> tuple[list[dict[str, Any]], bool]:
+        """The user's starred public repos, most-starred first, capped at max_repos.
+        Also returns whether the repo listing itself ran out of pages, since a
+        partial listing can hide the very repos this tool exists to find."""
+        all_repos: list[dict[str, Any]] = []
+        truncated = False
+        for page in range(1, MAX_REPO_PAGES + 1):
+            resp = await self._http.request(
+                "GET",
+                f"https://api.github.com/users/{username}/repos",
+                headers=self._get_headers(),
+                params={"per_page": 100, "type": "public", "sort": "updated", "page": page},
+            )
+            self._raise_for_status(resp, f"repos for {username}")
+            batch = resp.json()
+            if not isinstance(batch, list):
+                raise GitHubNotFoundError(f"User '{username}' not found")
+            all_repos.extend(batch)
+            if len(batch) < 100:
+                break
+        else:
+            # The last page came back full, so there are probably more.
+            truncated = True
         # Most-starred first, since those are likeliest to have gained stars recently
-        return sorted(
+        candidates = sorted(
             [r for r in all_repos if r.get("stargazers_count", 0) > 0],
             key=lambda r: r["stargazers_count"],
             reverse=True,
         )[:max_repos]
+        return candidates, truncated
 
     @_read_only(task=True)
     async def get_repo_stars_since(
@@ -336,7 +350,7 @@ class ActivityMixin:
         max_repos: int = 20,
         ctx: Context | None = None,
     ) -> RepoStarsSinceResult:
-        """Return the repos owned by username that received the most new stars since a given date. since accepts YYYY-MM-DD or ISO 8601; defaults to 30 days ago. Answers prompts like 'which repos gained the most stars in the last 30 days'. One REST call is made per repo checked — set max_repos conservatively."""
+        """Return the repos owned by username that received the most new stars since a given date. since accepts YYYY-MM-DD or ISO 8601; defaults to 30 days ago. Answers prompts like 'which repos gained the most stars in the last 30 days'. One REST call is made per repo checked — set max_repos conservatively. truncated is True when the account has more public repos than the listing could read, so the answer may miss some."""
         if since:
             cutoff = _normalise_since(since)
         else:
@@ -345,7 +359,7 @@ class ActivityMixin:
         async with self._guard("fetch repo stars"):
             if ctx:
                 await ctx.info(f"Fetching public repos for {username}...")
-            candidates = await self._star_candidates(username, max_repos)
+            candidates, truncated = await self._star_candidates(username, max_repos)
             if ctx:
                 await ctx.report_progress(progress=0, total=len(candidates))
             results: list[dict[str, Any]] = []
@@ -366,4 +380,4 @@ class ActivityMixin:
                     await ctx.report_progress(progress=i + 1, total=len(candidates))
             results.sort(key=lambda r: r["new_stars"], reverse=True)
             logger.info(f"Found {len(results)} repos with new stars since {cutoff} for {username}")
-            return {"username": username, "since": cutoff, "repos": results[:top_n]}
+            return {"username": username, "since": cutoff, "repos": results[:top_n], "truncated": truncated}
