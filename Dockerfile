@@ -18,10 +18,11 @@ RUN apt-get update && \
       *) echo "Unsupported arch: $ARCH" && exit 1 ;; \
     esac && \
     curl -fsSL "https://github.com/denoland/deno/releases/download/${DENO_VERSION}/deno-${DENO_ARCH}.zip" -o /tmp/deno.zip && \
-    echo "${DENO_SHA256}  /tmp/deno.zip" | sha256sum -c - && \
+    printf '%s  /tmp/deno.zip\n' "${DENO_SHA256}" > /tmp/deno.sha256 && \
+    sha256sum -c /tmp/deno.sha256 && \
     unzip /tmp/deno.zip -d /usr/local/bin && \
     chmod +x /usr/local/bin/deno && \
-    rm /tmp/deno.zip
+    rm /tmp/deno.zip /tmp/deno.sha256
 
 WORKDIR /app
 COPY pyproject.toml README.md /app/
