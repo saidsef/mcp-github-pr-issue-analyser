@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -18,14 +19,18 @@ from mcp_github.tool_annotations import _destructive, _read_only, _write
 # ---------------------------------------------------------------------------
 
 
-def _mock_response(status_code: int = 200, json_data: dict | list | None = None, text: str = "") -> MagicMock:
+def _mock_response(
+    status_code: int = 200, json_data: dict | list | None = None, text: str = "", etag: str | None = None
+) -> MagicMock:
     r = MagicMock(spec=httpx.Response)
     r.status_code = status_code
     r.is_success = status_code < 400
     r.json.return_value = json_data if json_data is not None else {}
     r.text = text
     r.reason_phrase = "OK"
-    r.headers = {}
+    r.headers = {"ETag": etag} if etag else {}
+    r.content = json.dumps(json_data).encode() if json_data is not None else b"{}"
+    r.request = None
     return r
 
 
@@ -165,6 +170,55 @@ class TestConnectionPooling:
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "abc"}]))
         await gi.get_latest_sha("owner", "repo")
         assert gi._http is client_before
+
+
+# ---------------------------------------------------------------------------
+# Conditional reads
+# ---------------------------------------------------------------------------
+
+
+class TestEtagCache:
+    """A repeated GET goes out conditionally and a 304 is free. See #317."""
+
+    @pytest.mark.anyio
+    async def test_first_get_sends_no_condition_and_remembers_the_etag(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"a": 1}, etag='"abc"'))
+        await gi._request("GET", "https://api.github.com/x")
+        assert "If-None-Match" not in gi._http.request.call_args.kwargs["headers"]
+        assert len(gi._etags) == 1
+
+    @pytest.mark.anyio
+    async def test_repeat_get_sends_the_condition_and_serves_the_cached_body(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data={"a": 1}, etag='"abc"'),
+            _mock_response(status_code=304),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi._request("GET", "https://api.github.com/x")
+        again = await gi._request("GET", "https://api.github.com/x")
+        assert gi._http.request.call_args.kwargs["headers"]["If-None-Match"] == '"abc"'
+        assert again.json() == {"a": 1}
+
+    @pytest.mark.anyio
+    async def test_different_params_do_not_share_an_entry(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"a": 1}, etag='"abc"'))
+        await gi._request("GET", "https://api.github.com/x", params={"page": 1})
+        await gi._request("GET", "https://api.github.com/x", params={"page": 2})
+        assert len(gi._etags) == 2
+
+    @pytest.mark.anyio
+    async def test_a_write_is_never_cached(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"a": 1}, etag='"abc"'))
+        await gi._request("POST", "https://api.github.com/x", json={})
+        assert gi._etags == {}
+
+    @pytest.mark.anyio
+    async def test_the_cache_is_bounded(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"a": 1}, etag='"abc"'))
+        with patch("mcp_github.github_integration.ETAG_CACHE_ENTRIES", 3):
+            for i in range(10):
+                await gi._request("GET", f"https://api.github.com/x{i}")
+        assert len(gi._etags) == 3
 
 
 # ---------------------------------------------------------------------------

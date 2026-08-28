@@ -87,6 +87,16 @@ Large diffs and busy status-check queries are the usual causes, and the
 operator raises `GITHUB_API_TIMEOUT` for them. That no longer changes how long
 the server waits on a host it cannot reach.
 
+## Rate Limits
+
+Read tools send a repeated request conditionally. GitHub answers `304 Not
+Modified` when nothing has changed, and a 304 costs no rate limit, so asking
+the same question twice is charged once. This applies to authenticated
+requests, which is every request this server makes.
+
+`RATE_LIMITED` therefore means real distinct reads, not a loop re-reading one
+thing. Wait for the reset rather than retrying immediately.
+
 ## Best Practices
 
 - Match on the bracketed code, never on the prose after it

@@ -116,6 +116,7 @@ class StatusChecksResult(TypedDict):
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, bounds reading the response
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))  # seconds, bounds opening the connection
+ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))  # 0 disables conditional reads
 MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
 
@@ -188,6 +189,7 @@ class GitHubIntegration(ActivityMixin):
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
         self._http = httpx.AsyncClient(timeout=_timeout())
+        self._etags: dict[str, tuple[str, bytes]] = {}
 
         logger.info("GitHub Integration Initialised")
 
@@ -289,19 +291,44 @@ class GitHubIntegration(ActivityMixin):
         }
         return headers
 
-    async def _request(self, method: str, url: str, *, context: str = "", **kwargs: Any) -> httpx.Response:
-        """Make an HTTP request and handle errors."""
+    def _cache_key(self, url: str, params: Any) -> str:
+        """Params ride outside the URL, so page 2 must not read page 1's body."""
+        return f"{url}?{sorted(params.items())}" if params else url
+
+    async def _request(
+        self, method: str, url: str, *, context: str = "", headers: dict[str, str] | None = None, **kwargs: Any
+    ) -> httpx.Response:
+        """Make an HTTP request and handle errors. A repeated GET is sent
+        conditionally, and GitHub does not charge rate limit for a 304."""
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
+        sent = {**self._get_headers(), **(headers or {})}
+        key = self._cache_key(url, kwargs.get("params")) if method == "GET" and ETAG_CACHE_ENTRIES else None
+        cached = self._etags.get(key) if key else None
+        if cached:
+            sent["If-None-Match"] = cached[0]
         try:
-            response = await self._http.request(method, url, headers=self._get_headers(), **kwargs)
+            response = await self._http.request(method, url, headers=sent, **kwargs)
+            if response.status_code == 304 and cached:
+                logger.info(f"Not modified {ctx}")
+                return httpx.Response(200, content=cached[1], request=response.request)
             self._raise_for_status(response, context)
+            if key and (etag := response.headers.get("ETag")):
+                self._remember_etag(key, etag, response.content)
             logger.info(f"Success {method.upper()} {ctx}")
             return response
         except GitHubAuthError:
             raise
         except Exception as e:
             raise ToolError(str(e)) from e
+
+    def _remember_etag(self, key: str, etag: str, content: bytes) -> None:
+        """Oldest out first once the cache is full, so a long-running server
+        does not grow a body per URL it has ever read."""
+        self._etags.pop(key, None)
+        while len(self._etags) >= ETAG_CACHE_ENTRIES:
+            self._etags.pop(next(iter(self._etags)))
+        self._etags[key] = (etag, content)
 
     @_read_only
     async def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:

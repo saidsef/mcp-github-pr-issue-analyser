@@ -30,6 +30,7 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | `HOST` | No, default `localhost` | HTTP server bind address |
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection. Kept separate so raising the read timeout does not also make an unreachable host hang for that long |
+| `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for the `304` that comes back. Set to `0` to send every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, so importing the package as a library leaves your own logging setup alone |
 
 ## Creating the GitHub OAuth App
