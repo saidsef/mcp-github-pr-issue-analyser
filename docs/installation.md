@@ -46,7 +46,7 @@ Users authenticate through GitHub's OAuth flow and each user's own token is used
 
 ## Docker
 
-The published image sets `MCP_ENABLE_REMOTE=true`, so it always runs in HTTP mode.
+The published image sets `MCP_ENABLE_REMOTE=true`, so it always runs in HTTP mode. It runs as uid 10000 and carries no build tooling.
 
 ```sh
 docker run -e GITHUB_TOKEN="<github-token>" \
