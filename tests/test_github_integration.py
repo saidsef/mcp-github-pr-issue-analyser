@@ -799,6 +799,12 @@ class TestGetPrStatusChecks:
 
 class TestGetLatestShaAndCreateTag:
     @pytest.mark.anyio
+    async def test_get_latest_sha_asks_for_one_commit(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "abc123"}]))
+        assert await gi.get_latest_sha("owner", "repo") == "abc123"
+        assert "per_page=1" in gi._http.request.call_args.args[1]
+
+    @pytest.mark.anyio
     async def test_get_latest_sha_empty_repo_returns_none(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
         result = await gi.get_latest_sha("owner", "empty-repo")
