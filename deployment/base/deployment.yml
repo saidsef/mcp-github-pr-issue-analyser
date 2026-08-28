@@ -90,10 +90,6 @@ spec:
             mountPath: /.cache
             subPath: cache
             readOnly: false
-          - name: data
-            mountPath: /app/.venv
-            subPath: venv
-            readOnly: false
       volumes:
         - name: data
           emptyDir:
