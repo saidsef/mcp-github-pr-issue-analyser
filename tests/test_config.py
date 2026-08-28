@@ -1,5 +1,7 @@
 """Tests for environment flag parsing in issues_pr_analyser."""
 
+import subprocess
+import sys
 from unittest.mock import patch
 
 import pytest
@@ -34,3 +36,22 @@ class TestMcpEnableRemote:
 
     def test_is_a_bool(self):
         assert isinstance(MCP_ENABLE_REMOTE, bool)
+
+
+class TestLoggingSetup:
+    """Importing the package must leave the root logger alone. See #318."""
+
+    def test_import_does_not_configure_the_root_logger(self):
+        script = (
+            "import logging;"
+            "import mcp_github.github_integration, mcp_github.issues_pr_analyser;"
+            "print(len(logging.getLogger().handlers))"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", script],
+            capture_output=True,
+            text=True,
+            env={"GITHUB_TOKEN": "test-token", "PATH": "/usr/bin:/bin"},
+            check=True,
+        )
+        assert result.stdout.strip() == "0"

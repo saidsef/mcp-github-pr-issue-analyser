@@ -56,10 +56,10 @@ from .auth import (
 from .github_integration import GitHubIntegration as GI
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.WARNING)
 
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
+LOG_LEVEL = getenv("LOG_LEVEL", "WARNING")
 
 
 def _env_enabled(name: str) -> bool:
@@ -213,7 +213,9 @@ class PRIssueAnalyser:
 
 
 def main() -> None:
-    """Main entry point."""
+    """Main entry point. Configures the root logger, which is the application's
+    job and not something importing this package should do. See #318."""
+    logging.basicConfig(level=getattr(logging, LOG_LEVEL.upper(), logging.WARNING))
     try:
         review = PRIssueAnalyser()
         review.run()
