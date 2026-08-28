@@ -24,3 +24,12 @@ updates:
     interval: "weekly"
    pull-request-branch-name:
     separator: "-"
+
+ # Covers the base image only. The Deno and uv pins are ARG values, which
+ # dependabot does not read, so docker-pins.yml keeps those up to date.
+ - package-ecosystem: "docker"
+   directory: "/"
+   schedule:
+    interval: "weekly"
+   pull-request-branch-name:
+    separator: "-"

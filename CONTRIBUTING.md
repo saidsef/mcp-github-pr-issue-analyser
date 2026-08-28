@@ -63,6 +63,22 @@ Run type checking with pyright:
 uv run pyright src/mcp_github/
 ```
 
+### Docker Pins
+
+Deno and uv are pinned by version in the Dockerfile, with a sha256 for each Deno
+architecture. Dependabot cannot read them, since they are `ARG` values rather
+than a manifest, so the Docker Pins workflow checks them weekly and opens the
+bump PR.
+
+To bump them by hand, or to see what is behind:
+
+```shell
+./.github/scripts/bump-docker-pins.sh Dockerfile
+```
+
+It rewrites the version and both checksums together, and refuses to write a
+version whose checksums it could not fetch.
+
 ## Benchmark
 
 If you are working on a feature that is likely to impact performance, consider running benchmarks and comparing the results before and after your change.

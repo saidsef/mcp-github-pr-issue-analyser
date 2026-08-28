@@ -1,0 +1,50 @@
+name: Docker Pins
+
+# Deno and uv are pinned as ARG values in the Dockerfile, which dependabot does
+# not read. This opens the bump PR that dependabot cannot. See #323.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: docker-pins
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Check the pins against upstream
+        id: bump
+        run: |
+          {
+            echo 'summary<<PINS'
+            ./.github/scripts/bump-docker-pins.sh Dockerfile
+            echo 'PINS'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request
+        if: ${{ !contains(steps.bump.outputs.summary, 'pins are current') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SUMMARY: ${{ steps.bump.outputs.summary }}
+        run: |
+          branch="build/docker-pins-$(date +%Y%m%d)"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add Dockerfile
+          git commit -m "build(docker): bump the pinned Deno and uv versions" -m "$SUMMARY"
+          git push -u origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "build(docker): bump the pinned Deno and uv versions" \
+            --body "$(printf 'Raised by the Docker Pins workflow.\n\n%s\nThe Deno checksums come from the `.sha256sum` files published with the release being pinned to. The build verifies them, so a bad pin fails the image build rather than shipping.\n' "$SUMMARY")" \
+            --label dependencies --label docker --assignee saidsef
