@@ -9,7 +9,7 @@ import httpx
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES
+from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_REPO_PAGES
 from mcp_github.exceptions import GitHubNotFoundError, GitHubValidationError
 from mcp_github.github_integration import GitHubIntegration, _timeout
 from mcp_github.graphql_client import GraphQLClient
@@ -619,6 +619,36 @@ class TestGetUserActivitiesDates:
 
 
 class TestGetRepoStarsSince:
+    @pytest.mark.anyio
+    async def test_short_repo_listing_is_not_truncated(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+        assert result["truncated"] is False
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_repo_listing_pages_past_the_first_hundred(self, gi: GitHubIntegration):
+        # Two full pages then a short one: every repo is considered, and the
+        # most-starred sits on the second page where a single call would miss it.
+        page1 = [{"name": f"r{i}", "stargazers_count": 1, "html_url": "u", "description": None} for i in range(100)]
+        page2 = [{"name": "popular", "stargazers_count": 999, "html_url": "u", "description": None}]
+        sg = [{"starred_at": "2099-01-01T00:00:00Z", "user": {}}]
+        responses = iter([_mock_response(json_data=page1), _mock_response(json_data=page2)] + [
+            _mock_response(json_data=sg) for _ in range(30)
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.get_repo_stars_since("u", since="2090-01-01", max_repos=1)
+        assert result["truncated"] is False
+        assert result["repos"][0]["repo"] == "popular"
+
+    @pytest.mark.anyio
+    async def test_running_out_of_pages_is_reported(self, gi: GitHubIntegration):
+        full = [{"name": f"r{i}", "stargazers_count": 0, "html_url": "u", "description": None} for i in range(100)]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=full))
+        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+        assert result["truncated"] is True
+        assert gi._http.request.call_count == MAX_REPO_PAGES
+
     @pytest.mark.anyio
     async def test_returns_repos_sorted_by_new_stars(self, gi: GitHubIntegration):
         repos_payload = [

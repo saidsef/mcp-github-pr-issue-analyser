@@ -82,9 +82,13 @@ Four things about this tool are easy to get wrong:
 | `top_n` | int | `5` | Number of repos to return |
 | `max_repos` | int | `20` | Maximum repos to inspect |
 
-Returns `RepoStarsSinceResult`: `username`, the normalised `since` cutoff, and
+Returns `RepoStarsSinceResult`: `username`, the normalised `since` cutoff,
 `repos` sorted by `new_stars` descending, each with `repo`, `owner`, `url`,
-`description`, `new_stars` and `total_stars`.
+`description`, `new_stars` and `total_stars`, and `truncated`.
+
+`truncated` is `True` when the account has more public repos than the listing
+could read, 500 being the ceiling. The answer is then built on a subset and may
+miss a repo that gained stars, so say so rather than reporting it as complete.
 
 This is the tool for any question of the form "which repos gained the most
 stars recently".
@@ -95,7 +99,7 @@ get_repo_stars_since(username="saidsef", since="2024-04-01", top_n=5)
 
 How it picks and counts:
 
-- Reads the user's first 100 public repos, drops any with zero stars, then inspects the `max_repos` with the highest total star count
+- Reads the user's public repos, up to 5 pages of 100, drops any with zero stars, then inspects the `max_repos` with the highest total star count
 - For each, it walks the stargazers endpoint backwards from the last page and stops at the first star older than the cutoff
 - Repos that gained no stars in the window are omitted rather than returned with `new_stars: 0`
 
