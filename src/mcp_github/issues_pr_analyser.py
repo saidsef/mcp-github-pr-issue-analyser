@@ -32,6 +32,7 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
+from fastmcp.exceptions import NotFoundError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
 from prometheus_client import (
@@ -76,29 +77,36 @@ try:
 except ValueError:
     pass
 
-TOOL_CALLS = Counter("mcp_tool_invocations_total", "Total tool calls", ["tool_name"])
-TOOL_DURATION = Histogram("mcp_tool_duration_seconds", "Tool call duration", ["tool_name"])
+TOOL_CALLS = Counter("mcp_tool_invocations_total", "Total tool calls", ["tool_name", "outcome"])
+TOOL_DURATION = Histogram("mcp_tool_duration_seconds", "Tool call duration", ["tool_name", "outcome"])
 TOOL_IN_PROGRESS = Gauge("mcp_tool_in_progress", "Tool calls currently running")
 
 
 class MetricsMiddleware(Middleware):
-    """Counts and times each tool call.
+    """Counts and times every tool call, whether it succeeded or failed.
 
-    Only the success path is labelled, so unknown tool names from clients
-    cannot create unbounded time-series.
+    A name no registered tool answers to arrives here as NotFoundError and is
+    recorded as "unknown", so a client cannot grow the series count by asking
+    for tools that do not exist. See #304.
     """
 
     async def on_call_tool(self, context: MiddlewareContext, call_next: Any) -> Any:
         start = perf_counter()
+        name = getattr(context.message, "name", "unknown")
+        outcome = "success"
         TOOL_IN_PROGRESS.inc()
         try:
-            result = await call_next(context)
+            return await call_next(context)
+        except NotFoundError:
+            name, outcome = "unknown", "error"
+            raise
+        except Exception:
+            outcome = "error"
+            raise
         finally:
             TOOL_IN_PROGRESS.dec()
-        name = getattr(context.message, "name", "unknown")
-        TOOL_CALLS.labels(tool_name=name).inc()
-        TOOL_DURATION.labels(tool_name=name).observe(perf_counter() - start)
-        return result
+            TOOL_CALLS.labels(tool_name=name, outcome=outcome).inc()
+            TOOL_DURATION.labels(tool_name=name, outcome=outcome).observe(perf_counter() - start)
 
 
 _MCP_INSTRUCTIONS = """

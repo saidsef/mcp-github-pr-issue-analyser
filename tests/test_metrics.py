@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from fastmcp.exceptions import NotFoundError
 from prometheus_client import CONTENT_TYPE_LATEST, REGISTRY
 from starlette.testclient import TestClient
 
@@ -29,18 +30,33 @@ class TestMetricsMiddleware:
             return "result"
 
         assert await MetricsMiddleware().on_call_tool(_ctx("get_pr_diff"), call_next) == "result"
-        assert _sample("mcp_tool_invocations_total", {"tool_name": "get_pr_diff"}) == 1.0
-        assert _sample("mcp_tool_duration_seconds_count", {"tool_name": "get_pr_diff"}) == 1.0
+        labels = {"tool_name": "get_pr_diff", "outcome": "success"}
+        assert _sample("mcp_tool_invocations_total", labels) == 1.0
+        assert _sample("mcp_tool_duration_seconds_count", labels) == 1.0
         assert _sample("mcp_tool_in_progress", {}) == 0.0
 
     @pytest.mark.anyio
-    async def test_failed_call_is_not_counted_but_gauge_is_released(self):
+    async def test_failed_call_is_counted_as_an_error(self):
         async def call_next(_ctx):
             raise RuntimeError("boom")
 
         with pytest.raises(RuntimeError):
             await MetricsMiddleware().on_call_tool(_ctx("create_issue"), call_next)
-        assert _sample("mcp_tool_invocations_total", {"tool_name": "create_issue"}) is None
+        labels = {"tool_name": "create_issue", "outcome": "error"}
+        assert _sample("mcp_tool_invocations_total", labels) == 1.0
+        assert _sample("mcp_tool_duration_seconds_count", labels) == 1.0
+        assert _sample("mcp_tool_invocations_total", {"tool_name": "create_issue", "outcome": "success"}) is None
+        assert _sample("mcp_tool_in_progress", {}) == 0.0
+
+    @pytest.mark.anyio
+    async def test_unknown_tool_name_is_not_given_its_own_series(self):
+        async def call_next(_ctx):
+            raise NotFoundError("Unknown tool: 'made_up_tool'")
+
+        with pytest.raises(NotFoundError):
+            await MetricsMiddleware().on_call_tool(_ctx("made_up_tool"), call_next)
+        assert _sample("mcp_tool_invocations_total", {"tool_name": "made_up_tool", "outcome": "error"}) is None
+        assert _sample("mcp_tool_invocations_total", {"tool_name": "unknown", "outcome": "error"}) == 1.0
         assert _sample("mcp_tool_in_progress", {}) == 0.0
 
     @pytest.mark.anyio
@@ -49,7 +65,7 @@ class TestMetricsMiddleware:
             return None
 
         await MetricsMiddleware().on_call_tool(SimpleNamespace(message=object()), call_next)
-        assert _sample("mcp_tool_invocations_total", {"tool_name": "unknown"}) == 1.0
+        assert _sample("mcp_tool_invocations_total", {"tool_name": "unknown", "outcome": "success"}) == 1.0
 
 
 class TestMetricsRoute:
