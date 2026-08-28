@@ -6,9 +6,9 @@ Two modes are supported. The active mode is selected automatically from environm
 
 | Mode | When active | Token used for API calls |
 |------|-------------|--------------------------|
-| **stdio** (default) | `MCP_ENABLE_REMOTE` unset | Server's `GITHUB_TOKEN`; no transport auth |
-| **Static token** | `MCP_ENABLE_REMOTE` set, no `GITHUB_OAUTH_*` vars | Server's `GITHUB_TOKEN` for every caller |
-| **GitHub OAuth2** | `MCP_ENABLE_REMOTE` set and all three `GITHUB_OAUTH_*` vars set | Each user's own `gho_*` token |
+| **stdio** (default) | `MCP_ENABLE_REMOTE` unset or false | Server's `GITHUB_TOKEN`; no transport auth |
+| **Static token** | `MCP_ENABLE_REMOTE` true, no `GITHUB_OAUTH_*` vars | Server's `GITHUB_TOKEN` for every caller |
+| **GitHub OAuth2** | `MCP_ENABLE_REMOTE` true and all three `GITHUB_OAUTH_*` vars set | Each user's own `gho_*` token |
 
 In static-token HTTP mode, clients must send `Authorization: Bearer <GITHUB_TOKEN>`. The value is compared against the server's `GITHUB_TOKEN` with a constant-time comparison, so every caller shares one identity and one rate limit.
 
@@ -19,7 +19,7 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | Variable | Required | Description |
 |----------|----------|-------------|
 | `GITHUB_TOKEN` | Yes | GitHub PAT with `repo` scope; also the bearer token in static-token HTTP mode |
-| `MCP_ENABLE_REMOTE` | No | Any non-empty value enables HTTP mode, required for OAuth2. Already set in the published image |
+| `MCP_ENABLE_REMOTE` | No | `true`, `1`, `yes` or `on` enables HTTP mode, required for OAuth2. Anything else, including `false` and unset, stays on stdio. Already set to `true` in the published image |
 | `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |
 | `GITHUB_OAUTH_BASE_URL` | OAuth2 only | Public base URL of the MCP server, used for the OAuth2 redirect |

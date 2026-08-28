@@ -6,7 +6,7 @@
 
 | Layer | Module | Responsibility |
 |-------|--------|----------------|
-| MCP client | - | Connects over stdio, or HTTP POST to `/mcp` when `MCP_ENABLE_REMOTE` is set |
+| MCP client | - | Connects over stdio, or HTTP POST to `/mcp` when `MCP_ENABLE_REMOTE` is true |
 | Auth layer | `auth.py` | Picks no auth, `APIKeyVerifier` or `GitHubProvider`, and resolves the token for each call |
 | Token store | `auth.py` | `MemoryStore` by default, `RedisStore` when `REDIS_HOST_PORT` is set |
 | Server | `issues_pr_analyser.py` | FastMCP server: tool registration, skills provider, metrics middleware, request routing |
@@ -32,9 +32,9 @@ The three rows in the diagram are mutually exclusive and selected at startup, no
 
 | Selected when | Verifier | Identity used |
 |---------------|----------|---------------|
-| `MCP_ENABLE_REMOTE` unset | none | Server's `GITHUB_TOKEN` |
-| `MCP_ENABLE_REMOTE` set, no `GITHUB_OAUTH_*` | `APIKeyVerifier` | Server's `GITHUB_TOKEN`, shared by every caller |
-| `MCP_ENABLE_REMOTE` set, all `GITHUB_OAUTH_*` | `GitHubProvider` | Each caller's own GitHub token |
+| `MCP_ENABLE_REMOTE` unset or false | none | Server's `GITHUB_TOKEN` |
+| `MCP_ENABLE_REMOTE` true, no `GITHUB_OAUTH_*` | `APIKeyVerifier` | Server's `GITHUB_TOKEN`, shared by every caller |
+| `MCP_ENABLE_REMOTE` true, all `GITHUB_OAUTH_*` | `GitHubProvider` | Each caller's own GitHub token |
 
 In OAuth2 mode the server acts as its own authorisation server: it accepts dynamic client registration, proxies GitHub's authorisation code flow, and issues JWTs signed with a key derived from `JWT_SIGNING_KEY` or the OAuth client secret. Audit trails and rate limits then follow the individual user rather than the server.
 

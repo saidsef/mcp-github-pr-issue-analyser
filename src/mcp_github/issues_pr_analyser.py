@@ -57,7 +57,15 @@ logging.basicConfig(level=logging.WARNING)
 
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
-MCP_ENABLE_REMOTE = getenv("MCP_ENABLE_REMOTE", False)
+
+
+def _env_enabled(name: str) -> bool:
+    """True only for an explicit yes. A plain emptiness check read the text "false"
+    as on, which is the opposite of what it says. See #303."""
+    return getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+MCP_ENABLE_REMOTE = _env_enabled("MCP_ENABLE_REMOTE")
 
 try:
     # CPU, memory and runtime metrics alongside the tool counters below
@@ -173,7 +181,7 @@ class PRIssueAnalyser:
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def run(self) -> None:
-        """Runs the MCP server. Uses HTTP if MCP_ENABLE_REMOTE is set, otherwise stdio."""
+        """Runs the MCP server. Uses HTTP when MCP_ENABLE_REMOTE is true, otherwise stdio."""
         try:
             logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
