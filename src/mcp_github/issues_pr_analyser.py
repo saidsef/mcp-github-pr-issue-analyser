@@ -170,7 +170,7 @@ class PRIssueAnalyser:
         self.mcp.add_middleware(MetricsMiddleware())
 
         @self.mcp.custom_route("/metrics", methods=["GET"])
-        def metrics_route(_request: Request) -> Response:
+        async def metrics_route(_request: Request) -> Response:
             """Prometheus scrape endpoint, served in HTTP mode only."""
             return Response(generate_latest(registry=REGISTRY), media_type=CONTENT_TYPE_LATEST)
 
