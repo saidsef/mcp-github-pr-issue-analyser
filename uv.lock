@@ -617,6 +617,7 @@ dependencies = [
     { name = "fastmcp-slim", extra = ["apps", "server", "tasks"] },
     { name = "httpx" },
     { name = "prometheus-client" },
+    { name = "py-key-value-aio", extra = ["redis"] },
     { name = "redis" },
 ]
 
@@ -633,6 +634,7 @@ requires-dist = [
     { name = "fastmcp-slim", extras = ["apps", "server", "tasks"], specifier = ">=3.4.7" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "prometheus-client", specifier = ">=0.26.0" },
+    { name = "py-key-value-aio", extras = ["redis"], specifier = ">=0.4.5" },
     { name = "redis", specifier = ">=8.1.0" },
 ]
 
