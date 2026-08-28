@@ -189,8 +189,11 @@ class GitHubIntegration(ActivityMixin):
         logger.info("GitHub Integration Initialised")
 
     async def aclose(self) -> None:
-        """Close the shared HTTP client."""
-        await self._http.aclose()
+        """Close both HTTP clients, the async REST one and the sync GraphQL one."""
+        try:
+            await self._http.aclose()
+        finally:
+            self.graphql.close()
 
     async def __aenter__(self) -> GitHubIntegration:
         """Enter async context manager."""

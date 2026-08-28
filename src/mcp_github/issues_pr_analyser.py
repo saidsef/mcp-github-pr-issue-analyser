@@ -22,6 +22,8 @@ import inspect
 import logging
 import sys
 import traceback
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from os import getenv
 from pathlib import Path
 from time import perf_counter
@@ -153,6 +155,7 @@ class PRIssueAnalyser:
             name="GitHub PR and Issue Analyser",
             auth=_select_auth(),
             instructions=_MCP_INSTRUCTIONS,
+            lifespan=self._lifespan,
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
@@ -165,6 +168,14 @@ class PRIssueAnalyser:
 
         logger.info("MCP Server initialised")
         self.register_tools()
+
+    @asynccontextmanager
+    async def _lifespan(self, _server: FastMCP) -> AsyncIterator[None]:
+        """Releases the GitHub HTTP clients when the server shuts down. See #315."""
+        try:
+            yield
+        finally:
+            await self.gi.aclose()
 
     def register_tools(self, methods: Any = None) -> None:
         if methods is None:

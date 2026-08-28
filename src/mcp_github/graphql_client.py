@@ -47,6 +47,10 @@ class GraphQLClient:
             }
         )
 
+    def close(self) -> None:
+        """Close the underlying HTTP client."""
+        self.client.close()
+
     def execute_query(
         self,
         query: str,

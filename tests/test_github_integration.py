@@ -195,6 +195,21 @@ class TestLifecycle:
                 raise RuntimeError("boom")
         gi._http.aclose.assert_called_once()
 
+    @pytest.mark.anyio
+    async def test_aclose_closes_the_graphql_client_too(self, gi: GitHubIntegration):
+        gi._http.aclose = AsyncMock()
+        gi.graphql.close = MagicMock()
+        await gi.aclose()
+        gi.graphql.close.assert_called_once()
+
+    @pytest.mark.anyio
+    async def test_graphql_client_closes_when_the_rest_client_fails(self, gi: GitHubIntegration):
+        gi._http.aclose = AsyncMock(side_effect=RuntimeError("boom"))
+        gi.graphql.close = MagicMock()
+        with pytest.raises(RuntimeError):
+            await gi.aclose()
+        gi.graphql.close.assert_called_once()
+
 
 # ---------------------------------------------------------------------------
 # merge_pr — request shape and GitHub error surfacing
