@@ -10,15 +10,19 @@ Every client needs a server name, plus either a command to launch the server ove
 
 In OAuth2 mode the client discovers the auth server, registers itself and opens a browser for consent. There is no token in the config file.
 
+## Where the config goes
+
+| Client | Path | Format |
+|--------|------|--------|
+| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows | JSON, `mcpServers` |
+| Claude Code | `~/.claude.json`, or `.mcp.json` in the project root | JSON, `mcpServers` |
+| Cursor | `~/.cursor/mcp.json`, or `.cursor/mcp.json` in the project root | JSON, `mcpServers` |
+| Codex | `~/.codex/config.toml`, or `.codex/config.toml` in the project root | TOML, `mcp_servers` |
+| VS Code | `.vscode/mcp.json` for a workspace, or user settings under `mcp.servers` | JSON, `servers` |
+
 ## Claude Desktop, Claude Code and Cursor
 
-These clients share the `mcpServers` schema. Config file locations:
-
-| Client | Path |
-|--------|------|
-| Claude Desktop | `~/Library/Application Support/Claude/claude_desktop_config.json` on macOS, `%APPDATA%\Claude\claude_desktop_config.json` on Windows |
-| Claude Code | `~/.claude.json`, or `.mcp.json` in the project root |
-| Cursor | `~/.cursor/mcp.json`, or `.cursor/mcp.json` in the project root |
+These three share the `mcpServers` schema, so one config works for all of them.
 
 <details>
 <summary>stdio with a personal access token</summary>
@@ -95,7 +99,7 @@ Add `--scope project` to write the entry to `.mcp.json` and share it with the re
 
 ## Codex CLI
 
-Codex uses TOML rather than the `mcpServers` JSON schema. Config lives in `~/.codex/config.toml`, or `.codex/config.toml` for a single project.
+Codex uses TOML rather than the `mcpServers` JSON schema, so its entries look nothing like the ones above.
 
 <details>
 <summary>stdio with a personal access token</summary>
@@ -149,7 +153,7 @@ Codex registers itself through dynamic client registration and opens GitHub's co
 
 ## VS Code
 
-Config lives in `.vscode/mcp.json` for a workspace, or in user settings under `mcp.servers`.
+VS Code nests the servers under `servers` rather than `mcpServers`, and can prompt for the token instead of storing it, via an `inputs` entry.
 
 <details>
 <summary>stdio with a personal access token</summary>
