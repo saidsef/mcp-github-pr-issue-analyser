@@ -28,7 +28,7 @@ WORKDIR /app
 COPY pyproject.toml README.md /app/
 COPY src src
 
-RUN pip install --no-cache-dir uv && \
+RUN pip install --no-cache-dir uv==0.12.7 && \
     uv venv /opt/venv && \
     VIRTUAL_ENV=/opt/venv uv pip install --no-cache .
 
