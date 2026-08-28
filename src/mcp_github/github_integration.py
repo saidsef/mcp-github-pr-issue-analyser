@@ -497,19 +497,27 @@ class GitHubIntegration(ActivityMixin):
         repo_owner: str,
         repo_name: str,
         issue_number: int,
-        title: str,
-        body: str,
-        labels: list[str] = [],
-        state: Literal["open", "closed"] = "open",
+        title: Annotated[str | None, "Replacement title. Omit to leave the current title alone"] = None,
+        body: Annotated[str | None, "Replacement body in Markdown. Omit to leave the current body alone"] = None,
+        labels: Annotated[
+            list[str] | None, "Replacement label set. Omit to keep the current labels, pass [] to strip them all"
+        ] = None,
+        state: Annotated[
+            Literal["open", "closed"] | None, "Omit to leave the issue in whichever state it is already in"
+        ] = None,
     ) -> IssueData:
-        """Updates an existing issue."""
+        """Updates an existing issue. Only the fields supplied are sent, the rest keep their current values."""
+        fields: dict[str, Any] = {"title": title, "body": body, "labels": labels, "state": state}
+        payload = {name: value for name, value in fields.items() if value is not None}
+        if not payload:
+            raise GitHubValidationError("Supply at least one of title, body, labels or state to update.")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         data = (
             await self._request(
                 "PATCH",
                 url,
                 context=f"issue #{issue_number}",
-                json={"title": title, "body": body, "labels": labels, "state": state},
+                json=payload,
             )
         ).json()
         return _issue_result(data)

@@ -109,7 +109,6 @@ ignore = [
     "RET505",   # Unnecessary else after return
     "RET506",   # Unnecessary elif after raise
     "SLF001",   # Private member accessed
-    "B006",     # Do not use mutable data structures for argument defaults
     "PLR0912",  # Too many branches
     "PLR0915",  # Too many statements
     "D417",     # Missing argument description in docstring

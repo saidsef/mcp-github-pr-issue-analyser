@@ -23,8 +23,8 @@ account, and read the labels a repository defines.
 
 ### Updating an Issue
 
-1. Call `update_issue` with the full replacement title, body, labels and state
-2. Pass `state="closed"` to close a resolved issue
+1. Call `update_issue` with only the fields you are changing, the rest keep their current values
+2. Pass `state="closed"` on its own to close a resolved issue
 
 ### Listing Issues and PRs
 
@@ -62,20 +62,21 @@ lacks it, so read the returned `labels` back if they matter.
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
 | `issue_number` | int | - | Issue number |
-| `title` | str | - | Replacement title, required |
-| `body` | str | - | Replacement body in Markdown, required |
-| `labels` | list[str] | `[]` | Replacement label set |
-| `state` | str | `open` | `open` or `closed` |
+| `title` | str | none | Replacement title. Omit to leave it alone |
+| `body` | str | none | Replacement body in Markdown. Omit to leave it alone |
+| `labels` | list[str] | none | Replacement label set. Omit to keep the current labels |
+| `state` | str | none | `open` or `closed`. Omit to leave the state alone |
 
 Returns `IssueData`.
 
-Every field is sent on every call, so this is a whole-issue replacement, not a
-patch. Two consequences:
+Only the fields you supply are sent, so a call that passes `state="closed"` and
+nothing else closes the issue and changes nothing else. A call that supplies
+none of the four fields is rejected with a validation error.
 
-- Omitting `labels` sends `[]` and strips every existing label, including `mcp`. Unlike `create_issue`, this tool does not re-add `mcp`
-- Passing a `title` or `body` you did not read first overwrites the current text
+Two things still overwrite rather than merge:
 
-Read the issue first and pass back the fields you are not changing.
+- `labels` replaces the whole set, so `[]` strips every label including `mcp`. Unlike `create_issue`, this tool does not re-add `mcp`
+- A `title` or `body` you did not read first overwrites the current text
 
 ### `list_open_issues_prs`
 
@@ -160,7 +161,7 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Title every issue as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Keep the type honest: `fix` for defects, `feat` for new behaviour, `chore` for maintenance
 - Write bodies in Markdown, with steps to reproduce for a bug or acceptance criteria for a feature
-- Read the issue before calling `update_issue` and pass back every field you are not changing
-- Include `mcp` in the `labels` you send to `update_issue` if the issue should keep it
+- Pass `update_issue` only the fields you are changing, and read the current text before replacing a `title` or `body`
+- Include `mcp` in the `labels` you send to `update_issue`, since the list you send replaces the whole set
 - Close issues with `state="closed"` rather than deleting them
 - Reference the resolving PR in the body, e.g. `Resolved by #123`

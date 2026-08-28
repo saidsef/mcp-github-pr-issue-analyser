@@ -10,7 +10,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES
-from mcp_github.exceptions import GitHubNotFoundError
+from mcp_github.exceptions import GitHubNotFoundError, GitHubValidationError
 from mcp_github.github_integration import GitHubIntegration
 from mcp_github.tool_annotations import _destructive, _read_only, _write
 
@@ -1081,6 +1081,31 @@ class TestResponseTrimming:
         assert set(result) == {
             "number", "title", "body", "state", "author", "labels", "html_url", "created_at", "updated_at",
         }
+
+    @pytest.mark.anyio
+    async def test_update_issue_sends_only_the_fields_supplied(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload(state="closed")))
+        await gi.update_issue("o", "r", 7, state="closed")
+        assert gi._http.request.call_args.kwargs["json"] == {"state": "closed"}
+
+    @pytest.mark.anyio
+    async def test_update_issue_keeps_labels_when_they_are_omitted(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.update_issue("o", "r", 7, title="A different title")
+        assert "labels" not in gi._http.request.call_args.kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_update_issue_strips_labels_when_an_empty_list_is_explicit(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.update_issue("o", "r", 7, labels=[])
+        assert gi._http.request.call_args.kwargs["json"] == {"labels": []}
+
+    @pytest.mark.anyio
+    async def test_update_issue_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock()
+        with pytest.raises(GitHubValidationError):
+            await gi.update_issue("o", "r", 7)
+        gi._http.request.assert_not_called()
 
     @pytest.mark.anyio
     async def test_update_reviews_returns_trimmed_review(self, gi: GitHubIntegration):
