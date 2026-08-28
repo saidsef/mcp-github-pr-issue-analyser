@@ -4,5 +4,5 @@ kind: ServiceAccount
 metadata:
   name: mcp-github
   labels:
-    app.kubernetes.net/name: mcp-github
+    app.kubernetes.io/name: mcp-github
 automountServiceAccountToken: true
