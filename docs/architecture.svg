@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 980" width="1000" height="980" role="img" aria-labelledby="svgtitle svgdesc" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
+  <title id="svgtitle">MCP GitHub PR and Issue Analyser architecture</title>
+  <desc id="svgdesc">An MCP client connects over stdio or HTTP POST to /mcp. The auth layer in auth.py selects no auth for stdio, an APIKeyVerifier that compares the bearer token against GITHUB_TOKEN, or a GitHubProvider that proxies the GitHub OAuth2 authorisation code flow and stores tokens in memory or Redis. Authenticated calls reach the PRIssueAnalyser FastMCP server, which registers the tools and skills, exposes Prometheus metrics on GET /metrics, and calls the GitHub integration. The integration resolves a token per call and reaches api.github.com over the REST v3 and GraphQL v4 APIs.</desc>
+
+  <!-- The light palette is set with presentation attributes so the diagram still renders
+       if a strict CSP drops this block. Dark mode overrides only the colours. -->
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .box     { fill: #161b22; stroke: #4b535d; }
+      .boxdash { stroke: #768390; }
+      .div     { stroke: #30363d; }
+      .edge    { stroke: #768390; }
+      .ah      { fill: #768390; }
+      .t       { fill: #e6edf3; }
+      .l       { fill: #c9d1d9; }
+      .s       { fill: #9198a1; }
+      .ic      { stroke: #c9d1d9; }
+      .icf     { fill: #c9d1d9; }
+      .gh      { fill: #e6edf3; }
+      .o-s     { stroke: #f0883e; }
+      .o-f     { fill: #f0883e; }
+      .r-s     { stroke: #f85149; }
+      .r-f     { fill: #f85149; }
+      .b-s     { stroke: #58a6ff; }
+      .b-f     { fill: #58a6ff; }
+    }
+  </style>
+
+  <defs>
+    <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="ah" fill="#6e7781" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="arw-o" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="o-f" fill="#bc4c00" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="arw-r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="r-f" fill="#cf222e" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="arw-b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path class="b-f" fill="#0969da" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+
+  <!-- ===================== MCP clients ===================== -->
+  <rect class="box" x="220" y="24" width="400" height="92" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g class="ic" transform="translate(244,42)" fill="none" stroke="#1f2328" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0.75" y="2.75" width="18.5" height="14.5" rx="2.5"/>
+    <path d="M0.75 7 H19.25"/>
+    <path d="M4.6 11 L7.3 13.2 L4.6 15.4"/>
+    <path d="M10.2 15.4 H15"/>
+  </g>
+  <text class="t" x="276" y="58" fill="#1f2328" font-size="16" font-weight="600">MCP Clients</text>
+  <text class="s" x="244" y="84" fill="#656d76" font-size="12">Claude Code, Claude Desktop, Cursor,</text>
+  <text class="s" x="244" y="102" fill="#656d76" font-size="12">VS Code, Windsurf</text>
+
+  <path class="edge" d="M350 116 V180" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text class="l" x="342" y="143" text-anchor="end" fill="#24292f" font-size="12">stdio</text>
+  <text class="s" x="342" y="159" text-anchor="end" fill="#656d76" font-size="11.5">subprocess</text>
+
+  <path class="edge" d="M490 116 V180" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text class="l" x="500" y="143" fill="#24292f" font-size="12">HTTP POST /mcp</text>
+  <text class="s" x="500" y="159" fill="#656d76" font-size="11.5">MCP_ENABLE_REMOTE set</text>
+
+  <!-- ===================== Auth layer ===================== -->
+  <rect class="box" x="220" y="186" width="400" height="190" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g class="ic" transform="translate(244,202)" fill="none" stroke="#1f2328" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M10 1.6 L17.4 4.4 V9.8 c0 4.4-3.1 7.1-7.4 8.3 C5.7 16.9 2.6 14.2 2.6 9.8 V4.4 Z"/>
+    <path d="M6.9 9.9 L9.1 12.1 L13.2 7.9"/>
+  </g>
+  <text class="t" x="276" y="218" fill="#1f2328" font-size="16" font-weight="600">Auth Layer</text>
+  <text class="s" x="600" y="218" text-anchor="end" fill="#656d76" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">auth.py</text>
+  <path class="div" d="M236 234 H604" stroke="#d0d7de" stroke-width="1"/>
+
+  <g class="ic" transform="translate(246,249)" fill="none" stroke="#1f2328" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.4" y="7.2" width="11.2" height="7" rx="1.6"/>
+    <path d="M5.1 7.2 V4.9 a3.2 3.2 0 0 1 6.2-1.1"/>
+  </g>
+  <text class="l" x="272" y="261" fill="#24292f" font-size="13">stdio - no auth</text>
+  <text class="s" x="272" y="277" fill="#656d76" font-size="11.5">the client owns the process</text>
+
+  <g class="ic" transform="translate(246,289)" fill="none" stroke="#1f2328" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="5.4" cy="5.4" r="2.9"/>
+    <path d="M7.5 7.5 L13.9 13.9"/>
+    <path d="M10.7 10.7 L9.2 12.2"/>
+    <path d="M12.3 12.3 L10.8 13.8"/>
+  </g>
+  <text class="l" x="272" y="301" fill="#24292f" font-size="13">http - APIKeyVerifier</text>
+  <text class="s" x="272" y="317" fill="#656d76" font-size="11.5">constant-time compare against GITHUB_TOKEN</text>
+
+  <g class="ic" transform="translate(246,329)" fill="none" stroke="#1f2328" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="2.4" y="7" width="11.2" height="7" rx="1.6"/>
+    <path d="M5 7 V4.9 a3 3 0 0 1 6 0 V7"/>
+  </g>
+  <text class="l" x="272" y="341" fill="#24292f" font-size="13">http - GitHubProvider, OAuth2</text>
+  <text class="s" x="272" y="357" fill="#656d76" font-size="11.5">dynamic client registration and token proxy</text>
+
+  <!-- ===================== GitHub OAuth ===================== -->
+  <path class="b-s" d="M626 241 H668" fill="none" stroke="#0969da" stroke-width="1.5" marker-start="url(#arw-b)" marker-end="url(#arw-b)"/>
+  <rect class="box b-s" x="680" y="186" width="290" height="110" rx="8" fill="#ffffff" stroke="#0969da" stroke-width="1.3"/>
+  <g class="gh" transform="translate(704,204) scale(1.25)" fill="#1f2328">
+    <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/>
+  </g>
+  <text class="t" x="734" y="220" fill="#1f2328" font-size="15" font-weight="600">GitHub OAuth</text>
+  <text class="s" x="704" y="246" fill="#656d76" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">github.com/login/oauth</text>
+  <text class="l" x="704" y="264" fill="#24292f" font-size="11.5">authorisation code with PKCE</text>
+  <text class="l" x="704" y="282" fill="#24292f" font-size="11.5">scopes: repo, read:org, user</text>
+
+  <!-- ===================== Token store ===================== -->
+  <path class="edge" d="M620 341 H650 V380 H668" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
+  <rect class="box" x="680" y="330" width="290" height="100" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g class="ic" transform="translate(704,346)" fill="none" stroke="#1f2328" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="10" cy="4.4" rx="7.4" ry="2.9"/>
+    <path d="M2.6 4.4 V15.4 c0 1.6 3.3 2.9 7.4 2.9 s7.4-1.3 7.4-2.9 V4.4"/>
+    <path d="M2.6 9.9 c0 1.6 3.3 2.9 7.4 2.9 s7.4-1.3 7.4-2.9"/>
+  </g>
+  <text class="t" x="734" y="362" fill="#1f2328" font-size="15" font-weight="600">OAuth Token Store</text>
+  <text class="l" x="704" y="388" fill="#24292f" font-size="11.5">MemoryStore - in process, the default</text>
+  <text class="l" x="704" y="406" fill="#24292f" font-size="11.5">RedisStore - when REDIS_HOST_PORT is set</text>
+
+  <path class="r-s" d="M825 430 V464" fill="none" stroke="#cf222e" stroke-width="1.5" marker-end="url(#arw-r)"/>
+  <rect class="box r-s" x="730" y="470" width="190" height="66" rx="8" fill="#ffffff" stroke="#cf222e" stroke-width="1.3"/>
+  <g class="r-s" transform="translate(752,486)" fill="none" stroke="#cf222e" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <ellipse cx="10" cy="4.4" rx="7.4" ry="2.9"/>
+    <path d="M2.6 4.4 V15.4 c0 1.6 3.3 2.9 7.4 2.9 s7.4-1.3 7.4-2.9 V4.4"/>
+    <path d="M2.6 9.9 c0 1.6 3.3 2.9 7.4 2.9 s7.4-1.3 7.4-2.9"/>
+  </g>
+  <text class="t" x="782" y="502" fill="#1f2328" font-size="15" font-weight="600">Redis</text>
+  <text class="s" x="752" y="524" fill="#656d76" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">redis:// or rediss://</text>
+
+  <!-- ===================== Server ===================== -->
+  <path class="edge" d="M420 376 V424" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
+  <rect class="box" x="220" y="430" width="400" height="130" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g class="ic" transform="translate(244,448)" fill="none" stroke="#1f2328" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="1.4" y="2.4" width="17.2" height="4.8" rx="1.4"/>
+    <rect x="1.4" y="8" width="17.2" height="4.8" rx="1.4"/>
+    <rect x="1.4" y="13.6" width="17.2" height="4.8" rx="1.4"/>
+    <path d="M4.4 4.8 H4.6 M4.4 10.4 H4.6 M4.4 16 H4.6"/>
+  </g>
+  <text class="t" x="276" y="464" fill="#1f2328" font-size="16" font-weight="600">PRIssueAnalyser</text>
+  <text class="s" x="600" y="464" text-anchor="end" fill="#656d76" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">issues_pr_analyser.py</text>
+  <path class="div" d="M236 480 H604" stroke="#d0d7de" stroke-width="1"/>
+  <text class="l" x="244" y="504" fill="#24292f" font-size="12">tool registry - tools discovered by MCP annotation</text>
+  <text class="l" x="244" y="523" fill="#24292f" font-size="12">skills provider - eight skill:// resources</text>
+  <text class="l" x="244" y="542" fill="#24292f" font-size="12">metrics middleware - counts and times each call</text>
+
+  <!-- ===================== Prometheus ===================== -->
+  <path class="o-s" d="M220 500 H208" fill="none" stroke="#bc4c00" stroke-width="1.5" marker-end="url(#arw-o)"/>
+  <rect class="box o-s" x="30" y="458" width="172" height="84" rx="8" fill="#ffffff" stroke="#bc4c00" stroke-width="1.3"/>
+  <g class="o-s" transform="translate(50,476)" fill="none" stroke="#bc4c00" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+    <rect x="0.9" y="0.9" width="16.2" height="16.2" rx="2.6"/>
+    <path d="M4.2 12.6 L7.2 8.4 L9.9 11.1 L13.8 5.4"/>
+  </g>
+  <text class="t" x="76" y="491" fill="#1f2328" font-size="14" font-weight="600">Prometheus</text>
+  <text class="l" x="50" y="514" fill="#24292f" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">GET /metrics</text>
+  <text class="s" x="50" y="531" fill="#656d76" font-size="11.5">unauthenticated</text>
+
+  <!-- ===================== GitHub integration ===================== -->
+  <path class="edge" d="M420 560 V604" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
+  <text class="l" x="434" y="580" fill="#24292f" font-size="12"><tspan font-family="ui-monospace, SFMono-Regular, Menlo, monospace">resolve_token()</tspan> per call</text>
+  <text class="s" x="434" y="595" fill="#656d76" font-size="11.5">server PAT, or the caller's own token</text>
+
+  <rect class="box" x="220" y="610" width="400" height="96" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g class="ic" transform="translate(244,628)" fill="none" stroke="#1f2328" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="5" cy="4.2" r="2.3"/>
+    <circle cx="5" cy="15.8" r="2.3"/>
+    <circle cx="15" cy="10" r="2.3"/>
+    <path d="M5 6.5 V13.5"/>
+    <path d="M12.7 10 H10.5 C7.4 10 5 8.2 5 6.5"/>
+  </g>
+  <text class="t" x="276" y="644" fill="#1f2328" font-size="16" font-weight="600">GitHub Integration</text>
+  <text class="s" x="600" y="644" text-anchor="end" fill="#656d76" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">github_integration.py</text>
+  <path class="div" d="M236 660 H604" stroke="#d0d7de" stroke-width="1"/>
+  <text class="l" x="244" y="684" fill="#24292f" font-size="12">async HTTP client, GITHUB_API_TIMEOUT, typed errors</text>
+
+  <!-- ===================== api.github.com ===================== -->
+  <path class="edge" d="M420 706 V742" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
+
+  <rect class="boxdash" x="60" y="748" width="720" height="186" rx="10" fill="none" stroke="#8c959f" stroke-width="1.3" stroke-dasharray="6 5"/>
+  <g class="gh" transform="translate(84,764) scale(1.25)" fill="#1f2328">
+    <path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"/>
+  </g>
+  <text class="t" x="114" y="780" fill="#1f2328" font-size="15" font-weight="600">api.github.com</text>
+  <text class="s" x="756" y="780" text-anchor="end" fill="#656d76" font-size="11.5">external service</text>
+
+  <rect class="box" x="84" y="800" width="330" height="112" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g class="ic" transform="translate(104,816)" fill="none" stroke="#1f2328" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M6.4 2.2 C4.9 2.2 5.1 4.4 5.1 6 C5.1 7.1 4.2 8 3.1 8 C4.2 8 5.1 8.9 5.1 10 C5.1 11.6 4.9 13.8 6.4 13.8"/>
+    <path d="M9.6 2.2 C11.1 2.2 10.9 4.4 10.9 6 C10.9 7.1 11.8 8 12.9 8 C11.8 8 10.9 8.9 10.9 10 C10.9 11.6 11.1 13.8 9.6 13.8"/>
+  </g>
+  <text class="t" x="128" y="829" fill="#1f2328" font-size="14" font-weight="600">REST v3</text>
+  <text class="l" x="104" y="854" fill="#24292f" font-size="11.5">PRs: diff, content, comments, reviews</text>
+  <text class="l" x="104" y="872" fill="#24292f" font-size="11.5">PRs: create, update, merge, assign</text>
+  <text class="l" x="104" y="890" fill="#24292f" font-size="11.5">Issues, labels, tags, releases</text>
+
+  <rect class="box" x="426" y="800" width="330" height="112" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
+  <g transform="translate(446,816)">
+    <path class="ic" d="M8 1.6 L13.5 4.8 V11.2 L8 14.4 L2.5 11.2 V4.8 Z" fill="none" stroke="#1f2328" stroke-width="1.3" stroke-linejoin="round"/>
+    <g class="icf" fill="#1f2328">
+      <circle cx="8" cy="1.6" r="1.5"/>
+      <circle cx="13.5" cy="4.8" r="1.5"/>
+      <circle cx="13.5" cy="11.2" r="1.5"/>
+      <circle cx="8" cy="14.4" r="1.5"/>
+      <circle cx="2.5" cy="11.2" r="1.5"/>
+      <circle cx="2.5" cy="4.8" r="1.5"/>
+    </g>
+  </g>
+  <text class="t" x="470" y="829" fill="#1f2328" font-size="14" font-weight="600">GraphQL v4</text>
+  <text class="l" x="446" y="854" fill="#24292f" font-size="11.5">User profiles, activity, star growth</text>
+  <text class="l" x="446" y="872" fill="#24292f" font-size="11.5">PR linked issues, closingIssuesReferences</text>
+  <text class="l" x="446" y="890" fill="#24292f" font-size="11.5">PR status checks and commit status</text>
+
+  <text class="s" x="60" y="962" fill="#656d76" font-size="11.5">A dashed border marks an external service. The environment variables named in the auth layer decide which path a request takes.</text>
+</svg>
