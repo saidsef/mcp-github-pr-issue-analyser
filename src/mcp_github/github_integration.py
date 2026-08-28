@@ -121,7 +121,6 @@ MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=logging.WARNING)
 
 
 def _timeout() -> httpx.Timeout:
