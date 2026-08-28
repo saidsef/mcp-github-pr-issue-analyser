@@ -29,6 +29,7 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | `PORT` | No, default `8081` | HTTP server port |
 | `HOST` | No, default `localhost` | HTTP server bind address |
 | `GITHUB_API_TIMEOUT` | No, default `5` | Timeout in seconds for GitHub API requests |
+| `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, so importing the package as a library leaves your own logging setup alone |
 
 ## Creating the GitHub OAuth App
 
