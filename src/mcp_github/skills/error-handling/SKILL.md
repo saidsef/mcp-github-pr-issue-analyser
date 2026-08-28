@@ -57,6 +57,12 @@ No tool retries or backs off internally. A failed call is simply raised, so any
 waiting is yours to do. Do not retry in a tight loop, since every attempt spends
 another request against a limit that is already exhausted.
 
+Reading the same thing twice is charged once. A repeated read goes out with
+`If-None-Match`, GitHub answers `304 Not Modified`, and a 304 costs no rate
+limit on an authenticated request, which is every request this server makes.
+So `RATE_LIMITED` means real distinct reads rather than a loop re-reading one
+thing.
+
 Cost matters most in `get_repo_stars_since`, which makes one request per repo
 inspected and then walks the stargazer pages of each. On an account with
 popular repos this is the fastest way to reach the limit, so lower `max_repos`
@@ -86,16 +92,6 @@ httpx message rather than one of the codes above.
 Large diffs and busy status-check queries are the usual causes, and the
 operator raises `GITHUB_API_TIMEOUT` for them. That no longer changes how long
 the server waits on a host it cannot reach.
-
-## Rate Limits
-
-Read tools send a repeated request conditionally. GitHub answers `304 Not
-Modified` when nothing has changed, and a 304 costs no rate limit, so asking
-the same question twice is charged once. This applies to authenticated
-requests, which is every request this server makes.
-
-`RATE_LIMITED` therefore means real distinct reads, not a loop re-reading one
-thing. Wait for the reset rather than retrying immediately.
 
 ## Best Practices
 
