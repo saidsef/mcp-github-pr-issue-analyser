@@ -25,6 +25,9 @@ dependencies = [
     "fastmcp-slim[server,apps,tasks]>=3.4.7",
     "httpx>=0.28.1",
     "prometheus-client>=0.26.0",
+    # auth.py imports the stores directly, so ask for the package by name with
+    # the extra RedisStore needs rather than relying on fastmcp pulling it. #312
+    "py-key-value-aio[redis]>=0.4.5",
     "redis>=8.1.0",
 ]
 
