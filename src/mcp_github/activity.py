@@ -138,6 +138,10 @@ class ActivityMixin:
     if TYPE_CHECKING:  # supplied by GitHubIntegration
         _http: httpx.AsyncClient
 
+        async def _request(
+            self, method: str, url: str, *, context: str = ..., headers: dict[str, str] | None = ..., **kwargs: Any
+        ) -> httpx.Response: ...
+
         async def _execute_graphql(
             self, query: str, variables: dict[str, Any], *, token: str | None = ...
         ) -> dict[str, Any]: ...
@@ -289,13 +293,13 @@ class ActivityMixin:
         stopping at the first page that contains a star older than the cutoff."""
         new_stars = 0
         for page in range(max(1, math.ceil(total_stars / 100)), 0, -1):
-            resp = await self._http.request(
+            resp = await self._request(
                 "GET",
                 f"https://api.github.com/repos/{owner}/{repo_name}/stargazers",
-                headers={**self._get_headers(), "Accept": "application/vnd.github.star+json"},
+                context=f"stargazers {owner}/{repo_name} p{page}",
+                headers={"Accept": "application/vnd.github.star+json"},
                 params={"per_page": 100, "page": page},
             )
-            self._raise_for_status(resp, f"stargazers {owner}/{repo_name} p{page}")
             stargazers = resp.json()
             if not stargazers:
                 break
@@ -317,13 +321,12 @@ class ActivityMixin:
         all_repos: list[dict[str, Any]] = []
         truncated = False
         for page in range(1, MAX_REPO_PAGES + 1):
-            resp = await self._http.request(
+            resp = await self._request(
                 "GET",
                 f"https://api.github.com/users/{username}/repos",
-                headers=self._get_headers(),
+                context=f"repos for {username}",
                 params={"per_page": 100, "type": "public", "sort": "updated", "page": page},
             )
-            self._raise_for_status(resp, f"repos for {username}")
             batch = resp.json()
             if not isinstance(batch, list):
                 raise GitHubNotFoundError(f"User '{username}' not found")

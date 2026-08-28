@@ -57,6 +57,12 @@ No tool retries or backs off internally. A failed call is simply raised, so any
 waiting is yours to do. Do not retry in a tight loop, since every attempt spends
 another request against a limit that is already exhausted.
 
+Reading the same thing twice is charged once. A repeated read goes out with
+`If-None-Match`, GitHub answers `304 Not Modified`, and a 304 costs no rate
+limit on an authenticated request, which is every request this server makes.
+So `RATE_LIMITED` means real distinct reads rather than a loop re-reading one
+thing.
+
 Cost matters most in `get_repo_stars_since`, which makes one request per repo
 inspected and then walks the stargazer pages of each. On an account with
 popular repos this is the fastest way to reach the limit, so lower `max_repos`
