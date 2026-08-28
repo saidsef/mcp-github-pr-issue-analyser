@@ -37,16 +37,17 @@ repository has no commits.
 | `repo_owner` | str | GitHub organisation or username |
 | `repo_name` | str | Repository name |
 | `tag_name` | str | Tag name, e.g. `v1.2.3` |
-| `message` | str | Description of the release |
+| `message` | str | Tag message. Omit for a lightweight tag |
+| `sha` | str | Commit to tag. Omit to tag the newest commit on the default branch |
 
-Two limits to work within:
+Pass `sha` to cut a release from a known commit. Without it the tool resolves
+the default branch HEAD itself, and what that points at can change between
+reading it and tagging it.
 
-- The commit is not selectable. `create_tag` resolves the default branch HEAD itself, so it always tags the newest commit at the moment of the call. There is no way to tag an older commit or a different branch through this tool
-- The tag is a lightweight ref, not an annotated tag object, so `message` is not stored on the tag. Put the release prose in the `body` of `create_release`, which is what readers actually see
-
-Calling `get_latest_sha` first does not pin the commit, it only shows you what
-`create_tag` is about to pick up. Re-read it if time has passed or a merge may
-have landed.
+With a `message` you get an annotated tag, which is a real object holding the
+message and the tagger. Without one you get a lightweight ref straight to the
+commit. The release prose still belongs in the `body` of `create_release`,
+since that is what readers see on the releases page.
 
 Fails with a not-found error if the repository has no commits.
 
