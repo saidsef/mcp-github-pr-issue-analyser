@@ -4,7 +4,7 @@ kind: ServiceAccount
 metadata:
   name: mcp-github
   labels:
-    app.kubernetes.net/name: mcp-github
+    app.kubernetes.io/name: mcp-github
 automountServiceAccountToken: true
 # enforce-mountable-secrets, set in kustomization.yml, only lets a pod use
 # secrets named here. Without this list no pod is admitted at all. See #328.
