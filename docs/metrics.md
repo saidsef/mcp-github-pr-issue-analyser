@@ -8,13 +8,13 @@ curl http://localhost:8081/metrics
 
 | Metric | Type | Description |
 |--------|------|-------------|
-| `mcp_tool_invocations_total` | counter | Tool calls that completed, labelled by `tool_name` |
-| `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` |
+| `mcp_tool_invocations_total` | counter | Tool calls, labelled by `tool_name` and `outcome` |
+| `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` and `outcome` |
 | `mcp_tool_in_progress` | gauge | Tool calls currently running |
 | `process_*` | gauge | CPU, memory and file descriptor usage of the server process, Linux only |
 | `python_info` | gauge | Interpreter version |
 
-Only completed calls are counted, which keeps the `tool_name` label bounded to registered tools. A call that raises is recorded in neither the counter nor the histogram, but it is still reflected in `mcp_tool_in_progress` while it runs.
+`outcome` is `success` or `error`, so both are counted and both are timed. A call for a tool that does not exist is recorded as `tool_name="unknown"`, which keeps the label bounded to registered tools whatever a client asks for.
 
 ## Scraping
 
@@ -35,9 +35,16 @@ scrape_configs:
 # call rate per tool
 sum by (tool_name) (rate(mcp_tool_invocations_total[5m]))
 
-# 95th percentile duration per tool
-histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_seconds_bucket[5m])))
+# error rate as a fraction of all calls
+sum(rate(mcp_tool_invocations_total{outcome="error"}[5m]))
+  / sum(rate(mcp_tool_invocations_total[5m]))
 
-# calls started but never completed, a proxy for errors and timeouts
+# the tools that are failing
+sum by (tool_name) (rate(mcp_tool_invocations_total{outcome="error"}[5m])) > 0
+
+# 95th percentile duration of successful calls, per tool
+histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_seconds_bucket{outcome="success"}[5m])))
+
+# calls currently running
 mcp_tool_in_progress
 ```
