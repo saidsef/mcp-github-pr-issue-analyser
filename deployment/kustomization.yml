@@ -11,6 +11,5 @@ commonAnnotations:
   cluster-autoscaler.kubernetes.io/enable-ds-eviction: "false"
   cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
   endpointslice.kubernetes.io/managed-by: controller
-  kubernetes.io/enforce-mountable-secrets: "true"
   pod-security.kubernetes.io/audit: baseline
   pod-security.kubernetes.io/warn-version: latest
