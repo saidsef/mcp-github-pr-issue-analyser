@@ -269,3 +269,29 @@ query($username: String!, $since: DateTime, $until: DateTime) {
   }
 }
 """
+
+# Draft status is settable through REST only when the pull request is created,
+# so moving an existing one either way goes through GraphQL. See #348.
+MARK_PR_READY_MUTATION = """
+mutation($pullRequestId: ID!) {
+  markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
+    pullRequest {
+      number
+      isDraft
+      url
+    }
+  }
+}
+"""
+
+CONVERT_PR_TO_DRAFT_MUTATION = """
+mutation($pullRequestId: ID!) {
+  convertPullRequestToDraft(input: {pullRequestId: $pullRequestId}) {
+    pullRequest {
+      number
+      isDraft
+      url
+    }
+  }
+}
+"""

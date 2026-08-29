@@ -21,9 +21,16 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Updating a PR
 
-1. Call `update_pr_description` to revise the title and body. Both are required and replace the existing values
-2. Call `update_assignees` to set the assignees
-3. Call `update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
+1. Call `update_pr` to change any subset of the title, body, state and base branch. This is the one to reach for, since it leaves the fields you omit alone
+2. Call `update_pr_description` only when replacing both the title and the body together
+3. Call `set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
+4. Call `update_assignees` to set the assignees
+5. Call `update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
+
+### Closing a PR
+
+1. Call `update_pr` with `state="closed"`. Reopen with `state="open"`
+2. Closing is not merging. A closed PR keeps its branch and its comments
 
 ### Merging a PR
 
@@ -46,6 +53,38 @@ Open pull requests, keep them current, and merge them once they are ready.
 | `base` | str | - | Target branch name, e.g. `main` |
 | `draft` | bool | `False` | Open as a draft PR |
 
+### `update_pr`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `pr_number` | int | - | Pull request number |
+| `title` | str \| None | `None` | Replacement title. Omit to leave it alone |
+| `body` | str \| None | `None` | Replacement body in Markdown. Omit to leave it alone |
+| `state` | str \| None | `None` | `open` or `closed` |
+| `base` | str \| None | `None` | Branch to retarget the PR onto |
+
+Returns `PRContent`. Only the fields you pass are sent, so a title can change
+without restating the body. A call supplying none of them is rejected before it
+reaches GitHub.
+
+Retargeting `base` recomputes the diff against the new branch, so the file list
+and the review comments' line anchors can both move.
+
+### `set_pr_draft`
+
+| Parameter | Type | Description |
+|---|---|---|
+| `repo_owner` | str | GitHub organisation or username |
+| `repo_name` | str | Repository name |
+| `pr_number` | int | Pull request number |
+| `draft` | bool | `True` returns the PR to draft, `False` marks it ready for review |
+
+Returns `pr_number`, `is_draft` and `url`. REST accepts `draft` only when the PR
+is created, so this runs a GraphQL mutation and needs a token that can write to
+the repository.
+
 ### `update_pr_description`
 
 | Parameter | Type | Description |
@@ -58,7 +97,8 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 Returns `PRContent`. Both fields are sent on every call, so pass the current
 value for whichever one you are not changing or it will be overwritten. Fetch
-the current values with `get_pr_content` first.
+the current values with `get_pr_content` first. Prefer `update_pr` when only
+one of the two is changing.
 
 ### `update_assignees`
 
@@ -139,6 +179,7 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Pass `commit_title` in the same form when merging so the branch history stays parseable
 - Write PR bodies in Markdown with a summary, the motivation, and how it was tested
 - Gate the merge on `get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
-- Use `draft=True` for work in progress, since a draft cannot be merged
+- Use `draft=True` for work in progress, since a draft cannot be merged, and `set_pr_draft` to flip it once the work is ready
+- Reach for `update_pr` to change one field, and `update_pr_description` only when replacing both title and body
 - Read the current title and body with `get_pr_content` before `update_pr_description`, since both fields are replaced
 - Delete the head branch after merging

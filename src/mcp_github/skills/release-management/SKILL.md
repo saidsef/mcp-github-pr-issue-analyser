@@ -1,10 +1,11 @@
 ---
-description: Tag a commit and publish a GitHub release, following semantic versioning
+description: Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there
 ---
 
 # Release Management
 
-Create a tag on the default branch and publish a GitHub release against it.
+Create a tag on the default branch and publish a GitHub release against it,
+then read, correct or withdraw what has already been published.
 
 ## Prerequisites
 
@@ -14,9 +15,23 @@ Create a tag on the default branch and publish a GitHub release against it.
 
 ## Workflow
 
+### Publishing
+
 1. **Check the target** - call `get_latest_sha` to see which commit will be tagged
-2. **Create the tag** - call `create_tag` with a semantic version string
-3. **Publish the release** - call `create_release` against that tag
+2. **Check what is already out** - call `get_release` with no tag for the current latest, or `list_releases` for the history
+3. **Create the tag** - call `create_tag` with a semantic version string
+4. **Publish the release** - call `create_release` against that tag
+
+### Correcting a release
+
+1. Call `update_release` with only the fields that are wrong
+2. Publishing again over the same tag also works: `create_release` updates a tag that already has a release rather than failing
+
+### Withdrawing a release
+
+1. Call `delete_release`, which leaves the tag in place
+2. Pass `delete_tag=True` only when the tag itself was a mistake
+3. **Deleting a published release breaks any link to it. Ask the user in chat and get an explicit yes first**
 
 ## Tool Parameters
 
@@ -71,6 +86,85 @@ Returns `id`, `tag_name`, `name`, `html_url`, `draft`, `prerelease`, `body`.
 rather than replacing it, so a hand-written `What Changed` section will be
 duplicated. Set it to `False` when you supply that section yourself.
 
+A tag that already carries a release is updated instead of rejected, so a retry
+after a half-finished release recovers rather than erroring.
+
+### `list_releases`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `per_page` | int | `30` | Results per page, 1 to 100 |
+| `page` | int | `1` | Page number |
+
+Returns `total` and `releases`, newest first, each trimmed to the same fields
+`create_release` returns. Drafts appear only for a token that can see them.
+
+### `get_release`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `tag_name` | str \| None | `None` | Tag to fetch. Omit for the latest published release |
+
+The latest release is the newest non-draft, non-prerelease one, which is not
+always the highest version number. Pass `tag_name` when you mean a specific one.
+
+### `update_release`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `tag_name` | str | - | Tag of the release to change |
+| `name` | str \| None | `None` | Replacement title |
+| `body` | str \| None | `None` | Replacement notes in Markdown |
+| `draft` | bool \| None | `None` | Publish a draft with `False`, or pull one back with `True` |
+| `prerelease` | bool \| None | `None` | Mark or unmark as a pre-release |
+| `make_latest` | str \| None | `None` | One of `"true"`, `"false"`, `"legacy"`, as strings |
+
+Only the fields you pass are sent, so correcting a title leaves the notes alone.
+The notes replace rather than append, so read the release first if you are
+adding to them. A call supplying nothing to change is rejected.
+
+### `list_tags`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `per_page` | int | `30` | Results per page, 1 to 100 |
+| `page` | int | `1` | Page number |
+
+Returns `total` and `tags`, each a `name` and the `sha` it points at.
+
+### `delete_release`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `tag_name` | str | - | Tag of the release to delete |
+| `delete_tag` | bool | `False` | Also remove the tag it was published from |
+
+Destructive and not reversible. The tag survives by default, so the commit stays
+reachable and the release can be published again.
+
+### `delete_tag`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `tag_name` | str | - | Tag to delete |
+| `force` | bool | `False` | Delete even though a release was published from it |
+
+Destructive and not reversible. A tag a release points at is refused unless
+`force=True`, because removing it leaves the release naming code nobody can
+fetch. Delete the release first instead.
+
 ## Semantic Versioning Guide
 
 Format `vMAJOR.MINOR.PATCH`, e.g. `v2.1.0`.
@@ -123,7 +217,8 @@ Rules:
 
 ## Best Practices
 
-- Follow semver, and never re-use or delete a published tag
+- Follow semver, and treat a published tag as permanent. Correct the release with `update_release` rather than deleting and re-cutting it
+- Confirm with the user in chat before `delete_release` or `delete_tag`, since neither can be undone
 - Confirm every intended PR is merged before tagging, since the tag follows the default branch HEAD
 - Publish with `draft=True` first to preview, then flip it once the notes read correctly
 - Set `prerelease=True` for alpha, beta and rc versions, which also keeps them off the latest-release badge

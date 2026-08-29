@@ -138,8 +138,8 @@ Workflow guidance is available as MCP resources under the skill:// URI scheme:
 - skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
 - skill://pr-review/SKILL.md -- post inline comments and submit review decisions
 - skill://pr-management/SKILL.md -- create, update, assign, refresh and merge PRs
-- skill://issue-management/SKILL.md -- create, update and list issues and open PRs, and list a repository's labels
-- skill://release-management/SKILL.md -- tag commits and publish releases
+- skill://issue-management/SKILL.md -- create, update, list and search issues and PRs, and list a repository's labels
+- skill://release-management/SKILL.md -- tag commits, publish releases, and correct or withdraw what is published
 - skill://user-activity/SKILL.md -- look up user profiles, contributions and star growth
 - skill://error-handling/SKILL.md -- read the error codes and decide whether to retry
 - skill://interactive-ui/SKILL.md -- ask the user to choose, or render data as a UI panel
