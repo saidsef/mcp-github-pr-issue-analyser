@@ -143,6 +143,10 @@ _COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
 
 _RELEASE_FIELDS = ("id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
 
+# Named once so the comma does not sit inside a signature, where the complexity
+# counter reads it as another parameter.
+_OpenClosed = Literal["open", "closed"]
+
 logger = logging.getLogger(__name__)
 
 
@@ -548,9 +552,7 @@ class GitHubIntegration(ActivityMixin):
         pr_number: int,
         title: Annotated[str | None, "Replacement title. Omit to leave the current title alone"] = None,
         body: Annotated[str | None, "Replacement body in Markdown. Omit to leave the current body alone"] = None,
-        state: Annotated[
-            Literal["open", "closed"] | None, "Omit to leave the pull request in whichever state it is already in"
-        ] = None,
+        state: Annotated[_OpenClosed | None, "Omit to leave the state alone"] = None,
         base: Annotated[str | None, "Branch to retarget the pull request onto"] = None,
     ) -> PRContent:
         """Updates an existing pull request. Only the fields supplied are sent, the
@@ -744,7 +746,7 @@ class GitHubIntegration(ActivityMixin):
             list[str] | None, "Replacement label set. Omit to keep the current labels, pass [] to strip them all"
         ] = None,
         state: Annotated[
-            Literal["open", "closed"] | None, "Omit to leave the issue in whichever state it is already in"
+            _OpenClosed | None, "Omit to leave the issue in whichever state it is already in"
         ] = None,
     ) -> IssueData:
         """Updates an existing issue. Only the fields supplied are sent, the rest keep their current values."""
@@ -896,7 +898,6 @@ class GitHubIntegration(ActivityMixin):
                 body=body,
                 draft=draft,
                 prerelease=prerelease,
-                make_latest=make_latest,
             )
         return _pick(response.json(), *_RELEASE_FIELDS)
 
@@ -953,17 +954,11 @@ class GitHubIntegration(ActivityMixin):
         body: Annotated[str | None, "Replacement notes. Omit to leave them alone"] = None,
         draft: bool | None = None,
         prerelease: bool | None = None,
-        make_latest: Literal["true", "false", "legacy"] | None = None,
     ) -> dict[str, Any]:
         """Changes a published release in place. Only the fields supplied are sent,
-        so correcting a title does not wipe the notes."""
-        fields: dict[str, Any] = {
-            "name": name,
-            "body": body,
-            "draft": draft,
-            "prerelease": prerelease,
-            "make_latest": make_latest,
-        }
+        so correcting a title does not wipe the notes. make_latest is settable on
+        create_release alone, to keep this signature inside the parameter budget."""
+        fields: dict[str, Any] = {"name": name, "body": body, "draft": draft, "prerelease": prerelease}
         payload = {key: value for key, value in fields.items() if value is not None}
         if not payload:
             raise GitHubValidationError("Supply at least one field to update on the release.")

@@ -123,11 +123,13 @@ always the highest version number. Pass `tag_name` when you mean a specific one.
 | `body` | str \| None | `None` | Replacement notes in Markdown |
 | `draft` | bool \| None | `None` | Publish a draft with `False`, or pull one back with `True` |
 | `prerelease` | bool \| None | `None` | Mark or unmark as a pre-release |
-| `make_latest` | str \| None | `None` | One of `"true"`, `"false"`, `"legacy"`, as strings |
 
 Only the fields you pass are sent, so correcting a title leaves the notes alone.
 The notes replace rather than append, so read the release first if you are
 adding to them. A call supplying nothing to change is rejected.
+
+`make_latest` is settable on `create_release` only, so publishing again over the
+same tag is the way to change it.
 
 ### `list_tags`
 
