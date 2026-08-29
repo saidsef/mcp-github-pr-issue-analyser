@@ -53,9 +53,30 @@ To learn whether a PR is a draft, call `list_open_issues_prs` with
 
 ### `get_pr_diff`
 
-Returns the raw patch as a string in unified diff format. Each file section
-starts with `diff --git a/... b/...`. It comes from the patch-diff host rather
-than the REST API, so it is not paginated and carries no per-file metadata.
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `pr_number` | int | - | Pull request number |
+| `max_bytes` | int | `131072` | Cap on the patch returned. `0` asks the size without reading the patch |
+
+Returns:
+
+| Field | Type | Description |
+|---|---|---|
+| `pr_number` | int | The PR queried |
+| `patch` | str | Unified diff, each file section starting `diff --git a/... b/...` |
+| `bytes_returned` | int | Size of `patch` |
+| `bytes_total` | int | Size of the whole patch, whether or not it was cut |
+| `truncated` | bool | `True` when `patch` is only the start of it |
+
+The patch comes from the patch-diff host rather than the REST API, so it is not
+paginated and carries no per-file metadata. `bytes_total` is the full size even
+on a truncated reply, so `max_bytes=0` is a cheap way to decide whether to ask
+for the patch at all. A cut lands on a byte boundary and any character split
+across it is dropped, so the tail of a truncated patch can end mid-line.
+
+The default is set by `GITHUB_DIFF_MAX_BYTES`.
 
 ### `get_pr_linked_issues`
 
@@ -101,6 +122,8 @@ Cover:
 ## Best Practices
 
 - Call `get_pr_content` before `get_pr_diff`, since the metadata gives context for reading the diff
+- On a PR that looks large, call `get_pr_diff` with `max_bytes=0` first and decide from `bytes_total`
+- Re-read a `truncated=True` patch with a higher `max_bytes` rather than analysing half of it
 - For diffs over 500 lines, analyse the high-risk files first: auth, config, dependency manifests
 - Report `overall="unknown"` as unverified rather than treating it as a pass
 - Use `get_pr_linked_issues` to check a PR actually closes what it claims to

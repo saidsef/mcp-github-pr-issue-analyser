@@ -29,7 +29,7 @@ def _mock_response(
     r.text = text
     r.reason_phrase = "OK"
     r.headers = {"ETag": etag} if etag else {}
-    r.content = json.dumps(json_data).encode() if json_data is not None else b"{}"
+    r.content = json.dumps(json_data).encode() if json_data is not None else text.encode()
     r.request = None
     return r
 
@@ -1394,3 +1394,543 @@ class TestListRepoLabels:
 
     def test_is_read_only(self, gi: GitHubIntegration):
         assert gi.list_repo_labels._mcp_annotations.readOnlyHint is True
+
+
+# ---------------------------------------------------------------------------
+# get_pr_diff — size reporting and truncation (#314)
+# ---------------------------------------------------------------------------
+
+
+class TestGetPRDiff:
+    @pytest.mark.anyio
+    async def test_short_patch_comes_back_whole(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(text="diff --git a b\n"))
+        result = await gi.get_pr_diff("o", "r", 5)
+        assert result == {
+            "pr_number": 5,
+            "patch": "diff --git a b\n",
+            "bytes_returned": 15,
+            "bytes_total": 15,
+            "truncated": False,
+        }
+
+    @pytest.mark.anyio
+    async def test_long_patch_is_cut_and_says_so(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(text="x" * 100))
+        result = await gi.get_pr_diff("o", "r", 5, max_bytes=10)
+        assert result["patch"] == "x" * 10
+        assert result["bytes_returned"] == 10
+        assert result["bytes_total"] == 100
+        assert result["truncated"] is True
+
+    @pytest.mark.anyio
+    async def test_zero_max_bytes_asks_the_size_alone(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(text="x" * 100))
+        result = await gi.get_pr_diff("o", "r", 5, max_bytes=0)
+        assert result["patch"] == ""
+        assert result["bytes_total"] == 100
+        assert result["truncated"] is True
+
+    @pytest.mark.anyio
+    async def test_a_split_character_is_dropped_not_mangled(self, gi: GitHubIntegration):
+        # 'é' is two bytes, so a three-byte cut lands mid-character.
+        gi._http.request = AsyncMock(return_value=_mock_response(text="abé"))
+        result = await gi.get_pr_diff("o", "r", 5, max_bytes=3)
+        assert result["patch"] == "ab"
+        assert result["bytes_total"] == 4
+
+    @pytest.mark.anyio
+    async def test_negative_max_bytes_is_rejected(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock()
+        with pytest.raises(GitHubValidationError):
+            await gi.get_pr_diff("o", "r", 5, max_bytes=-1)
+        gi._http.request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# search_issues_prs (#346)
+# ---------------------------------------------------------------------------
+
+
+class TestSearchIssuesPRs:
+    @pytest.mark.anyio
+    async def test_query_is_encoded_into_the_search_url(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"total_count": 0, "items": []}))
+        await gi.search_issues_prs("rate limit repo:o/r is:closed")
+        url = gi._http.request.call_args.args[1]
+        assert "q=rate+limit+repo%3Ao%2Fr+is%3Aclosed" in url
+        assert "advanced_search=true" in url
+
+    @pytest.mark.anyio
+    async def test_results_are_trimmed_to_the_listing_shape(self, gi: GitHubIntegration):
+        payload = {
+            "total_count": 1,
+            "incomplete_results": False,
+            "items": [
+                {
+                    "html_url": "https://github.com/o/r/issues/7",
+                    "title": "Rate limits",
+                    "number": 7,
+                    "state": "closed",
+                    "created_at": "2026-07-01T00:00:00Z",
+                    "updated_at": "2026-07-02T00:00:00Z",
+                    "user": _NOISE_USER,
+                    "labels": [{"name": "bug"}],
+                    "body": "a very long body nobody asked for",
+                    "reactions": _NOISE_REACTIONS,
+                }
+            ],
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.search_issues_prs("rate limits")
+        assert result["total"] == 1
+        assert result["items"] == [
+            {
+                "url": "https://github.com/o/r/issues/7",
+                "title": "Rate limits",
+                "number": 7,
+                "state": "closed",
+                "created_at": "2026-07-01T00:00:00Z",
+                "updated_at": "2026-07-02T00:00:00Z",
+                "author": "octocat",
+                "label_names": ["bug"],
+                "is_draft": False,
+            }
+        ]
+
+    @pytest.mark.anyio
+    async def test_paging_params_sent_in_url(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"total_count": 0, "items": []}))
+        await gi.search_issues_prs("x", per_page=10, page=3)
+        url = gi._http.request.call_args.args[1]
+        assert "per_page=10&page=3" in url
+
+    @pytest.mark.anyio
+    async def test_empty_query_is_rejected(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock()
+        with pytest.raises(GitHubValidationError):
+            await gi.search_issues_prs("   ")
+        gi._http.request.assert_not_called()
+
+    def test_is_read_only(self, gi: GitHubIntegration):
+        assert gi.search_issues_prs._mcp_annotations.readOnlyHint is True
+
+
+# ---------------------------------------------------------------------------
+# Releases and tags — read, update, delete (#347)
+# ---------------------------------------------------------------------------
+
+
+def _release_payload(**overrides) -> dict:
+    payload = {
+        "id": 55,
+        "node_id": "RE_abc",
+        "tag_name": "v1.0.0",
+        "name": "v1.0.0",
+        "html_url": "https://github.com/o/r/releases/tag/v1.0.0",
+        "draft": False,
+        "prerelease": False,
+        "body": "notes",
+        "author": _NOISE_USER,
+        "assets": [],
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestReleasesAndTags:
+    @pytest.mark.anyio
+    async def test_get_release_by_tag(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_release_payload()))
+        result = await gi.get_release("o", "r", "v1.0.0")
+        assert gi._http.request.call_args.args[1].endswith("/releases/tags/v1.0.0")
+        assert result == {
+            "id": 55,
+            "tag_name": "v1.0.0",
+            "name": "v1.0.0",
+            "html_url": "https://github.com/o/r/releases/tag/v1.0.0",
+            "draft": False,
+            "prerelease": False,
+            "body": "notes",
+        }
+
+    @pytest.mark.anyio
+    async def test_get_release_without_a_tag_asks_for_the_latest(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_release_payload()))
+        await gi.get_release("o", "r")
+        assert gi._http.request.call_args.args[1].endswith("/releases/latest")
+
+    @pytest.mark.anyio
+    async def test_missing_release_raises_not_found(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(status_code=404, json_data={}))
+        with pytest.raises(GitHubNotFoundError, match="No release found for tag 'v9'"):
+            await gi.get_release("o", "r", "v9")
+
+    @pytest.mark.anyio
+    async def test_list_releases_is_trimmed(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_release_payload()]))
+        result = await gi.list_releases("o", "r")
+        assert result["total"] == 1
+        assert set(result["releases"][0]) == {
+            "id", "tag_name", "name", "html_url", "draft", "prerelease", "body",
+        }
+
+    @pytest.mark.anyio
+    async def test_list_tags_keeps_name_and_sha(self, gi: GitHubIntegration):
+        payload = [{"name": "v1.0.0", "zipball_url": "z", "commit": {"sha": "abc123", "url": "u"}}]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.list_tags("o", "r")
+        assert result == {"total": 1, "tags": [{"name": "v1.0.0", "sha": "abc123"}]}
+
+    @pytest.mark.anyio
+    async def test_update_release_sends_only_the_fields_supplied(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(json_data=_release_payload(body="corrected")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.update_release("o", "r", "v1.0.0", body="corrected")
+        patch_call = gi._http.request.call_args_list[1]
+        assert patch_call.args[0] == "PATCH"
+        assert patch_call.args[1].endswith("/releases/55")
+        assert patch_call.kwargs["json"] == {"body": "corrected"}
+
+    @pytest.mark.anyio
+    async def test_update_release_can_clear_the_draft_flag(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload(draft=True)),
+            _mock_response(json_data=_release_payload()),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.update_release("o", "r", "v1.0.0", draft=False)
+        assert gi._http.request.call_args_list[1].kwargs["json"] == {"draft": False}
+
+    @pytest.mark.anyio
+    async def test_update_release_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock()
+        with pytest.raises(GitHubValidationError):
+            await gi.update_release("o", "r", "v1.0.0")
+        gi._http.request.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_create_release_updates_when_the_tag_already_has_one(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(status_code=422, json_data={"errors": [{"code": "already_exists"}]}),
+            _mock_response(json_data=_release_payload()),
+            _mock_response(json_data=_release_payload(body="second attempt")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "second attempt")
+        calls = gi._http.request.call_args_list
+        assert calls[0].args[0] == "POST"
+        assert calls[2].args[0] == "PATCH"
+        assert calls[2].kwargs["json"]["body"] == "second attempt"
+        assert result["body"] == "second attempt"
+
+    @pytest.mark.anyio
+    async def test_create_release_still_raises_on_other_validation_errors(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=422, json_data={"errors": [{"code": "invalid"}]})
+        )
+        with pytest.raises(GitHubValidationError):
+            await gi.create_release("o", "r", "bad tag", "name", "notes")
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_delete_release_leaves_the_tag_alone(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.delete_release("o", "r", "v1.0.0")
+        assert gi._http.request.call_count == 2
+        assert gi._http.request.call_args.args[1].endswith("/releases/55")
+        assert result["tag_deleted"] is False
+
+    @pytest.mark.anyio
+    async def test_delete_release_removes_the_tag_when_asked(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=204),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.delete_release("o", "r", "v1.0.0", delete_tag=True)
+        assert gi._http.request.call_args.args[1].endswith("/git/refs/tags/v1.0.0")
+        assert result["tag_deleted"] is True
+
+    @pytest.mark.anyio
+    async def test_delete_tag_refuses_a_tag_a_release_points_at(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_release_payload()))
+        with pytest.raises(GitHubValidationError, match="force=True"):
+            await gi.delete_tag("o", "r", "v1.0.0")
+        # The lookup happened, the delete did not.
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_delete_tag_proceeds_when_forced(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.delete_tag("o", "r", "v1.0.0", force=True)
+        assert gi._http.request.call_args.args[0] == "DELETE"
+        assert result["release_still_published"] is True
+
+    @pytest.mark.anyio
+    async def test_delete_tag_without_a_release_needs_no_force(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(status_code=404, json_data={}),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.delete_tag("o", "r", "v0.1.0")
+        assert result == {"status": "deleted", "tag_name": "v0.1.0", "release_still_published": False}
+
+    def test_delete_tools_report_themselves_destructive(self, gi: GitHubIntegration):
+        for name in ("delete_release", "delete_tag"):
+            assert getattr(gi, name)._mcp_annotations.destructiveHint is True, name
+
+    def test_read_tools_are_read_only(self, gi: GitHubIntegration):
+        for name in ("list_releases", "get_release", "list_tags"):
+            assert getattr(gi, name)._mcp_annotations.readOnlyHint is True, name
+
+
+# ---------------------------------------------------------------------------
+# update_pr and set_pr_draft (#348)
+# ---------------------------------------------------------------------------
+
+
+def _pr_payload(**overrides) -> dict:
+    payload = {
+        "title": "A change",
+        "body": "Details",
+        "user": _NOISE_USER,
+        "created_at": "2026-07-01T00:00:00Z",
+        "updated_at": "2026-07-02T00:00:00Z",
+        "state": "open",
+        "node_id": "PR_abc",
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestUpdatePR:
+    @pytest.mark.anyio
+    async def test_sends_only_the_fields_supplied(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_pr_payload(state="closed")))
+        await gi.update_pr("o", "r", 5, state="closed")
+        assert gi._http.request.call_args.kwargs["json"] == {"state": "closed"}
+
+    @pytest.mark.anyio
+    async def test_title_changes_without_resending_the_body(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_pr_payload()))
+        await gi.update_pr("o", "r", 5, title="A better title")
+        assert "body" not in gi._http.request.call_args.kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_base_can_be_retargeted(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_pr_payload()))
+        await gi.update_pr("o", "r", 5, base="develop")
+        assert gi._http.request.call_args.kwargs["json"] == {"base": "develop"}
+
+    @pytest.mark.anyio
+    async def test_returns_the_trimmed_pr_content(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_pr_payload(state="closed")))
+        result = await gi.update_pr("o", "r", 5, state="closed")
+        assert result == {
+            "title": "A change",
+            "description": "Details",
+            "author": "octocat",
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-02T00:00:00Z",
+            "state": "closed",
+        }
+
+    @pytest.mark.anyio
+    async def test_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock()
+        with pytest.raises(GitHubValidationError):
+            await gi.update_pr("o", "r", 5)
+        gi._http.request.assert_not_called()
+
+    def test_is_idempotent_not_destructive(self, gi: GitHubIntegration):
+        ann = gi.update_pr._mcp_annotations
+        assert ann.idempotentHint is True
+        assert ann.destructiveHint is False
+
+
+class TestSetPRDraft:
+    @pytest.mark.anyio
+    async def test_ready_for_review_uses_the_mark_ready_mutation(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_pr_payload()))
+        gi._execute_graphql = AsyncMock(
+            return_value={"markPullRequestReadyForReview": {"pullRequest": {"number": 5, "isDraft": False, "url": "u"}}}
+        )
+        result = await gi.set_pr_draft("o", "r", 5, draft=False)
+        query, variables = gi._execute_graphql.call_args.args
+        assert "markPullRequestReadyForReview" in query
+        assert variables == {"pullRequestId": "PR_abc"}
+        assert result == {"pr_number": 5, "is_draft": False, "url": "u"}
+
+    @pytest.mark.anyio
+    async def test_back_to_draft_uses_the_convert_mutation(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_pr_payload()))
+        gi._execute_graphql = AsyncMock(
+            return_value={"convertPullRequestToDraft": {"pullRequest": {"number": 5, "isDraft": True, "url": "u"}}}
+        )
+        result = await gi.set_pr_draft("o", "r", 5, draft=True)
+        assert "convertPullRequestToDraft" in gi._execute_graphql.call_args.args[0]
+        assert result["is_draft"] is True
+
+    @pytest.mark.anyio
+    async def test_missing_node_id_is_an_error(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"number": 5}))
+        gi._execute_graphql = AsyncMock()
+        with pytest.raises(ToolError, match="node id"):
+            await gi.set_pr_draft("o", "r", 5, draft=False)
+        gi._execute_graphql.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# PR comments — list, edit, reply (#349)
+# ---------------------------------------------------------------------------
+
+
+class TestPRComments:
+    @pytest.mark.anyio
+    async def test_conversation_comments_come_from_the_issues_path(self, gi: GitHubIntegration):
+        payload = [{
+            "id": 11,
+            "body": "hello",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#issuecomment-11",
+            "created_at": "2026-07-01T00:00:00Z",
+        }]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.list_pr_comments("o", "r", 5)
+        assert "/issues/5/comments" in gi._http.request.call_args.args[1]
+        assert result["kind"] == "conversation"
+        assert result["comments"] == [{
+            "id": 11,
+            "body": "hello",
+            "author": "octocat",
+            "html_url": "https://github.com/o/r/pull/5#issuecomment-11",
+            "created_at": "2026-07-01T00:00:00Z",
+        }]
+
+    @pytest.mark.anyio
+    async def test_inline_comments_carry_the_file_and_line(self, gi: GitHubIntegration):
+        payload = [{
+            "id": 22,
+            "body": "fix this",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#discussion_r22",
+            "created_at": "2026-07-01T00:00:00Z",
+            "path": "app.py",
+            "line": 3,
+            "in_reply_to_id": None,
+            "diff_hunk": "@@ -1,3 +1,3 @@",
+        }]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.list_pr_comments("o", "r", 5, kind="inline")
+        assert "/pulls/5/comments" in gi._http.request.call_args.args[1]
+        assert result["comments"][0]["path"] == "app.py"
+        assert result["comments"][0]["line"] == 3
+        assert "diff_hunk" not in result["comments"][0]
+
+    @pytest.mark.anyio
+    async def test_paging_params_sent_in_url(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        await gi.list_pr_comments("o", "r", 5, per_page=10, page=2)
+        assert gi._http.request.call_args.args[1].endswith("?per_page=10&page=2")
+
+    @pytest.mark.anyio
+    async def test_editing_an_inline_comment_uses_the_pulls_id_space(self, gi: GitHubIntegration):
+        payload = {
+            "id": 22,
+            "body": "corrected",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#discussion_r22",
+            "created_at": "2026-07-01T00:00:00Z",
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.update_pr_comment("o", "r", 22, "corrected", kind="inline")
+        call = gi._http.request.call_args
+        assert call.args[0] == "PATCH"
+        assert call.args[1].endswith("/pulls/comments/22")
+        assert result["body"] == "corrected"
+
+    @pytest.mark.anyio
+    async def test_editing_a_conversation_comment_uses_the_issues_id_space(self, gi: GitHubIntegration):
+        payload = {
+            "id": 11,
+            "body": "corrected",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#issuecomment-11",
+            "created_at": "2026-07-01T00:00:00Z",
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        await gi.update_pr_comment("o", "r", 11, "corrected")
+        assert gi._http.request.call_args.args[1].endswith("/issues/comments/11")
+
+    @pytest.mark.anyio
+    async def test_reply_posts_onto_the_existing_thread(self, gi: GitHubIntegration):
+        payload = {
+            "id": 23,
+            "body": "agreed",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#discussion_r23",
+            "created_at": "2026-07-01T00:00:00Z",
+            "path": "app.py",
+            "line": 3,
+            "in_reply_to_id": 22,
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.reply_to_review_comment("o", "r", 5, 22, "agreed")
+        call = gi._http.request.call_args
+        assert call.args[0] == "POST"
+        assert call.args[1].endswith("/pulls/5/comments/22/replies")
+        assert result["in_reply_to_id"] == 22
+
+    @pytest.mark.anyio
+    async def test_the_id_a_listing_returns_is_the_id_an_edit_takes(self, gi: GitHubIntegration):
+        listing = [{
+            "id": 22,
+            "body": "fix this",
+            "user": _NOISE_USER,
+            "html_url": "https://github.com/o/r/pull/5#discussion_r22",
+            "created_at": "2026-07-01T00:00:00Z",
+            "path": "app.py",
+            "line": 3,
+        }]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=listing))
+        listed = await gi.list_pr_comments("o", "r", 5, kind="inline")
+        comment_id = listed["comments"][0]["id"]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=listing[0]))
+        await gi.update_pr_comment("o", "r", comment_id, "corrected", kind="inline")
+        assert gi._http.request.call_args.args[1].endswith("/pulls/comments/22")
+
+    def test_listing_is_read_only(self, gi: GitHubIntegration):
+        assert gi.list_pr_comments._mcp_annotations.readOnlyHint is True
+
+
+# ---------------------------------------------------------------------------
+# _request allow_status
+# ---------------------------------------------------------------------------
+
+
+class TestAllowStatus:
+    @pytest.mark.anyio
+    async def test_allowed_status_is_returned_not_raised(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(status_code=404, json_data={}))
+        response = await gi._request("GET", "https://api.github.com/x", allow_status=(404,))
+        assert response.status_code == 404
+
+    @pytest.mark.anyio
+    async def test_an_unlisted_status_still_raises(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(status_code=404, json_data={}))
+        with pytest.raises(ToolError):
+            await gi._request("GET", "https://api.github.com/x", allow_status=(422,))

@@ -22,6 +22,7 @@ import logging
 from contextlib import asynccontextmanager
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
+from urllib.parse import quote_plus
 
 import httpx
 from fastmcp import Context
@@ -46,11 +47,13 @@ from .exceptions import (
 from .graphql_client import GRAPHQL_URL, handle_graphql_errors
 from .graphql_queries import (
     CHECK_SUITE_RUNS_QUERY,
+    CONVERT_PR_TO_DRAFT_MUTATION,
+    MARK_PR_READY_MUTATION,
     PR_LINKED_ISSUES_QUERY,
     PR_STATUS_CHECKS_QUERY,
     SEARCH_USER_QUERY,
 )
-from .tool_annotations import _read_only, _write
+from .tool_annotations import _destructive, _read_only, _write
 
 
 class PRContent(TypedDict):
@@ -68,6 +71,12 @@ class CommentData(TypedDict):
     author: str
     html_url: str
     created_at: str
+
+
+class ReviewCommentData(CommentData, total=False):
+    path: str | None
+    line: int | None
+    in_reply_to_id: int | None
 
 
 class IssueData(TypedDict):
@@ -105,6 +114,14 @@ class LinkedIssuesResult(TypedDict):
     linked_issues: list[dict[str, Any]]
 
 
+class DiffResult(TypedDict):
+    pr_number: int
+    patch: str
+    bytes_returned: int
+    bytes_total: int
+    truncated: bool
+
+
 class StatusChecksResult(TypedDict):
     pr_number: int
     overall: str
@@ -117,8 +134,18 @@ GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, bounds reading the response
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))  # seconds, bounds opening the connection
 ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))  # 0 disables conditional reads
+DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))  # 128 KB, wider than any patch this repo produces
 MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
+
+# Conversation comments hang off the issue, review comments off the pull request.
+_COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
+
+_RELEASE_FIELDS = ("id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
+
+# Named once so the comma does not sit inside a signature, where the complexity
+# counter reads it as another parameter.
+_OpenClosed = Literal["open", "closed"]
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +182,43 @@ def _comment_result(data: dict[str, Any]) -> CommentData:
         "author": (data.get("user") or {}).get("login", ""),
         "html_url": data["html_url"],
         "created_at": data["created_at"],
+    }
+
+
+def _already_exists(response: httpx.Response) -> bool:
+    """A 422 from GitHub carries an errors array saying what was wrong. Only the
+    duplicate case is recoverable, so the rest still surface as validation errors."""
+    try:
+        errors = response.json().get("errors") or []
+    except Exception:
+        return False
+    return any(error.get("code") == "already_exists" for error in errors)
+
+
+def _search_item(item: dict[str, Any]) -> dict[str, Any]:
+    """Trim one issue or pull request from a search result. Both the open
+    listing and the free-text search return this shape."""
+    return {
+        "url": item["html_url"],
+        "title": item["title"],
+        "number": item["number"],
+        "state": item["state"],
+        "created_at": item["created_at"],
+        "updated_at": item["updated_at"],
+        "author": (item.get("user") or {}).get("login", ""),
+        "label_names": [label["name"] for label in item.get("labels", [])],
+        "is_draft": item.get("draft", False),
+    }
+
+
+def _review_comment_result(data: dict[str, Any]) -> ReviewCommentData:
+    """A review comment is a comment plus where it sits, which is what tells a
+    caller whether it has already said something about that line."""
+    return {
+        **_comment_result(data),
+        "path": data.get("path"),
+        "line": data.get("line"),
+        "in_reply_to_id": data.get("in_reply_to_id"),
     }
 
 
@@ -296,10 +360,19 @@ class GitHubIntegration(ActivityMixin):
         return f"{url}?{sorted(params.items())}" if params else url
 
     async def _request(
-        self, method: str, url: str, *, context: str = "", headers: dict[str, str] | None = None, **kwargs: Any
+        self,
+        method: str,
+        url: str,
+        *,
+        context: str = "",
+        headers: dict[str, str] | None = None,
+        allow_status: tuple[int, ...] = (),
+        **kwargs: Any,
     ) -> httpx.Response:
         """Make an HTTP request and handle errors. A repeated GET is sent
-        conditionally, and GitHub does not charge rate limit for a 304."""
+        conditionally, and GitHub does not charge rate limit for a 304.
+        Statuses named in allow_status come back for the caller to read
+        instead of raising, so an expected 404 or 422 can be a branch."""
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
         sent = {**self._get_headers(), **(headers or {})}
@@ -312,6 +385,9 @@ class GitHubIntegration(ActivityMixin):
             if response.status_code == 304 and cached:
                 logger.info(f"Not modified {ctx}")
                 return httpx.Response(200, content=cached[1], request=response.request)
+            if response.status_code in allow_status:
+                logger.info(f"Expected {response.status_code} {ctx}")
+                return response
             self._raise_for_status(response, context)
             if key and (etag := response.headers.get("ETag")):
                 self._remember_etag(key, etag, response.content)
@@ -331,10 +407,31 @@ class GitHubIntegration(ActivityMixin):
         self._etags[key] = (etag, content)
 
     @_read_only
-    async def get_pr_diff(self, repo_owner: str, repo_name: str, pr_number: int) -> str:
-        """Fetches the diff/patch of a specific pull request."""
+    async def get_pr_diff(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        max_bytes: Annotated[
+            int, "Cap on the patch returned. Pass 0 to learn the size without reading the patch"
+        ] = DIFF_MAX_BYTES,
+    ) -> DiffResult:
+        """Fetches the diff/patch of a specific pull request, capped at max_bytes.
+        bytes_total is the whole patch either way, so a truncated reply says what
+        was left behind. See #314."""
+        if max_bytes < 0:
+            raise GitHubValidationError("max_bytes cannot be negative.")
         url = f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch"
-        return (await self._request("GET", url, context=f"PR #{pr_number} diff")).text
+        content = (await self._request("GET", url, context=f"PR #{pr_number} diff")).content
+        kept = content[:max_bytes]
+        # Cutting on a byte boundary can split a character, so drop the partial one.
+        return {
+            "pr_number": pr_number,
+            "patch": kept.decode("utf-8", errors="ignore"),
+            "bytes_returned": len(kept),
+            "bytes_total": len(content),
+            "truncated": len(kept) < len(content),
+        }
 
     @_read_only
     async def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
@@ -373,6 +470,62 @@ class GitHubIntegration(ActivityMixin):
         ).json()
         return _comment_result(data)
 
+    @_read_only
+    async def list_pr_comments(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        kind: Annotated[
+            Literal["conversation", "inline"], "conversation for the PR thread, inline for review comments on lines"
+        ] = "conversation",
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists the comments on a pull request. Inline comments carry the file
+        and line they sit on, so a second review can tell what it already said."""
+        segment = _COMMENT_SEGMENTS[kind]
+        url = (
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}/{segment}/{pr_number}/comments"
+            f"?per_page={per_page}&page={page}"
+        )
+        data = (await self._request("GET", url, context=f"{kind} comments on PR #{pr_number}")).json()
+        trim = _review_comment_result if kind == "inline" else _comment_result
+        comments = [trim(comment) for comment in data]
+        return {"total": len(comments), "kind": kind, "comments": comments}
+
+    @_write(idempotent=True)
+    async def update_pr_comment(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        comment_id: Annotated[int, "The comment's own id, as returned by list_pr_comments, not the PR number"],
+        body: str,
+        kind: Literal["conversation", "inline"] = "conversation",
+    ) -> CommentData:
+        """Rewrites a comment already posted. Conversation and review comments
+        have separate id spaces, so the kind has to match where the id came from."""
+        segment = _COMMENT_SEGMENTS[kind]
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/{segment}/comments/{comment_id}"
+        data = (await self._request("PATCH", url, context=f"{kind} comment {comment_id}", json={"body": body})).json()
+        return _comment_result(data)
+
+    @_write
+    async def reply_to_review_comment(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        comment_id: Annotated[int, "The review comment being replied to, which sets the thread"],
+        body: str,
+    ) -> ReviewCommentData:
+        """Replies on an existing review thread rather than starting a new one."""
+        url = (
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments/{comment_id}/replies"
+        )
+        data = (await self._request("POST", url, context=f"reply to comment {comment_id}", json={"body": body})).json()
+        return _review_comment_result(data)
+
     @_write(idempotent=True)
     async def update_pr_description(
         self,
@@ -390,6 +543,55 @@ class GitHubIntegration(ActivityMixin):
             )
         ).json()
         return _pr_content(data)
+
+    @_write(idempotent=True)
+    async def update_pr(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        title: Annotated[str | None, "Replacement title. Omit to leave the current title alone"] = None,
+        body: Annotated[str | None, "Replacement body in Markdown. Omit to leave the current body alone"] = None,
+        state: Annotated[_OpenClosed | None, "Omit to leave the state alone"] = None,
+        base: Annotated[str | None, "Branch to retarget the pull request onto"] = None,
+    ) -> PRContent:
+        """Updates an existing pull request. Only the fields supplied are sent, the
+        rest keep their current values, so a title can change without restating the body."""
+        fields: dict[str, Any] = {"title": title, "body": body, "state": state, "base": base}
+        payload = {name: value for name, value in fields.items() if value is not None}
+        if not payload:
+            raise GitHubValidationError("Supply at least one of title, body, state or base to update.")
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+        data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
+        return _pr_content(data)
+
+    @_write(idempotent=True)
+    async def set_pr_draft(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        draft: Annotated[bool, "True puts the pull request back into draft, False marks it ready for review"],
+    ) -> dict[str, Any]:
+        """Moves a pull request between draft and ready for review. REST accepts
+        draft only when the pull request is created, so this goes through GraphQL."""
+        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+        node_id = (await self._request("GET", pr_url, context=f"PR #{pr_number}")).json().get("node_id")
+        if not node_id:
+            raise ToolError(f"Could not retrieve the node id for PR #{pr_number}")
+        mutation, field = (
+            (CONVERT_PR_TO_DRAFT_MUTATION, "convertPullRequestToDraft")
+            if draft
+            else (MARK_PR_READY_MUTATION, "markPullRequestReadyForReview")
+        )
+        async with self._guard("change draft status"):
+            result = await self._execute_graphql(mutation, {"pullRequestId": node_id})
+        pr_data = (result.get(field) or {}).get("pullRequest") or {}
+        return {
+            "pr_number": pr_data.get("number", pr_number),
+            "is_draft": pr_data.get("isDraft"),
+            "url": pr_data.get("url"),
+        }
 
     @_write
     async def create_pr(
@@ -440,20 +642,31 @@ class GitHubIntegration(ActivityMixin):
         data = (await self._request("GET", url, context=f"list open {issue}s for {search_target}")).json()
         return {
             "total": data["total_count"],
-            f"open_{issue}s": [
-                {
-                    "url": item["html_url"],
-                    "title": item["title"],
-                    "number": item["number"],
-                    "state": item["state"],
-                    "created_at": item["created_at"],
-                    "updated_at": item["updated_at"],
-                    "author": item["user"]["login"],
-                    "label_names": [label["name"] for label in item.get("labels", [])],
-                    "is_draft": item.get("draft", False),
-                }
-                for item in data["items"]
-            ],
+            f"open_{issue}s": [_search_item(item) for item in data["items"]],
+        }
+
+    @_read_only
+    async def search_issues_prs(
+        self,
+        query: Annotated[str, "Terms and qualifiers, e.g. 'rate limit repo:owner/name is:closed label:bug'"],
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Searches issues and pull requests by text and qualifiers. Unlike
+        list_open_issues_prs the query is the caller's, so closed and merged
+        items are reachable and any qualifier GitHub search accepts works."""
+        if not query.strip():
+            raise GitHubValidationError("Supply a search query.")
+        # advanced_search=true is what the current qualifier set is served under.
+        url = (
+            "https://api.github.com/search/issues"
+            f"?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
+        )
+        data = (await self._request("GET", url, context=f"search issues and PRs for {query!r}")).json()
+        return {
+            "total": data["total_count"],
+            "incomplete_results": data.get("incomplete_results", False),
+            "items": [_search_item(item) for item in data["items"]],
         }
 
     @_read_only
@@ -533,7 +746,7 @@ class GitHubIntegration(ActivityMixin):
             list[str] | None, "Replacement label set. Omit to keep the current labels, pass [] to strip them all"
         ] = None,
         state: Annotated[
-            Literal["open", "closed"] | None, "Omit to leave the issue in whichever state it is already in"
+            _OpenClosed | None, "Omit to leave the issue in whichever state it is already in"
         ] = None,
     ) -> IssueData:
         """Updates an existing issue. Only the fields supplied are sent, the rest keep their current values."""
@@ -655,25 +868,164 @@ class GitHubIntegration(ActivityMixin):
         generate_release_notes: bool = True,
         make_latest: Literal["true", "false", "legacy"] = "true",
     ) -> dict[str, Any]:
-        """Creates a new release."""
+        """Creates a new release. A tag that already carries one is updated instead
+        of rejected, so a retry after a half-finished release recovers. See #347."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
-        data = (
-            await self._request(
-                "POST",
-                url,
-                context=f"create release {release_name}",
-                json={
-                    "tag_name": tag_name,
-                    "name": release_name,
-                    "body": body,
-                    "draft": draft,
-                    "prerelease": prerelease,
-                    "generate_release_notes": generate_release_notes,
-                    "make_latest": make_latest,
-                },
+        response = await self._request(
+            "POST",
+            url,
+            context=f"create release {release_name}",
+            allow_status=(422,),
+            json={
+                "tag_name": tag_name,
+                "name": release_name,
+                "body": body,
+                "draft": draft,
+                "prerelease": prerelease,
+                "generate_release_notes": generate_release_notes,
+                "make_latest": make_latest,
+            },
+        )
+        if response.status_code == 422:
+            if not _already_exists(response):
+                self._handle_response_error(response, f"create release {release_name}")
+            logger.info(f"Release for {tag_name} already exists, updating it instead")
+            return await self.update_release(
+                repo_owner,
+                repo_name,
+                tag_name,
+                name=release_name,
+                body=body,
+                draft=draft,
+                prerelease=prerelease,
             )
-        ).json()
-        return _pick(data, "id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
+        return _pick(response.json(), *_RELEASE_FIELDS)
+
+    async def _release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any] | None:
+        """The release published for a tag, or None when the tag carries none."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/tags/{tag_name}"
+        response = await self._request(
+            "GET", url, context=f"release for tag {tag_name}", allow_status=(404,)
+        )
+        return None if response.status_code == 404 else response.json()
+
+    async def _require_release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any]:
+        """As _release_by_tag, for the callers that cannot proceed without one."""
+        release = await self._release_by_tag(repo_owner, repo_name, tag_name)
+        if release is None:
+            raise GitHubNotFoundError(f"No release found for tag '{tag_name}' in {repo_owner}/{repo_name}")
+        return release
+
+    @_read_only
+    async def list_releases(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 30,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists a repository's releases, newest first."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases?per_page={per_page}&page={page}"
+        data = (await self._request("GET", url, context=f"releases for {repo_owner}/{repo_name}")).json()
+        releases = [_pick(release, *_RELEASE_FIELDS) for release in data]
+        return {"total": len(releases), "releases": releases}
+
+    @_read_only
+    async def get_release(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        tag_name: Annotated[str | None, "Tag to fetch. Omit for the latest published release"] = None,
+    ) -> dict[str, Any]:
+        """Fetches one release, by tag or the latest published one."""
+        if tag_name:
+            return _pick(await self._require_release_by_tag(repo_owner, repo_name, tag_name), *_RELEASE_FIELDS)
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+        data = (await self._request("GET", url, context=f"latest release for {repo_owner}/{repo_name}")).json()
+        return _pick(data, *_RELEASE_FIELDS)
+
+    @_write(idempotent=True)
+    async def update_release(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        tag_name: Annotated[str, "Tag of the release to change"],
+        name: Annotated[str | None, "Replacement title. Omit to leave it alone"] = None,
+        body: Annotated[str | None, "Replacement notes. Omit to leave them alone"] = None,
+        draft: bool | None = None,
+        prerelease: bool | None = None,
+    ) -> dict[str, Any]:
+        """Changes a published release in place. Only the fields supplied are sent,
+        so correcting a title does not wipe the notes. make_latest is settable on
+        create_release alone, to keep this signature inside the parameter budget."""
+        fields: dict[str, Any] = {"name": name, "body": body, "draft": draft, "prerelease": prerelease}
+        payload = {key: value for key, value in fields.items() if value is not None}
+        if not payload:
+            raise GitHubValidationError("Supply at least one field to update on the release.")
+        release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/{release['id']}"
+        data = (await self._request("PATCH", url, context=f"release {tag_name}", json=payload)).json()
+        return _pick(data, *_RELEASE_FIELDS)
+
+    @_destructive
+    async def delete_release(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        tag_name: str,
+        delete_tag: Annotated[bool, "Also remove the tag the release was published from"] = False,
+    ) -> dict[str, Any]:
+        """Deletes a release. The tag it was published from survives unless
+        delete_tag asks for it, since the commit history usually should not move."""
+        release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
+        base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        await self._request("DELETE", f"{base}/releases/{release['id']}", context=f"delete release {tag_name}")
+        if delete_tag:
+            await self._delete_tag_ref(repo_owner, repo_name, tag_name)
+        return {
+            "status": "deleted",
+            "tag_name": tag_name,
+            "release_id": release["id"],
+            "tag_deleted": delete_tag,
+        }
+
+    @_read_only
+    async def list_tags(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 30,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists a repository's tags and the commit each points at."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/tags?per_page={per_page}&page={page}"
+        data = (await self._request("GET", url, context=f"tags for {repo_owner}/{repo_name}")).json()
+        tags = [{"name": tag["name"], "sha": (tag.get("commit") or {}).get("sha")} for tag in data]
+        return {"total": len(tags), "tags": tags}
+
+    async def _delete_tag_ref(self, repo_owner: str, repo_name: str, tag_name: str) -> None:
+        """Removes the tag ref itself."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs/tags/{tag_name}"
+        await self._request("DELETE", url, context=f"delete tag {tag_name}")
+
+    @_destructive
+    async def delete_tag(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        tag_name: str,
+        force: Annotated[bool, "Delete the tag even though a release was published from it"] = False,
+    ) -> dict[str, Any]:
+        """Deletes a tag. A tag a release points at is refused unless force is set,
+        because removing it leaves the release without the code it names."""
+        release = await self._release_by_tag(repo_owner, repo_name, tag_name)
+        if release and not force:
+            raise GitHubValidationError(
+                f"Tag '{tag_name}' is used by release '{release.get('name') or tag_name}'. "
+                "Delete the release first, or pass force=True."
+            )
+        await self._delete_tag_ref(repo_owner, repo_name, tag_name)
+        return {"status": "deleted", "tag_name": tag_name, "release_still_published": bool(release)}
 
     async def _execute_graphql(
         self, query: str, variables: dict[str, Any], *, token: str | None = None

@@ -4,9 +4,9 @@
 
 An [MCP](https://www.anthropic.com/news/model-context-protocol) server that connects an LLM to GitHub's repository management features. It analyses pull requests, manages issues, and handles tags and releases, over stdio or HTTP, with a static token or GitHub OAuth2.
 
-- **Pull requests** - fetch diffs, content, linked issues and CI status; create, comment, review, merge and update
-- **Issues** - create, update, list and assign; read a repository's labels
-- **Releases** - tag commits and publish releases
+- **Pull requests** - fetch diffs, content, linked issues and CI status; create, comment, review, merge and update; close, retarget and flip draft status; read and correct the comments already posted
+- **Issues** - create, update, list, search and assign; read a repository's labels
+- **Releases** - tag commits, publish releases, and list, correct or withdraw what is published
 - **Users** - profile lookup, contribution activity and star growth via GraphQL
 
 The full tool list is in [docs/tools.md](./docs/tools.md).
