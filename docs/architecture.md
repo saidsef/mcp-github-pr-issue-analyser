@@ -1,6 +1,6 @@
 # Architecture
 
-<img src="./architecture.svg" alt="Architecture of the MCP GitHub PR and Issue Analyser: an MCP client reaches the auth layer over stdio or HTTP, the auth layer selects no auth, a static token verifier or GitHub OAuth2 with a memory, DynamoDB or Redis token store, and the FastMCP server calls the GitHub REST v3 and GraphQL v4 APIs while exposing Prometheus metrics" width="100%">
+![Architecture of the MCP GitHub PR and Issue Analyser: an MCP client reaches the auth layer over stdio or HTTP, the auth layer selects no auth, a static token verifier or GitHub OAuth2 with a memory, DynamoDB or Redis token store, and the FastMCP server calls the GitHub REST v3 and GraphQL v4 APIs while exposing Prometheus metrics](architecture.svg)
 
 ## Layers
 
