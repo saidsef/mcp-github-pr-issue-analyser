@@ -1946,29 +1946,37 @@ class TestAllowStatus:
 # Project boards (#351)
 # ---------------------------------------------------------------------------
 
-_PROJECT = {
-    "id": "PVT_1",
-    "number": 4,
-    "title": "Backlog",
-    "url": "https://github.com/users/o/projects/4",
-    "fields": {
-        "nodes": [
-            {"id": "F_title", "name": "Title", "dataType": "TITLE"},
-            {
-                "id": "F_status",
-                "name": "Status",
-                "dataType": "SINGLE_SELECT",
-                "options": [{"id": "opt_todo", "name": "Todo"}, {"id": "opt_doing", "name": "In Progress"}],
-            },
-            {},
-        ]
-    },
-}
+# An owner whose projectV2 resolved to nothing, which is what a wrong number and
+# a token that cannot see Projects both look like.
+_NO_PROJECT: dict = {"repositoryOwner": {}}
 
 
-def _owner(project: dict | None = _PROJECT) -> dict:
-    """A repositoryOwner payload, as either fragment resolves into one shape."""
-    return {"repositoryOwner": {"projectV2": project} if project is not None else {}}
+def _project() -> dict:
+    """A board with one plain field and one single select. Built per call so one
+    test cannot mutate what the next one reads."""
+    return {
+        "id": "PVT_1",
+        "number": 4,
+        "title": "Backlog",
+        "url": "https://github.com/users/o/projects/4",
+        "fields": {
+            "nodes": [
+                {"id": "F_title", "name": "Title", "dataType": "TITLE"},
+                {
+                    "id": "F_status",
+                    "name": "Status",
+                    "dataType": "SINGLE_SELECT",
+                    "options": [{"id": "opt_todo", "name": "Todo"}, {"id": "opt_doing", "name": "In Progress"}],
+                },
+                {},
+            ]
+        },
+    }
+
+
+def _owner(project: dict | None = None) -> dict:
+    """A repositoryOwner payload, as either inline fragment resolves into one shape."""
+    return {"repositoryOwner": {"projectV2": project if project is not None else _project()}}
 
 
 def _issue_node(items: list[dict] | None = None) -> dict:
@@ -1997,13 +2005,13 @@ class TestProjectResolution:
 
     @pytest.mark.anyio
     async def test_a_missing_project_names_what_was_not_found(self, gi: GitHubIntegration):
-        gi._execute_graphql = AsyncMock(return_value=_owner(None))
+        gi._execute_graphql = AsyncMock(return_value=_NO_PROJECT)
         with pytest.raises(GitHubNotFoundError, match="No project #4 for 'o'"):
             await gi.get_project_fields("o", 4)
 
     @pytest.mark.anyio
     async def test_an_invisible_project_points_at_the_scope(self, gi: GitHubIntegration):
-        gi._execute_graphql = AsyncMock(return_value=_owner(None))
+        gi._execute_graphql = AsyncMock(return_value=_NO_PROJECT)
         with pytest.raises(GitHubNotFoundError, match="read:project"):
             await gi.get_project_fields("o", 4)
 
