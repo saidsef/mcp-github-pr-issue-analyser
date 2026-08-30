@@ -1,6 +1,6 @@
 # Tools
 
-The server registers every public method on the GitHub integration that carries an MCP annotation. Read-only tools make no changes; write tools do; destructive tools remove something that cannot be brought back. A few long-running read tools are registered as tasks, so the client can poll rather than block.
+The server registers every public method on the GitHub integration that carries an MCP annotation. Read tools make no changes, write tools do, and destructive tools remove something that cannot be brought back. A few long-running read tools are registered as tasks, so the client can poll rather than block.
 
 ## Pull requests
 
@@ -84,7 +84,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 ## Skills
 
-Workflow guidance ships with the server as MCP resources under the `skill://` URI scheme. Clients that support skills load them on demand, so the model gets the procedure for a task rather than a bare tool list.
+Workflow guidance ships with the server as MCP resources under the `skill://` URI scheme. Clients that support skills load them on demand.
 
 | Resource | Covers |
 |----------|--------|

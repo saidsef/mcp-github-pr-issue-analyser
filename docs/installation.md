@@ -14,7 +14,7 @@ cd mcp-github-pr-issue-analyser
 
 ### stdio mode
 
-The default. The server talks over stdin and stdout, so it is launched by the client rather than run as a service.
+The default. The server talks over stdin and stdout, launched by the client rather than run as a service.
 
 ```sh
 export GITHUB_TOKEN="<github-token>"
@@ -42,7 +42,7 @@ export GITHUB_OAUTH_BASE_URL="https://<your-public-host>"
 uvx ./
 ```
 
-Users authenticate through GitHub's OAuth flow and each user's own token is used for API calls. See [Configuration](./configuration.md) for the OAuth App setup.
+Each user's own token is then used for API calls. See [Configuration](./configuration.md) for the OAuth App setup.
 
 ## Docker
 
@@ -67,7 +67,7 @@ docker run \
   ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest
 ```
 
-Swap `REDIS_HOST_PORT` for `DYNAMODB_TABLE_ARN` to keep the same state in DynamoDB instead. The container then needs AWS credentials, from `AWS_*` variables or a mounted role.
+Swap `REDIS_HOST_PORT` for `DYNAMODB_TABLE_ARN` to hold the same state in DynamoDB. The container then needs AWS credentials, from `AWS_*` variables or a mounted role.
 
 ## Kubernetes
 
@@ -77,7 +77,7 @@ Manifests live under `deployment/`. Apply them with kustomize:
 kubectl apply -k deployment/
 ```
 
-The base expects two objects in the same namespace:
+The base reads from these objects in the same namespace:
 
 | Object | Kind | Keys |
 |--------|------|------|
@@ -85,9 +85,9 @@ The base expects two objects in the same namespace:
 | `redis-config` | ConfigMap and Secret | `host-port`, `password` |
 | `dynamodb-config` | ConfigMap | `arn` |
 
-Every key above is optional except the token, so supply whichever store you want and leave the other object out. Without either the pod runs with the in-process store. For DynamoDB, annotate the `mcp-github` service account with a role that can reach the table.
+Every key is optional except the token: supply one store and leave the other object out. With neither, the pod runs the in-process store. For DynamoDB, annotate the `mcp-github` service account with a role carrying the [IAM policy](./configuration.md#iam-policy-for-dynamodb).
 
-The pod runs as a non-root user with a read-only root filesystem, drops all capabilities, and carries `prometheus.io/scrape` annotations. To run in OAuth2 mode, add the three `GITHUB_OAUTH_*` variables to the container spec and expose the service on the host named in `GITHUB_OAUTH_BASE_URL`.
+The pod runs as a non-root user with a read-only root filesystem, drops all capabilities, and carries `prometheus.io/scrape` annotations. For OAuth2 mode, add the three `GITHUB_OAUTH_*` variables to the container spec and expose the service on the host named in `GITHUB_OAUTH_BASE_URL`.
 
 ## Next
 

@@ -14,11 +14,11 @@ curl http://localhost:8081/metrics
 | `process_*` | gauge | CPU, memory and file descriptor usage of the server process, Linux only |
 | `python_info` | gauge | Interpreter version |
 
-`outcome` is `success` or `error`, so both are counted and both are timed. A call for a tool that does not exist is recorded as `tool_name="unknown"`, which keeps the label bounded to registered tools whatever a client asks for.
+`outcome` is `success` or `error`. A call for a tool that does not exist is recorded as `tool_name="unknown"`, which keeps the label bounded to registered tools.
 
 ## Scraping
 
-The Kubernetes manifests under `deployment/` set `prometheus.io/scrape: "true"` and `prometheus.io/port: "8081"` on the pod, so a Prometheus instance using pod annotations picks the endpoint up with no further configuration.
+The Kubernetes manifests under `deployment/` set `prometheus.io/scrape: "true"` and `prometheus.io/port: "8081"` on the pod, so a Prometheus instance using pod annotations needs no further configuration.
 
 For a static scrape config:
 
