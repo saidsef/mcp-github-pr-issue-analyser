@@ -26,9 +26,7 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | `JWT_SIGNING_KEY` | No | Signing key for issued JWTs. Derived from `GITHUB_OAUTH_CLIENT_SECRET` when unset, so set it if you want tokens to survive a client-secret rotation |
 | `REDIS_HOST_PORT` | No | Redis connection string. Accepts `host:port` or a full URI: `redis://[:password@]host:port[/db]` for plaintext, `rediss://...` for TLS. When set, OAuth token state is stored in Redis rather than in process |
 | `REDIS_PASSWORD` | No | Redis AUTH password fallback, used when the password is not embedded in the URI |
-| `DYNAMODB_TABLE_NAME` | No | DynamoDB table holding OAuth token state. When set it takes precedence over `REDIS_HOST_PORT`. The table is created on first use if it does not exist |
-| `DYNAMODB_REGION` | No | AWS region for that table. Falls back to `AWS_REGION`, then to whatever the AWS credential chain resolves |
-| `DYNAMODB_ENDPOINT_URL` | No | Override the DynamoDB endpoint, for DynamoDB Local or a VPC endpoint |
+| `DYNAMODB_ARN` | No | ARN of the DynamoDB table holding OAuth token state, `arn:aws:dynamodb:<region>:<account>:table/<name>`. The region and the table name are read from it. When set it takes precedence over `REDIS_HOST_PORT` |
 | `PORT` | No, default `8081` | HTTP server port |
 | `HOST` | No, default `localhost` | HTTP server bind address |
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
@@ -60,8 +58,7 @@ export REDIS_PASSWORD="<password>"
 DynamoDB:
 
 ```sh
-export DYNAMODB_TABLE_NAME="mcp-github-oauth-state"
-export DYNAMODB_REGION="eu-west-1"
+export DYNAMODB_ARN="arn:aws:dynamodb:eu-west-1:123456789012:table/mcp-github-oauth-state"
 ```
 
 Set both and DynamoDB wins, with a warning in the log.
@@ -74,11 +71,15 @@ Redis needs an instance to size, run and pay for by the hour. DynamoDB has none 
 
 ### The DynamoDB table
 
-The table is created on first use, on-demand billing, partitioned on `collection` with `key` as the sort key, and TTL enabled on the `ttl` attribute so expired tokens are removed without a sweep. Create it yourself if you would rather the running role could not.
+The table is created at startup if it is missing, on-demand billing, partitioned on `collection` with `key` as the sort key, and TTL enabled on the `ttl` attribute so expired tokens are removed without a sweep. Create it yourself if you would rather the running role could not. Replicas starting together all try, and every one but the winner is told the table already exists, waits for it and carries on.
+
+The account in the ARN is checked against `sts:GetCallerIdentity` at startup, because the credentials decide which account is reached. An ARN naming another account would otherwise resolve to a same-named table in your own. The check is skipped, with a warning, when the identity cannot be read.
+
+Reaching DynamoDB Local or a private endpoint is the AWS SDK's own `AWS_ENDPOINT_URL_DYNAMODB`, so there is no endpoint setting here.
 
 `py-key-value-aio` marks its Redis and memory stores as a stable API but not its DynamoDB one, so building the DynamoDB store logs `A configured store is unstable and may change in a backwards incompatible way`. The warning comes from the library, not from a misconfiguration. Anything running Python with `-W error` will need to allow it.
 
-Credentials come from the standard AWS chain, so an IRSA-annotated service account, an instance profile or `AWS_*` variables all work. On the table the server needs `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable` and `dynamodb:DescribeTimeToLive`. Leaving the table to be created adds `dynamodb:CreateTable` and `dynamodb:UpdateTimeToLive`.
+Credentials come from the standard AWS chain, so an IRSA-annotated service account, an instance profile or `AWS_*` variables all work. On the table the server needs `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable` and `dynamodb:DescribeTimeToLive`, plus `sts:GetCallerIdentity`, which needs no policy of its own. Leaving the table to be created adds `dynamodb:CreateTable` and `dynamodb:UpdateTimeToLive`. Without them the server stops at startup rather than at the first sign-in.
 
 ## Personal access token scopes
 

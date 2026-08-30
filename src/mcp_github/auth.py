@@ -20,16 +20,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
 from os import getenv
+from typing import Any
 from urllib.parse import urlparse
 
+import aioboto3
+from botocore.exceptions import ClientError
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.jwt_issuer import derive_jwt_key
 from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.dependencies import get_access_token
+from key_value.aio.errors import StoreSetupError
 from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.dynamodb import DynamoDBStore
 from key_value.aio.stores.memory import MemoryStore
@@ -43,9 +48,12 @@ GITHUB_OAUTH_BASE_URL = getenv("GITHUB_OAUTH_BASE_URL")
 JWT_SIGNING_KEY = getenv("JWT_SIGNING_KEY")
 REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD")
-DYNAMODB_TABLE_NAME = getenv("DYNAMODB_TABLE_NAME")
-DYNAMODB_REGION = getenv("DYNAMODB_REGION") or getenv("AWS_REGION")
-DYNAMODB_ENDPOINT_URL = getenv("DYNAMODB_ENDPOINT_URL")
+DYNAMODB_ARN = getenv("DYNAMODB_ARN")
+
+# A replica that loses the race to create the table waits for the winner's to
+# leave CREATING, which takes a few seconds. See #363.
+DYNAMODB_SETUP_ATTEMPTS = 5
+DYNAMODB_SETUP_BACKOFF_SECONDS = 2.0
 
 logger = logging.getLogger(__name__)
 
@@ -89,13 +97,74 @@ def _build_redis_client(host_port: str) -> AsyncRedis:
     )
 
 
+def _parse_table_arn(arn: str) -> tuple[str, str, str]:
+    """Region, table name and account from a DynamoDB table ARN."""
+    parts = arn.split(":", 5)
+    if len(parts) != 6 or parts[0] != "arn" or parts[2] != "dynamodb" or not parts[5].startswith("table/"):
+        raise ValueError(f"Not a DynamoDB table ARN: {arn!r}")
+    region, account, table_name = parts[3], parts[4], parts[5].removeprefix("table/")
+    if not (region and account and table_name):
+        raise ValueError(f"DynamoDB table ARN has no region, account or table name: {arn!r}")
+    return region, table_name, account
+
+
 def _build_dynamodb_store() -> DynamoDBStore:
-    """Build a DynamoDBStore. Credentials come from the ambient AWS chain."""
-    return DynamoDBStore(
-        table_name=DYNAMODB_TABLE_NAME,  # type: ignore[arg-type]
-        region_name=DYNAMODB_REGION,
-        endpoint_url=DYNAMODB_ENDPOINT_URL,
-    )
+    """Build a DynamoDBStore from DYNAMODB_ARN. Credentials come from the ambient AWS
+    chain, and DynamoDB Local or a VPC endpoint from AWS_ENDPOINT_URL_DYNAMODB."""
+    region, table_name, _ = _parse_table_arn(DYNAMODB_ARN)  # type: ignore[arg-type]
+    return DynamoDBStore(table_name=table_name, region_name=region)
+
+
+async def _check_caller_account(region: str, account: str) -> None:
+    """Refuse an ARN naming an account the credentials do not reach. The credentials
+    decide which account is reached, so an ARN naming another one otherwise resolves
+    to a same-named table in the caller's own and nothing says so."""
+    session = aioboto3.Session(region_name=region)
+    try:
+        # aioboto3 only types the services it ships stubs for, and STS is not one.
+        sts_client: Any = session.client(service_name="sts")
+        async with sts_client as sts:
+            caller = (await sts.get_caller_identity()).get("Account")
+    except Exception as error:
+        logger.warning("Could not read the caller's AWS account to check %s: %s", DYNAMODB_ARN, error)
+        return
+    if caller and caller != account:
+        raise ValueError(f"DYNAMODB_ARN names account {account}, but these credentials are for account {caller}")
+
+
+def _aws_error_code(error: BaseException) -> str | None:
+    """The AWS error code a failed store setup came from, if it came from one."""
+    cause = error.__cause__
+    if isinstance(cause, ClientError):
+        return cause.response.get("Error", {}).get("Code")
+    return None
+
+
+async def _setup_store(store: DynamoDBStore, table_name: str) -> None:
+    """Create the table if it is missing. Replicas starting together all try, and
+    every one but the winner sees ResourceInUseException, so retry rather than fail
+    the request that arrives next."""
+    for attempt in range(1, DYNAMODB_SETUP_ATTEMPTS + 1):
+        try:
+            await store.setup()
+        except StoreSetupError as error:
+            if _aws_error_code(error) != "ResourceInUseException" or attempt == DYNAMODB_SETUP_ATTEMPTS:
+                raise
+            logger.info("DynamoDB table %s is still being created, retrying setup", table_name)
+            await asyncio.sleep(DYNAMODB_SETUP_BACKOFF_SECONDS)
+        else:
+            return
+
+
+async def setup_token_store() -> None:
+    """Prepare the DynamoDB store before the server takes requests, so a role that
+    cannot create the table stops the rollout rather than a user's sign-in. See #363."""
+    store = _token_store
+    if store is None or not DYNAMODB_ARN:
+        return
+    region, table_name, account = _parse_table_arn(DYNAMODB_ARN)
+    await _check_caller_account(region, account)
+    await _setup_store(store, table_name)  # type: ignore[arg-type]
 
 
 def _namespaced(store: AsyncKeyValue) -> AsyncKeyValue:
@@ -108,12 +177,12 @@ def _namespaced(store: AsyncKeyValue) -> AsyncKeyValue:
 
 
 def build_token_store() -> AsyncKeyValue:
-    """Return a token store for OAuth state. DynamoDB when DYNAMODB_TABLE_NAME is set,
+    """Return a token store for OAuth state. DynamoDB when DYNAMODB_ARN is set,
     Redis when REDIS_HOST_PORT is set, otherwise in process."""
     global _token_store
-    if DYNAMODB_TABLE_NAME and REDIS_HOST_PORT:
-        logger.warning("DYNAMODB_TABLE_NAME and REDIS_HOST_PORT are both set, using DynamoDB")
-    if DYNAMODB_TABLE_NAME:
+    if DYNAMODB_ARN and REDIS_HOST_PORT:
+        logger.warning("DYNAMODB_ARN and REDIS_HOST_PORT are both set, using DynamoDB")
+    if DYNAMODB_ARN:
         _token_store = _build_dynamodb_store()
     elif REDIS_HOST_PORT:
         _token_store = RedisStore(client=_build_redis_client(REDIS_HOST_PORT))

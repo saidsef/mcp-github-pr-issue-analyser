@@ -54,17 +54,11 @@ spec:
               name: redis-config
               key: password
               optional: true
-        - name: DYNAMODB_TABLE_NAME
+        - name: DYNAMODB_ARN
           valueFrom:
             configMapKeyRef:
               name: dynamodb-config
-              key: table-name
-              optional: true
-        - name: DYNAMODB_REGION
-          valueFrom:
-            configMapKeyRef:
-              name: dynamodb-config
-              key: region
+              key: arn
               optional: true
         ports:
         - name: http
