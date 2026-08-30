@@ -1,6 +1,6 @@
 # Architecture
 
-<img src="./architecture.svg" alt="Architecture of the MCP GitHub PR and Issue Analyser: an MCP client reaches the auth layer over stdio or HTTP, the auth layer selects no auth, a static token verifier or GitHub OAuth2 with a memory or Redis token store, and the FastMCP server calls the GitHub REST v3 and GraphQL v4 APIs while exposing Prometheus metrics" width="100%">
+<img src="./architecture.svg" alt="Architecture of the MCP GitHub PR and Issue Analyser: an MCP client reaches the auth layer over stdio or HTTP, the auth layer selects no auth, a static token verifier or GitHub OAuth2 with a memory, DynamoDB or Redis token store, and the FastMCP server calls the GitHub REST v3 and GraphQL v4 APIs while exposing Prometheus metrics" width="100%">
 
 ## Layers
 
@@ -8,7 +8,7 @@
 |-------|--------|----------------|
 | MCP client | - | Connects over stdio, or HTTP POST to `/mcp` when `MCP_ENABLE_REMOTE` is true |
 | Auth layer | `auth.py` | Picks no auth, `APIKeyVerifier` or `GitHubProvider`, and resolves the token for each call |
-| Token store | `auth.py` | `MemoryStore` by default, `RedisStore` when `REDIS_HOST_PORT` is set |
+| Token store | `auth.py` | `MemoryStore` by default, `DynamoDBStore` when `DYNAMODB_TABLE_NAME` is set, `RedisStore` when `REDIS_HOST_PORT` is |
 | Server | `issues_pr_analyser.py` | FastMCP server: tool registration, skills provider, metrics middleware, request routing |
 | GitHub integration | `github_integration.py`, `activity.py` | All GitHub API calls, REST v3 and GraphQL v4 |
 
@@ -40,7 +40,9 @@ In OAuth2 mode the server acts as its own authorisation server: it accepts dynam
 
 ## Token store
 
-OAuth client registrations and token state live in the store returned by `build_token_store()`. With a single replica the in-process `MemoryStore` is enough, though clients re-register after every restart. With more than one replica, or to survive restarts, set `REDIS_HOST_PORT`. When `GITHUB_OAUTH_BASE_URL` is also set, keys are prefixed with a hash of that URL, so several deployments can share one Redis instance without colliding.
+OAuth client registrations and token state live in the store returned by `build_token_store()`. With a single replica the in-process `MemoryStore` is enough, though clients re-register after every restart. With more than one replica, or to survive restarts, set `DYNAMODB_TABLE_NAME` for DynamoDB or `REDIS_HOST_PORT` for Redis. Setting both picks DynamoDB and logs a warning. When `GITHUB_OAUTH_BASE_URL` is also set, keys are prefixed with a hash of that URL, so several deployments can share one table or one Redis instance without colliding.
+
+Whichever backend is chosen, the server keeps hold of it and closes its client from the lifespan, alongside the GitHub HTTP clients.
 
 ## Observability
 

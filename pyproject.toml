@@ -27,7 +27,7 @@ dependencies = [
     "prometheus-client>=0.26.0",
     # auth.py imports the stores directly, so ask for the package by name with
     # the extra RedisStore needs rather than relying on fastmcp pulling it. #312
-    "py-key-value-aio[redis]>=0.4.5",
+    "py-key-value-aio[dynamodb,redis]>=0.4.5",
     "redis>=8.1.0",
 ]
 

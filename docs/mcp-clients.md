@@ -247,6 +247,6 @@ An unauthenticated request to `/mcp` returns `401` with a `WWW-Authenticate` hea
 |---------|-------|
 | `401` on every call in static-token mode | The bearer token does not match the server's `GITHUB_TOKEN` exactly |
 | OAuth redirect rejected by GitHub | The OAuth App callback URL is not `<GITHUB_OAUTH_BASE_URL>/auth/callback` |
-| Client re-authenticates after every restart | Token state is in memory. Set `REDIS_HOST_PORT` |
+| Client re-authenticates after every restart | Token state is in memory. Set `DYNAMODB_TABLE_NAME` or `REDIS_HOST_PORT` |
 | Server starts in stdio mode when HTTP was wanted | `MCP_ENABLE_REMOTE` is unset, or set to something other than `true`, `1`, `yes` or `on` |
 | Connection refused from another host | `HOST` defaults to `localhost`. Bind to `0.0.0.0` or the pod IP |

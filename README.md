@@ -44,7 +44,7 @@ For HTTP mode, Docker, Kubernetes and OAuth2, see the documentation below.
 | Page | Contents |
 |------|----------|
 | [Installation](./docs/installation.md) | Requirements, running from source, Docker, Kubernetes |
-| [Configuration](./docs/configuration.md) | Auth modes, environment variables, OAuth App setup, Redis |
+| [Configuration](./docs/configuration.md) | Auth modes, environment variables, OAuth App setup, token stores |
 | [Client configuration](./docs/mcp-clients.md) | Ready-to-paste configs for token and OAuth2, per client |
 | [Tools](./docs/tools.md) | Every tool the server registers, and the skills that drive them |
 | [Architecture](./docs/architecture.md) | Request path from client to GitHub API |

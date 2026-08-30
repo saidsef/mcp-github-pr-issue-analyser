@@ -52,6 +52,7 @@ from .auth import (
     GITHUB_OAUTH_BASE_URL,
     GITHUB_OAUTH_CLIENT_ID,
     GITHUB_OAUTH_CLIENT_SECRET,
+    aclose_token_store,
 )
 from .github_integration import GitHubIntegration as GI
 
@@ -184,11 +185,13 @@ class PRIssueAnalyser:
 
     @asynccontextmanager
     async def _lifespan(self, _server: FastMCP) -> AsyncIterator[None]:
-        """Releases the GitHub HTTP clients when the server shuts down. See #315."""
+        """Releases the GitHub HTTP clients and the token store's client when the
+        server shuts down. See #315 and #357."""
         try:
             yield
         finally:
             await self.gi.aclose()
+            await aclose_token_store()
 
     def register_tools(self, methods: Any = None) -> None:
         if methods is None:
