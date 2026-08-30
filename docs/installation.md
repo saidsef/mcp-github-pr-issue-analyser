@@ -54,7 +54,7 @@ docker run -e GITHUB_TOKEN="<github-token>" \
   ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest
 ```
 
-With OAuth2 and a Redis-backed token store:
+With OAuth2 and a shared token store, Redis here:
 
 ```sh
 docker run \
@@ -66,6 +66,8 @@ docker run \
   -p 8081:8081 \
   ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest
 ```
+
+Swap `REDIS_HOST_PORT` for `DYNAMODB_TABLE_NAME` and `DYNAMODB_REGION` to keep the same state in DynamoDB instead. The container then needs AWS credentials, from `AWS_*` variables or a mounted role.
 
 ## Kubernetes
 
@@ -81,6 +83,9 @@ The base expects two objects in the same namespace:
 |--------|------|------|
 | `github-token` | Secret | `token` |
 | `redis-config` | ConfigMap and Secret | `host-port`, `password` |
+| `dynamodb-config` | ConfigMap | `table-name`, `region` |
+
+Every key above is optional except the token, so supply whichever store you want and leave the other object out. Without either the pod runs with the in-process store. For DynamoDB, annotate the `mcp-github` service account with a role that can reach the table.
 
 The pod runs as a non-root user with a read-only root filesystem, drops all capabilities, and carries `prometheus.io/scrape` annotations. To run in OAuth2 mode, add the three `GITHUB_OAUTH_*` variables to the container spec and expose the service on the host named in `GITHUB_OAUTH_BASE_URL`.
 
