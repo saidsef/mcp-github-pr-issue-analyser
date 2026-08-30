@@ -41,6 +41,8 @@ For HTTP mode, Docker, Kubernetes and OAuth2, see the documentation below.
 
 ## Documentation
 
+The pages below are also published on [Read the Docs](https://mcp-github-pr-issue-analyser.readthedocs.io/en/latest/architecture/).
+
 | Page | Contents |
 |------|----------|
 | [Installation](./docs/installation.md) | Requirements, running from source, Docker, Kubernetes |
