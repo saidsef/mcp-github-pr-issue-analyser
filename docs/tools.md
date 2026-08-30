@@ -28,6 +28,7 @@ The server registers every public method on the GitHub integration that carries 
 
 | Tool | Kind | Description |
 |------|------|-------------|
+| `get_issue` | read | One issue by number, with its body, labels, assignees and milestone |
 | `create_issue` | write | Open an issue with title, body, labels and an optional milestone |
 | `update_issue` | write | Update any subset of an existing issue's title, body, labels or state |
 | `list_open_issues_prs` | read | List open PRs or issues for a user or organisation |

@@ -1215,6 +1215,23 @@ class TestResponseTrimming:
         assert post_kwargs["json"]["commit_id"] == "abc123"
 
     @pytest.mark.anyio
+    async def test_get_issue_returns_trimmed_issue(self, gi: GitHubIntegration):
+        payload = _issue_payload(assignees=[{"login": "saidsef", "id": 1}])
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.get_issue("o", "r", 7)
+        assert result["number"] == 7
+        assert result["body"] == "Details"
+        assert result["assignees"] == ["saidsef"]
+        assert gi._http.request.call_args.args[1] == "https://api.github.com/repos/o/r/issues/7"
+
+    @pytest.mark.anyio
+    async def test_get_issue_refuses_a_pull_request_number(self, gi: GitHubIntegration):
+        payload = _issue_payload(pull_request={"url": "https://api.github.com/repos/o/r/pulls/7"})
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        with pytest.raises(GitHubValidationError, match="pull request"):
+            await gi.get_issue("o", "r", 7)
+
+    @pytest.mark.anyio
     async def test_create_issue_returns_trimmed_issue(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
         result = await gi.create_issue("o", "r", "A bug", "Details", ["bug"])
@@ -1225,6 +1242,7 @@ class TestResponseTrimming:
             "state": "open",
             "author": "octocat",
             "labels": ["bug", "mcp"],
+            "assignees": [],
             "milestone": None,
             "html_url": "https://github.com/o/r/issues/7",
             "created_at": "2026-07-01T00:00:00Z",
@@ -1241,8 +1259,8 @@ class TestResponseTrimming:
         assert result["state"] == "closed"
         assert result["author"] == "octocat"
         assert set(result) == {
-            "number", "title", "body", "state", "author", "labels", "milestone",
-            "html_url", "created_at", "updated_at",
+            "number", "title", "body", "state", "author", "labels", "assignees",
+            "milestone", "html_url", "created_at", "updated_at",
         }
 
     @pytest.mark.anyio
