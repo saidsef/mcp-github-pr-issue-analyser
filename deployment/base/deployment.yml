@@ -54,7 +54,7 @@ spec:
               name: redis-config
               key: password
               optional: true
-        - name: DYNAMODB_ARN
+        - name: DYNAMODB_TABLE_ARN
           valueFrom:
             configMapKeyRef:
               name: dynamodb-config

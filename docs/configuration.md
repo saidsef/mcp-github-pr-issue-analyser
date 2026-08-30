@@ -26,7 +26,7 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | `JWT_SIGNING_KEY` | No | Signing key for issued JWTs. Derived from `GITHUB_OAUTH_CLIENT_SECRET` when unset, so set it if you want tokens to survive a client-secret rotation |
 | `REDIS_HOST_PORT` | No | Redis connection string. Accepts `host:port` or a full URI: `redis://[:password@]host:port[/db]` for plaintext, `rediss://...` for TLS. When set, OAuth token state is stored in Redis rather than in process |
 | `REDIS_PASSWORD` | No | Redis AUTH password fallback, used when the password is not embedded in the URI |
-| `DYNAMODB_ARN` | No | ARN of the DynamoDB table holding OAuth token state, `arn:aws:dynamodb:<region>:<account>:table/<name>`. The region and the table name are read from it. When set it takes precedence over `REDIS_HOST_PORT` |
+| `DYNAMODB_TABLE_ARN` | No | ARN of the DynamoDB table holding OAuth token state, `arn:aws:dynamodb:<region>:<account>:table/<name>`. The region and the table name are read from it. When set it takes precedence over `REDIS_HOST_PORT` |
 | `PORT` | No, default `8081` | HTTP server port |
 | `HOST` | No, default `localhost` | HTTP server bind address |
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
@@ -58,7 +58,7 @@ export REDIS_PASSWORD="<password>"
 DynamoDB:
 
 ```sh
-export DYNAMODB_ARN="arn:aws:dynamodb:eu-west-1:123456789012:table/mcp-github-oauth-state"
+export DYNAMODB_TABLE_ARN="arn:aws:dynamodb:eu-west-1:123456789012:table/mcp-github-oauth-state"
 ```
 
 Set both and DynamoDB wins, with a warning in the log.

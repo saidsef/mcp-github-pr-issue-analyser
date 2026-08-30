@@ -8,7 +8,7 @@
 |-------|--------|----------------|
 | MCP client | - | Connects over stdio, or HTTP POST to `/mcp` when `MCP_ENABLE_REMOTE` is true |
 | Auth layer | `auth.py` | Picks no auth, `APIKeyVerifier` or `GitHubProvider`, and resolves the token for each call |
-| Token store | `auth.py` | `MemoryStore` by default, `DynamoDBStore` when `DYNAMODB_ARN` is set, `RedisStore` when `REDIS_HOST_PORT` is |
+| Token store | `auth.py` | `MemoryStore` by default, `DynamoDBStore` when `DYNAMODB_TABLE_ARN` is set, `RedisStore` when `REDIS_HOST_PORT` is |
 | Server | `issues_pr_analyser.py` | FastMCP server: tool registration, skills provider, metrics middleware, request routing |
 | GitHub integration | `github_integration.py`, `activity.py` | All GitHub API calls, REST v3 and GraphQL v4 |
 
@@ -40,7 +40,7 @@ In OAuth2 mode the server acts as its own authorisation server: it accepts dynam
 
 ## Token store
 
-OAuth client registrations and token state live in the store returned by `build_token_store()`. With a single replica the in-process `MemoryStore` is enough, though clients re-register after every restart. With more than one replica, or to survive restarts, set `DYNAMODB_ARN` for DynamoDB or `REDIS_HOST_PORT` for Redis. Setting both picks DynamoDB and logs a warning. When `GITHUB_OAUTH_BASE_URL` is also set, keys are prefixed with a hash of that URL, so several deployments can share one table or one Redis instance without colliding.
+OAuth client registrations and token state live in the store returned by `build_token_store()`. With a single replica the in-process `MemoryStore` is enough, though clients re-register after every restart. With more than one replica, or to survive restarts, set `DYNAMODB_TABLE_ARN` for DynamoDB or `REDIS_HOST_PORT` for Redis. Setting both picks DynamoDB and logs a warning. When `GITHUB_OAUTH_BASE_URL` is also set, keys are prefixed with a hash of that URL, so several deployments can share one table or one Redis instance without colliding.
 
 The DynamoDB store is prepared from the lifespan rather than on the first request, so a missing table is created and a role that cannot create it stops the server while the rollout is still watching. Whichever backend is chosen, the server keeps hold of it and closes its client from the lifespan, alongside the GitHub HTTP clients.
 

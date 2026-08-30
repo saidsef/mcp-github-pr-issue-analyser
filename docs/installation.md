@@ -67,7 +67,7 @@ docker run \
   ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest
 ```
 
-Swap `REDIS_HOST_PORT` for `DYNAMODB_ARN` to keep the same state in DynamoDB instead. The container then needs AWS credentials, from `AWS_*` variables or a mounted role.
+Swap `REDIS_HOST_PORT` for `DYNAMODB_TABLE_ARN` to keep the same state in DynamoDB instead. The container then needs AWS credentials, from `AWS_*` variables or a mounted role.
 
 ## Kubernetes
 

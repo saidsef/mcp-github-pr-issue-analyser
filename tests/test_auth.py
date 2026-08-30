@@ -112,7 +112,7 @@ class TestBuildTokenStore:
     def test_returns_memory_store_when_no_backend_configured(self):
         with (
             patch("mcp_github.auth.REDIS_HOST_PORT", None),
-            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
         ):
             result = build_token_store()
         assert isinstance(result, MemoryStore)
@@ -247,7 +247,7 @@ class TestDynamoDBTokenStore:
 
     def test_dynamodb_store_built_from_the_arn(self):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
             patch("mcp_github.auth.DynamoDBStore") as mock_store_cls,
         ):
@@ -257,7 +257,7 @@ class TestDynamoDBTokenStore:
 
     def test_a_bad_arn_is_refused_when_the_store_is_built(self):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", "arn:aws:s3:::my-bucket"),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", "arn:aws:s3:::my-bucket"),
             patch("mcp_github.auth.DynamoDBStore"),
             pytest.raises(ValueError, match="Not a DynamoDB table ARN"),
         ):
@@ -265,7 +265,7 @@ class TestDynamoDBTokenStore:
 
     def test_dynamodb_wins_when_both_backends_are_set(self):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
             patch("mcp_github.auth.REDIS_HOST_PORT", "redis://localhost:6379"),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
             patch("mcp_github.auth.DynamoDBStore") as mock_store_cls,
@@ -279,7 +279,7 @@ class TestDynamoDBTokenStore:
         url = "https://example.com"
         expected_prefix = hashlib.sha256(url.encode()).hexdigest()[:12]
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", url),
             patch("mcp_github.auth.DynamoDBStore") as mock_store_cls,
             patch("mcp_github.auth.PrefixCollectionsWrapper") as mock_wrapper,
@@ -292,7 +292,7 @@ class TestDynamoDBTokenStore:
         store = MagicMock()
         store.close = AsyncMock()
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
             patch("mcp_github.auth.DynamoDBStore", return_value=store),
         ):
@@ -305,7 +305,7 @@ class TestDynamoDBTokenStore:
     async def test_aclose_is_a_no_op_for_the_memory_store(self):
         with (
             patch("mcp_github.auth.REDIS_HOST_PORT", None),
-            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
         ):
             build_token_store()
         await aclose_token_store()
@@ -317,7 +317,7 @@ class TestReplacedSettings:
 
     def test_the_old_settings_are_called_out(self, caplog):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
             patch("mcp_github.auth.REDIS_HOST_PORT", None),
             patch.dict(os.environ, {"DYNAMODB_TABLE_NAME": "oauth-state", "DYNAMODB_REGION": "eu-west-1"}),
         ):
@@ -326,7 +326,7 @@ class TestReplacedSettings:
 
     def test_nothing_is_said_when_they_are_not_set(self, caplog):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
             patch("mcp_github.auth.REDIS_HOST_PORT", None),
             patch.dict(os.environ, {}, clear=True),
         ):
@@ -450,7 +450,7 @@ class TestSetupTokenStore:
     @pytest.mark.anyio
     async def test_no_op_without_a_dynamodb_store(self):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
             patch("mcp_github.auth.aioboto3.Session") as mock_session,
         ):
             await setup_token_store()
@@ -462,7 +462,7 @@ class TestSetupTokenStore:
         store.setup = AsyncMock()
         auth._token_store = store
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
             patch(
                 "mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="123456789012")
             ) as mock_session,
@@ -477,7 +477,7 @@ class TestSetupTokenStore:
         store.setup = AsyncMock()
         auth._token_store = store
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
             patch("mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="999999999999")),
             pytest.raises(ValueError, match="names account 123456789012"),
         ):
@@ -522,7 +522,7 @@ class TestDynamoDBStoreEndToEnd:
     @pytest.mark.anyio
     async def test_stores_reads_and_deletes_a_token(self, _aws_environment):
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", TEST_TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TEST_TABLE_ARN),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
         ):
             store = build_token_store()
@@ -548,7 +548,7 @@ class TestDynamoDBStoreEndToEnd:
         """Three stores creating at once. Every one but the winner used to raise
         StoreSetupError at whichever sign-in reached it."""
         with (
-            patch("mcp_github.auth.DYNAMODB_ARN", RACE_TABLE_ARN),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", RACE_TABLE_ARN),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
             patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0.2),
         ):

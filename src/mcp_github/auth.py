@@ -49,7 +49,7 @@ GITHUB_OAUTH_BASE_URL = getenv("GITHUB_OAUTH_BASE_URL")
 JWT_SIGNING_KEY = getenv("JWT_SIGNING_KEY")
 REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD")
-DYNAMODB_ARN = getenv("DYNAMODB_ARN")
+DYNAMODB_TABLE_ARN = getenv("DYNAMODB_TABLE_ARN")
 
 # The replica that loses the race to create the table is told it exists, and the
 # winner's table reads as missing until it leaves CREATING. See #363.
@@ -120,9 +120,9 @@ def _parse_table_arn(arn: str) -> tuple[str, str, str]:
 
 
 def _build_dynamodb_store() -> DynamoDBStore:
-    """Build a DynamoDBStore from DYNAMODB_ARN. Credentials come from the ambient AWS
+    """Build a DynamoDBStore from DYNAMODB_TABLE_ARN. Credentials come from the ambient AWS
     chain, and DynamoDB Local or a VPC endpoint from AWS_ENDPOINT_URL_DYNAMODB."""
-    region, table_name, _ = _parse_table_arn(DYNAMODB_ARN)  # type: ignore[arg-type]
+    region, table_name, _ = _parse_table_arn(DYNAMODB_TABLE_ARN)  # type: ignore[arg-type]
     return DynamoDBStore(table_name=table_name, region_name=region)
 
 
@@ -140,7 +140,7 @@ async def _check_caller_account(region: str, account: str) -> None:
         logger.warning("Could not read the caller's AWS account to check it against %s: %s", account, error)
         return
     if caller and caller != account:
-        raise ValueError(f"DYNAMODB_ARN names account {account}, but these credentials are for account {caller}")
+        raise ValueError(f"DYNAMODB_TABLE_ARN names account {account}, but these credentials are for account {caller}")
 
 
 def _aws_error_code(error: BaseException) -> str | None:
@@ -180,9 +180,9 @@ async def setup_token_store() -> None:
     """Prepare the DynamoDB store before the server takes requests, so a role that
     cannot create the table stops the rollout rather than a user's sign-in. See #363."""
     store = _token_store
-    if store is None or not DYNAMODB_ARN:
+    if store is None or not DYNAMODB_TABLE_ARN:
         return
-    region, table_name, account = _parse_table_arn(DYNAMODB_ARN)
+    region, table_name, account = _parse_table_arn(DYNAMODB_TABLE_ARN)
     await _check_caller_account(region, account)
     await _setup_store(store, table_name)  # type: ignore[arg-type]
 
@@ -197,15 +197,15 @@ def _namespaced(store: AsyncKeyValue) -> AsyncKeyValue:
 
 
 def build_token_store() -> AsyncKeyValue:
-    """Return a token store for OAuth state. DynamoDB when DYNAMODB_ARN is set,
+    """Return a token store for OAuth state. DynamoDB when DYNAMODB_TABLE_ARN is set,
     Redis when REDIS_HOST_PORT is set, otherwise in process."""
     global _token_store
     replaced = [name for name in DYNAMODB_REPLACED_SETTINGS if getenv(name)]
     if replaced:
-        logger.warning("%s no longer configure the token store, DYNAMODB_ARN does", ", ".join(replaced))
-    if DYNAMODB_ARN and REDIS_HOST_PORT:
-        logger.warning("DYNAMODB_ARN and REDIS_HOST_PORT are both set, using DynamoDB")
-    if DYNAMODB_ARN:
+        logger.warning("%s no longer configure the token store, DYNAMODB_TABLE_ARN does", ", ".join(replaced))
+    if DYNAMODB_TABLE_ARN and REDIS_HOST_PORT:
+        logger.warning("DYNAMODB_TABLE_ARN and REDIS_HOST_PORT are both set, using DynamoDB")
+    if DYNAMODB_TABLE_ARN:
         _token_store = _build_dynamodb_store()
     elif REDIS_HOST_PORT:
         _token_store = RedisStore(client=_build_redis_client(REDIS_HOST_PORT))

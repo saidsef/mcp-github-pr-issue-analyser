@@ -115,7 +115,7 @@
   </g>
   <text class="t" x="734" y="362" fill="#1f2328" font-size="15" font-weight="600">OAuth Token Store</text>
   <text class="l" x="704" y="384" fill="#24292f" font-size="11.5">MemoryStore - in process, the default</text>
-  <text class="l" x="704" y="400" fill="#24292f" font-size="11.5">DynamoDBStore - DYNAMODB_ARN</text>
+  <text class="l" x="704" y="400" fill="#24292f" font-size="11.5">DynamoDBStore - DYNAMODB_TABLE_ARN</text>
   <text class="l" x="704" y="416" fill="#24292f" font-size="11.5">RedisStore - REDIS_HOST_PORT</text>
 
   <path class="r-s" d="M825 430 V472" fill="none" stroke="#cf222e" stroke-width="1.5" marker-end="url(#arw-r)"/>
