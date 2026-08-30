@@ -1,6 +1,6 @@
 # Client configuration
 
-Every client needs a server name, plus either a command to launch the server over stdio or a URL to reach it over HTTP. Pick the section that matches how you run the server, see [Installation](./installation.md).
+Every client needs a server name, plus either a command to launch the server over stdio or a URL to reach it over HTTP. Pick the section matching how you run the server, see [Installation](./installation.md).
 
 | Transport | Auth | Use when |
 |-----------|------|----------|
@@ -99,7 +99,7 @@ Add `--scope project` to write the entry to `.mcp.json` and share it with the re
 
 ## Codex CLI
 
-Codex uses TOML rather than the `mcpServers` JSON schema, so its entries look nothing like the ones above.
+Codex uses TOML rather than the `mcpServers` JSON schema.
 
 <details>
 <summary>stdio with a personal access token</summary>
@@ -131,7 +131,7 @@ url = "https://mcp.example.com/mcp"
 bearer_token_env_var = "GITHUB_TOKEN"
 ```
 
-`bearer_token_env_var` names the variable Codex reads the token from, so the token itself stays out of the config file. Export `GITHUB_TOKEN` before starting Codex.
+`bearer_token_env_var` names the variable Codex reads the token from, keeping it out of the config file. Export `GITHUB_TOKEN` before starting Codex.
 </details>
 
 <details>
@@ -153,7 +153,7 @@ Codex registers itself through dynamic client registration and opens GitHub's co
 
 ## VS Code
 
-VS Code nests the servers under `servers` rather than `mcpServers`, and can prompt for the token instead of storing it, via an `inputs` entry.
+VS Code nests the servers under `servers` rather than `mcpServers`, and can prompt for the token via an `inputs` entry rather than storing it.
 
 <details>
 <summary>stdio with a personal access token</summary>
