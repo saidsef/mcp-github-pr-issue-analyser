@@ -1031,7 +1031,7 @@ dev = [
 requires-dist = [
     { name = "fastmcp-slim", extras = ["apps", "server", "tasks"], specifier = ">=3.4.7" },
     { name = "httpx", specifier = ">=0.28.1" },
-    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6" },
+    { name = "mkdocs", marker = "extra == 'docs'", specifier = ">=1.6,<2" },
     { name = "mkdocs-material", marker = "extra == 'docs'", specifier = ">=9.5" },
     { name = "prometheus-client", specifier = ">=0.26.0" },
     { name = "py-key-value-aio", extras = ["dynamodb", "redis"], specifier = ">=0.4.5" },
