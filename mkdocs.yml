@@ -1,0 +1,32 @@
+site_name: mcp-github-pr-issue-analyser
+repo_url: https://github.com/saidsef/mcp-github-pr-issue-analyser
+strict: true
+theme:
+  name: material
+  palette:
+    primary: teal
+  features:
+  - content.code.copy
+  - content.tabs.link
+markdown_extensions:
+- codehilite
+- admonition
+- tables
+- toc:
+    permalink: true
+    toc_depth: 3
+- pymdownx.tabbed:
+    alternate_style: true
+- pymdownx.superfences:
+    custom_fences:
+    - name: mermaid
+      class: mermaid
+      format: !!python/name:pymdownx.superfences.fence_code_format
+nav:
+  - Overview: README.md
+  - Installation: installation.md
+  - Configuration: configuration.md
+  - Client configuration: mcp-clients.md
+  - Tools: tools.md
+  - Architecture: architecture.md
+  - Metrics: metrics.md
