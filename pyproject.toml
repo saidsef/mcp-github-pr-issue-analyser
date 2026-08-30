@@ -31,6 +31,14 @@ dependencies = [
     "redis>=8.1.0",
 ]
 
+[project.optional-dependencies]
+docs = [
+    "mkdocs>=1.6,<2",
+    "mkdocs-material>=9.5",
+    "pygments>=2.18",
+    "pymdown-extensions>=10.7",
+]
+
 [project.scripts]
 mcp-github-pr-issue-analyser = "mcp_github.issues_pr_analyser:main"
 
