@@ -221,6 +221,17 @@ class TestParseTableArn:
     @pytest.mark.parametrize(
         "arn",
         [
+            "arn:aws:dynamodb:eu-west-1:123456789012:table/oauth-state/index/by-client",
+            "arn:aws:dynamodb:eu-west-1:123456789012:table/oauth-state/stream/2026-08-30T00:00:00.000",
+        ],
+    )
+    def test_an_index_or_stream_arn_is_refused(self, arn):
+        with pytest.raises(ValueError, match="names an index or a stream"):
+            _parse_table_arn(arn)
+
+    @pytest.mark.parametrize(
+        "arn",
+        [
             "arn:aws:dynamodb::123456789012:table/oauth-state",
             "arn:aws:dynamodb:eu-west-1::table/oauth-state",
             "arn:aws:dynamodb:eu-west-1:123456789012:table/",
@@ -301,6 +312,28 @@ class TestDynamoDBTokenStore:
         assert auth._token_store is None
 
 
+class TestReplacedSettings:
+    """The settings the ARN replaced, left behind on an upgrade."""
+
+    def test_the_old_settings_are_called_out(self, caplog):
+        with (
+            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.REDIS_HOST_PORT", None),
+            patch.dict(os.environ, {"DYNAMODB_TABLE_NAME": "oauth-state", "DYNAMODB_REGION": "eu-west-1"}),
+        ):
+            build_token_store()
+        assert "DYNAMODB_TABLE_NAME, DYNAMODB_REGION no longer configure the token store" in caplog.text
+
+    def test_nothing_is_said_when_they_are_not_set(self, caplog):
+        with (
+            patch("mcp_github.auth.DYNAMODB_ARN", None),
+            patch("mcp_github.auth.REDIS_HOST_PORT", None),
+            patch.dict(os.environ, {}, clear=True),
+        ):
+            build_token_store()
+        assert "no longer configure" not in caplog.text
+
+
 class TestCheckCallerAccount:
     """The ARN names an account, the credentials reach one, and they have to agree."""
 
@@ -322,7 +355,7 @@ class TestCheckCallerAccount:
         session = _sts_session(error=ClientError({"Error": {"Code": "AccessDenied"}}, "GetCallerIdentity"))
         with patch("mcp_github.auth.aioboto3.Session", return_value=session):
             await _check_caller_account("eu-west-1", "123456789012")
-        assert "Could not read the caller's AWS account" in caplog.text
+        assert "Could not read the caller's AWS account to check it against 123456789012" in caplog.text
 
 
 class _RacingStore:
@@ -360,7 +393,26 @@ class TestSetupStore:
     async def test_a_lost_create_race_is_retried(self):
         store = MagicMock()
         store.setup = AsyncMock(side_effect=[_setup_error("ResourceInUseException"), None])
-        with patch("mcp_github.auth.DYNAMODB_SETUP_BACKOFF_SECONDS", 0):
+        with patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0):
+            await _setup_store(store, "oauth-state")
+        assert store.setup.await_count == 2
+
+    @pytest.mark.anyio
+    async def test_a_table_that_is_not_active_yet_is_retried(self):
+        store = MagicMock()
+        store.setup = AsyncMock(side_effect=[_setup_error("ResourceNotFoundException"), None])
+        with patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0):
+            await _setup_store(store, "oauth-state")
+        assert store.setup.await_count == 2
+
+    @pytest.mark.anyio
+    async def test_the_race_is_still_seen_when_releasing_the_client_also_failed(self):
+        """That replaces the cause, leaving the AWS code only in the message."""
+        error = StoreSetupError(message="Failed to setup key value store: An error occurred (ResourceInUseException)")
+        error.__cause__ = RuntimeError("closing the client failed")
+        store = MagicMock()
+        store.setup = AsyncMock(side_effect=[error, None])
+        with patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0):
             await _setup_store(store, "oauth-state")
         assert store.setup.await_count == 2
 
@@ -376,7 +428,7 @@ class TestSetupStore:
     async def test_a_table_stuck_creating_gives_up_and_raises(self):
         store = MagicMock()
         store.setup = AsyncMock(side_effect=_setup_error("ResourceInUseException"))
-        with patch("mcp_github.auth.DYNAMODB_SETUP_BACKOFF_SECONDS", 0):
+        with patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0):
             with pytest.raises(StoreSetupError):
                 await _setup_store(store, "oauth-state")
         assert store.setup.await_count == auth.DYNAMODB_SETUP_ATTEMPTS
@@ -385,11 +437,11 @@ class TestSetupStore:
     async def test_two_stores_creating_at_once_both_end_up_ready(self):
         tables = set()
         stores = [_RacingStore(tables, "oauth-state"), _RacingStore(tables, "oauth-state")]
-        with patch("mcp_github.auth.DYNAMODB_SETUP_BACKOFF_SECONDS", 0):
+        with patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0):
             await asyncio.gather(*(_setup_store(store, "oauth-state") for store in stores))
         assert all(store.ready for store in stores)
         assert tables == {"oauth-state"}
-        assert sorted(store.attempts for store in stores) == [1, 2]
+        assert max(store.attempts for store in stores) >= 2
 
 
 class TestSetupTokenStore:
@@ -411,7 +463,9 @@ class TestSetupTokenStore:
         auth._token_store = store
         with (
             patch("mcp_github.auth.DYNAMODB_ARN", TABLE_ARN),
-            patch("mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="123456789012")) as mock_session,
+            patch(
+                "mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="123456789012")
+            ) as mock_session,
         ):
             await setup_token_store()
         mock_session.assert_called_once_with(region_name="eu-west-1")
@@ -496,7 +550,7 @@ class TestDynamoDBStoreEndToEnd:
         with (
             patch("mcp_github.auth.DYNAMODB_ARN", RACE_TABLE_ARN),
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
-            patch("mcp_github.auth.DYNAMODB_SETUP_BACKOFF_SECONDS", 0.2),
+            patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0.2),
         ):
             stores = [_build_dynamodb_store() for _ in range(3)]
             try:

@@ -77,6 +77,8 @@ The account in the ARN is checked against `sts:GetCallerIdentity` at startup, be
 
 Reaching DynamoDB Local or a private endpoint is the AWS SDK's own `AWS_ENDPOINT_URL_DYNAMODB`, so there is no endpoint setting here.
 
+`DYNAMODB_TABLE_NAME`, `DYNAMODB_REGION` and `DYNAMODB_ENDPOINT_URL` configure nothing now. Leave one set and the server says so at startup, because it would otherwise fall back to Redis or to the in-process store without a word.
+
 `py-key-value-aio` marks its Redis and memory stores as a stable API but not its DynamoDB one, so building the DynamoDB store logs `A configured store is unstable and may change in a backwards incompatible way`. The warning comes from the library, not from a misconfiguration. Anything running Python with `-W error` will need to allow it.
 
 Credentials come from the standard AWS chain, so an IRSA-annotated service account, an instance profile or `AWS_*` variables all work. On the table the server needs `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable` and `dynamodb:DescribeTimeToLive`, plus `sts:GetCallerIdentity`, which needs no policy of its own. Leaving the table to be created adds `dynamodb:CreateTable` and `dynamodb:UpdateTimeToLive`. Without them the server stops at startup rather than at the first sign-in.
