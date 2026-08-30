@@ -46,12 +46,18 @@ from .exceptions import (
 )
 from .graphql_client import GRAPHQL_URL, handle_graphql_errors
 from .graphql_queries import (
+    ADD_PROJECT_ITEM_MUTATION,
     CHECK_SUITE_RUNS_QUERY,
     CONVERT_PR_TO_DRAFT_MUTATION,
+    DELETE_PROJECT_ITEM_MUTATION,
+    ISSUE_PROJECT_ITEMS_QUERY,
     MARK_PR_READY_MUTATION,
     PR_LINKED_ISSUES_QUERY,
     PR_STATUS_CHECKS_QUERY,
+    PROJECT_ITEMS_QUERY,
+    PROJECT_QUERY,
     SEARCH_USER_QUERY,
+    SET_PROJECT_FIELD_MUTATION,
 )
 from .tool_annotations import _destructive, _read_only, _write
 
@@ -142,6 +148,10 @@ MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ce
 _COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
 
 _RELEASE_FIELDS = ("id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
+
+# One key per field-value type PROJECT_ITEMS_QUERY selects, in the order a node
+# is searched. Each node holds exactly one of them.
+_PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 
 # Named once so the comma does not sit inside a signature, where the complexity
 # counter reads it as another parameter.
@@ -234,6 +244,86 @@ def _issue_result(data: dict[str, Any]) -> IssueData:
         "html_url": data["html_url"],
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
+    }
+
+
+def _require_project(result: dict[str, Any], owner: str, number: int) -> dict[str, Any]:
+    """The project a repositoryOwner query resolved, or a message naming what was
+    not found. A project the token cannot see comes back null the same way one
+    that does not exist does, so the message covers both."""
+    project = (result.get("repositoryOwner") or {}).get("projectV2")
+    if not project:
+        raise GitHubNotFoundError(
+            f"No project #{number} for '{owner}'. It may exist but be invisible to this token: "
+            "Projects (v2) needs 'read:project' on a classic token, or Projects read on a fine-grained one."
+        )
+    return project
+
+
+def _project_field_summary(node: dict[str, Any]) -> dict[str, Any]:
+    """One field of a board, with the options it accepts when it is a select."""
+    return {
+        "id": node.get("id"),
+        "name": node.get("name"),
+        "data_type": node.get("dataType"),
+        "options": [option["name"] for option in node.get("options") or []],
+    }
+
+
+def _project_field_ids(project: dict[str, Any], field: str, option: str) -> tuple[str, str]:
+    """The field and option ids behind two names, so a caller can say Status and
+    In Progress rather than carry node ids around. What was not found is named,
+    along with what was there instead."""
+    nodes = [node for node in (project.get("fields") or {}).get("nodes") or [] if node.get("name")]
+    match = next((node for node in nodes if node["name"].lower() == field.lower()), None)
+    if match is None:
+        known = ", ".join(sorted(node["name"] for node in nodes)) or "none"
+        raise GitHubNotFoundError(f"No field named '{field}' on this project. Fields: {known}")
+    options = match.get("options")
+    if not options:
+        raise GitHubValidationError(
+            f"Field '{match['name']}' is a {match.get('dataType') or 'non-select'} field. "
+            "Only single-select fields can be set by option name."
+        )
+    chosen = next((entry for entry in options if entry["name"].lower() == option.lower()), None)
+    if chosen is None:
+        known = ", ".join(entry["name"] for entry in options)
+        raise GitHubNotFoundError(f"No option named '{option}' on field '{match['name']}'. Options: {known}")
+    return match["id"], chosen["id"]
+
+
+def _item_on_project(node: dict[str, Any], project_id: str) -> str | None:
+    """The board item for this issue on the given project, if it is on it."""
+    items = (node.get("projectItems") or {}).get("nodes") or []
+    return next((item["id"] for item in items if (item.get("project") or {}).get("id") == project_id), None)
+
+
+def _project_field_values(node: dict[str, Any]) -> dict[str, Any]:
+    """Flatten the field-value union into field name to value. A value type the
+    query does not select arrives empty, carrying no field name to key on."""
+    values: dict[str, Any] = {}
+    for value in (node.get("fieldValues") or {}).get("nodes") or []:
+        name = (value.get("field") or {}).get("name")
+        if not name:
+            continue
+        held = next((key for key in _PROJECT_VALUE_KEYS if key in value), None)
+        if held:
+            values[name] = value[held]
+    return values
+
+
+def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
+    """One card on a board: what it points at, and what its fields say."""
+    content = node.get("content") or {}
+    return {
+        "item_id": node.get("id"),
+        "type": node.get("type"),
+        "number": content.get("number"),
+        "title": content.get("title"),
+        "state": content.get("state"),
+        "url": content.get("url"),
+        "repository": (content.get("repository") or {}).get("nameWithOwner"),
+        "fields": _project_field_values(node),
     }
 
 
@@ -1027,6 +1117,161 @@ class GitHubIntegration(ActivityMixin):
         await self._delete_tag_ref(repo_owner, repo_name, tag_name)
         return {"status": "deleted", "tag_name": tag_name, "release_still_published": bool(release)}
 
+    async def _project(self, owner: str, number: int) -> dict[str, Any]:
+        """Resolve a board from its owner's login and its number, fields included."""
+        async with self._guard("look up project"):
+            result = await self._execute_graphql(PROJECT_QUERY, {"owner": owner, "number": number})
+        return _require_project(result, owner, number)
+
+    async def _issue_node(self, repo_owner: str, repo_name: str, issue_number: int) -> dict[str, Any]:
+        """The node id of an issue or pull request, and the boards already
+        holding it, since a node id is what the project mutations take."""
+        async with self._guard("look up issue"):
+            result = await self._execute_graphql(
+                ISSUE_PROJECT_ITEMS_QUERY,
+                {"owner": repo_owner, "repo": repo_name, "number": issue_number},
+            )
+        node = (result.get("repository") or {}).get("issueOrPullRequest") or {}
+        if not node.get("id"):
+            raise GitHubNotFoundError(f"No issue or pull request #{issue_number} in {repo_owner}/{repo_name}")
+        return node
+
+    async def _add_project_item(self, project_id: str, content_id: str) -> str:
+        """Put a node on a board and return its item id."""
+        async with self._guard("add to project"):
+            result = await self._execute_graphql(
+                ADD_PROJECT_ITEM_MUTATION, {"projectId": project_id, "contentId": content_id}
+            )
+        item_id = ((result.get("addProjectV2ItemById") or {}).get("item") or {}).get("id")
+        if not item_id:
+            raise GitHubAPIError("Adding the item to the project returned no item id")
+        return item_id
+
+    @_read_only
+    async def get_project_fields(
+        self,
+        project_owner: Annotated[str, "User or organisation that owns the board"],
+        project_number: Annotated[int, "Project number, as it appears in the board's URL"],
+    ) -> dict[str, Any]:
+        """Lists a project's fields and the options each single-select one accepts,
+        which is what set_project_field expects to be named."""
+        project = await self._project(project_owner, project_number)
+        nodes = (project.get("fields") or {}).get("nodes") or []
+        return {
+            "project_number": project_number,
+            "title": project.get("title"),
+            "url": project.get("url"),
+            "fields": [_project_field_summary(node) for node in nodes if node.get("name")],
+        }
+
+    @_read_only
+    async def list_project_items(
+        self,
+        project_owner: str,
+        project_number: int,
+        per_page: Annotated[int, "Number of items per page (1-100)"] = 50,
+        after: Annotated[str | None, "next_cursor from a previous call, to read the following page"] = None,
+    ) -> dict[str, Any]:
+        """Lists what is on a project board with each card's field values, so a
+        backlog can be read by Status rather than one issue at a time."""
+        async with self._guard("list project items"):
+            result = await self._execute_graphql(
+                PROJECT_ITEMS_QUERY,
+                {"owner": project_owner, "number": project_number, "first": per_page, "after": after},
+            )
+        project = _require_project(result, project_owner, project_number)
+        items = project.get("items") or {}
+        page = items.get("pageInfo") or {}
+        return {
+            "project_number": project_number,
+            "title": project.get("title"),
+            "total": items.get("totalCount"),
+            "items": [_project_item_summary(node) for node in items.get("nodes") or []],
+            "next_cursor": page.get("endCursor") if page.get("hasNextPage") else None,
+        }
+
+    @_write(idempotent=True)
+    async def add_to_project(
+        self,
+        project_owner: str,
+        project_number: int,
+        repo_owner: str,
+        repo_name: str,
+        issue_number: Annotated[int, "Issue or pull request to put on the board"],
+    ) -> dict[str, Any]:
+        """Puts an issue or pull request on a project board. One already there comes
+        back with the item it already has, so a retry does not make a second card."""
+        project = await self._project(project_owner, project_number)
+        node = await self._issue_node(repo_owner, repo_name, issue_number)
+        item_id = await self._add_project_item(project["id"], node["id"])
+        return {
+            "item_id": item_id,
+            "project_number": project_number,
+            "project_title": project.get("title"),
+            "issue_number": issue_number,
+            "url": node.get("url"),
+        }
+
+    @_write(idempotent=True)
+    async def set_project_field(
+        self,
+        project_owner: str,
+        project_number: int,
+        repo_owner: str,
+        repo_name: str,
+        issue_number: int,
+        field: Annotated[str, "Single-select field to set, such as Status"],
+        option: Annotated[str, "Option to set it to, such as In Progress"],
+    ) -> dict[str, Any]:
+        """Sets a single-select field on an issue's card, naming the field and the
+        option rather than their node ids. An issue not yet on the board is added
+        first, since a field value has nowhere to live otherwise."""
+        project = await self._project(project_owner, project_number)
+        field_id, option_id = _project_field_ids(project, field, option)
+        node = await self._issue_node(repo_owner, repo_name, issue_number)
+        item_id = _item_on_project(node, project["id"]) or await self._add_project_item(project["id"], node["id"])
+        async with self._guard("set project field"):
+            await self._execute_graphql(
+                SET_PROJECT_FIELD_MUTATION,
+                {"projectId": project["id"], "itemId": item_id, "fieldId": field_id, "optionId": option_id},
+            )
+        return {
+            "item_id": item_id,
+            "project_number": project_number,
+            "issue_number": issue_number,
+            "field": field,
+            "option": option,
+        }
+
+    @_destructive
+    async def remove_from_project(
+        self,
+        project_owner: str,
+        project_number: int,
+        repo_owner: str,
+        repo_name: str,
+        issue_number: int,
+    ) -> dict[str, Any]:
+        """Takes an issue or pull request off a project board. The issue itself is
+        untouched and stays open, but the field values its card held go with it."""
+        project = await self._project(project_owner, project_number)
+        node = await self._issue_node(repo_owner, repo_name, issue_number)
+        item_id = _item_on_project(node, project["id"])
+        if item_id is None:
+            raise GitHubNotFoundError(
+                f"#{issue_number} in {repo_owner}/{repo_name} is not on project #{project_number}"
+            )
+        async with self._guard("remove from project"):
+            result = await self._execute_graphql(
+                DELETE_PROJECT_ITEM_MUTATION, {"projectId": project["id"], "itemId": item_id}
+            )
+        return {
+            "status": "removed",
+            "item_id": (result.get("deleteProjectV2Item") or {}).get("deletedItemId") or item_id,
+            "project_number": project_number,
+            "issue_number": issue_number,
+        }
+
     async def _execute_graphql(
         self, query: str, variables: dict[str, Any], *, token: str | None = None
     ) -> dict[str, Any]:
@@ -1056,11 +1301,12 @@ class GitHubIntegration(ActivityMixin):
 
     @asynccontextmanager
     async def _guard(self, action: str):
-        """Let GitHubNotFoundError pass through; wrap any other failure in a
-        GitHubAPIError labelled with the action that failed."""
+        """Let GitHubNotFoundError and GitHubAuthError pass through; wrap any other
+        failure in a GitHubAPIError labelled with the action that failed. An auth
+        error already says what to fix, and relabelling it buries that."""
         try:
             yield
-        except GitHubNotFoundError:
+        except (GitHubNotFoundError, GitHubAuthError):
             raise
         except Exception as e:
             logger.error(f"Error during {action}: {e}")

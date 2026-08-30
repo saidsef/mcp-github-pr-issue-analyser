@@ -34,6 +34,18 @@ logger = logging.getLogger(__name__)
 GRAPHQL_URL = "https://api.github.com/graphql"
 
 
+def _auth_hint(err_type: str) -> str:
+    """A missing scope and a withdrawn authorisation both arrive as auth errors,
+    and the fix for one is not the fix for the other. See #351."""
+    if "INSUFFICIENT_SCOPES" in err_type:
+        return (
+            " The token is missing a scope this query needs, rather than the authorisation itself."
+            " Projects (v2) needs 'read:project' to read and 'project' to write on a classic token,"
+            " or Projects read and write on a fine-grained one."
+        )
+    return " If using OAuth, the authorization may have been revoked -- please re-authenticate."
+
+
 def handle_graphql_errors(errors: list[dict[str, Any]]) -> None:
     """Map the errors array a 200 response can carry onto our exceptions."""
     if not errors:
@@ -48,15 +60,14 @@ def handle_graphql_errors(errors: list[dict[str, Any]]) -> None:
     predicates = [
         ("NOT_FOUND" in err_type or "not found" in msg.lower(), GitHubNotFoundError),
         ("RATE_LIMITED" in err_type, GitHubRateLimitError),
-        ("FORBIDDEN" in err_type or "UNAUTHORIZED" in err_type, GitHubAuthError),
+        (
+            "FORBIDDEN" in err_type or "UNAUTHORIZED" in err_type or "INSUFFICIENT_SCOPES" in err_type,
+            GitHubAuthError,
+        ),
     ]
     for predicate, exc_cls in predicates:
         if predicate:
-            hint = (
-                " If using OAuth, the authorization may have been revoked -- please re-authenticate."
-                if exc_cls is GitHubAuthError
-                else ""
-            )
+            hint = _auth_hint(err_type) if exc_cls is GitHubAuthError else ""
             raise exc_cls(msg + hint, response_body={"errors": errors})
 
     raise GitHubAPIError(f"GraphQL error: {msg}", response_body={"errors": errors})

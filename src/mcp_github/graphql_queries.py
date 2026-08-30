@@ -295,3 +295,244 @@ mutation($pullRequestId: ID!) {
   }
 }
 """
+
+# Projects (v2) has no REST surface, and everything on it is addressed by node
+# id rather than by owner, repo and number. See #351.
+#
+# repositoryOwner resolves a login without the caller saying whether it names a
+# user or an organisation, which projectV2 on either type alone cannot do.
+_PROJECT_FIELDS_FRAGMENT = """
+fragment ProjectFields on ProjectV2 {
+  id
+  number
+  title
+  url
+  fields(first: 50) {
+    nodes {
+      ... on ProjectV2Field {
+        id
+        name
+        dataType
+      }
+      ... on ProjectV2IterationField {
+        id
+        name
+        dataType
+      }
+      ... on ProjectV2SingleSelectField {
+        id
+        name
+        dataType
+        options {
+          id
+          name
+        }
+      }
+    }
+  }
+}
+"""
+
+PROJECT_QUERY = (
+    _PROJECT_FIELDS_FRAGMENT
+    + """
+query($owner: String!, $number: Int!) {
+  repositoryOwner(login: $owner) {
+    ... on Organization {
+      projectV2(number: $number) {
+        ...ProjectFields
+      }
+    }
+    ... on User {
+      projectV2(number: $number) {
+        ...ProjectFields
+      }
+    }
+  }
+}
+"""
+)
+
+# issueOrPullRequest saves the caller saying which of the two a number is.
+# projectItems rides along because setting a field or taking a card off the
+# board needs the item id, and asking for it separately would cost a round trip.
+ISSUE_PROJECT_ITEMS_QUERY = """
+query($owner: String!, $repo: String!, $number: Int!) {
+  repository(owner: $owner, name: $repo) {
+    issueOrPullRequest(number: $number) {
+      ... on Issue {
+        id
+        number
+        title
+        url
+        projectItems(first: 20) {
+          nodes {
+            id
+            project {
+              id
+              number
+            }
+          }
+        }
+      }
+      ... on PullRequest {
+        id
+        number
+        title
+        url
+        projectItems(first: 20) {
+          nodes {
+            id
+            project {
+              id
+              number
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+# Every field value is a different type in a union, so each one the board can
+# hold is selected by name. A type not selected here comes back as an empty
+# node, which the flattener drops because it carries no field to key on.
+PROJECT_ITEMS_QUERY = """
+fragment ItemPage on ProjectV2 {
+  id
+  number
+  title
+  url
+  items(first: $first, after: $after) {
+    totalCount
+    pageInfo {
+      hasNextPage
+      endCursor
+    }
+    nodes {
+      id
+      type
+      content {
+        ... on Issue {
+          number
+          title
+          state
+          url
+          repository {
+            nameWithOwner
+          }
+        }
+        ... on PullRequest {
+          number
+          title
+          state
+          url
+          repository {
+            nameWithOwner
+          }
+        }
+        ... on DraftIssue {
+          title
+        }
+      }
+      fieldValues(first: 20) {
+        nodes {
+          ... on ProjectV2ItemFieldTextValue {
+            text
+            field {
+              ... on ProjectV2FieldCommon {
+                name
+              }
+            }
+          }
+          ... on ProjectV2ItemFieldNumberValue {
+            number
+            field {
+              ... on ProjectV2FieldCommon {
+                name
+              }
+            }
+          }
+          ... on ProjectV2ItemFieldDateValue {
+            date
+            field {
+              ... on ProjectV2FieldCommon {
+                name
+              }
+            }
+          }
+          ... on ProjectV2ItemFieldSingleSelectValue {
+            name
+            field {
+              ... on ProjectV2FieldCommon {
+                name
+              }
+            }
+          }
+          ... on ProjectV2ItemFieldIterationValue {
+            title
+            field {
+              ... on ProjectV2FieldCommon {
+                name
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+query($owner: String!, $number: Int!, $first: Int!, $after: String) {
+  repositoryOwner(login: $owner) {
+    ... on Organization {
+      projectV2(number: $number) {
+        ...ItemPage
+      }
+    }
+    ... on User {
+      projectV2(number: $number) {
+        ...ItemPage
+      }
+    }
+  }
+}
+"""
+
+# GitHub returns the item already there rather than a second one, which is what
+# makes adding safe to retry.
+ADD_PROJECT_ITEM_MUTATION = """
+mutation($projectId: ID!, $contentId: ID!) {
+  addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
+    item {
+      id
+    }
+  }
+}
+"""
+
+SET_PROJECT_FIELD_MUTATION = """
+mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+  updateProjectV2ItemFieldValue(
+    input: {
+      projectId: $projectId
+      itemId: $itemId
+      fieldId: $fieldId
+      value: {singleSelectOptionId: $optionId}
+    }
+  ) {
+    projectV2Item {
+      id
+    }
+  }
+}
+"""
+
+DELETE_PROJECT_ITEM_MUTATION = """
+mutation($projectId: ID!, $itemId: ID!) {
+  deleteProjectV2Item(input: {projectId: $projectId, itemId: $itemId}) {
+    deletedItemId
+  }
+}
+"""
