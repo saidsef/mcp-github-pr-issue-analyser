@@ -167,6 +167,10 @@ Titles are unique within a repository, so reusing one fails rather than
 returning the existing milestone. Call `list_milestones` first if you are not
 sure whether it is already there.
 
+GitHub keeps only the date part of `due_on` and returns it as midnight UTC, so
+`2026-12-31T23:59:59Z` reads back as `2026-12-31T00:00:00Z`. The milestone is
+still due on that day.
+
 ### `update_milestone`
 
 | Parameter | Type | Default | Description |
