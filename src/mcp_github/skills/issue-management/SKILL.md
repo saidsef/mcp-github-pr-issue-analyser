@@ -1,5 +1,5 @@
 ---
-description: Create, update, list and search GitHub issues and PRs, list a repository's labels, and check for duplicates
+description: Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates
 ---
 
 # Issue Management
@@ -19,7 +19,7 @@ defines.
 
 1. Call `list_open_issues_prs` with `issue="issue"` and `filtering="repo"` to check for a duplicate, or `search_issues_prs` to include closed ones
 2. Call `list_repo_labels` to see the label names the repository defines
-3. Call `create_issue` with a title, body and labels
+3. Call `create_issue` with a title, body and labels, plus a `milestone` title if it belongs to one
 4. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Updating an Issue
@@ -41,6 +41,14 @@ defines.
 1. Call `list_repo_labels` for the repository
 2. Page through with `page` if the repository defines more than `per_page` labels
 
+### Running a Milestone
+
+1. Call `list_milestones` to see what the repository already tracks
+2. Call `create_milestone` for a new one, with a due date if the work has a deadline
+3. Pass `milestone` to `create_issue` to file an issue as it is opened
+4. Call `set_issue_milestone` to file or unfile an issue that already exists
+5. Call `update_milestone` with `state="closed"` once the work has shipped
+
 ## Tool Parameters
 
 ### `create_issue`
@@ -52,9 +60,12 @@ defines.
 | `title` | str | - | Issue title, see Title Convention |
 | `body` | str | - | Issue description in Markdown |
 | `labels` | list[str] | - | Labels to apply. Required, pass `[]` for none |
+| `milestone` | str | `""` | Milestone title to file it under. Omit for none |
 
 Returns `IssueData` with `number`, `title`, `body`, `state`, `author`,
-`labels`, `html_url`, `created_at`, `updated_at`.
+`labels`, `milestone`, `html_url`, `created_at`, `updated_at`.
+
+`milestone` is a title, not a number, and the milestone has to exist already.
 
 `labels` has no default and must be supplied. Whatever you pass, `mcp` is
 appended, so `[]` yields `["mcp"]`. Setting labels needs push access on the
@@ -83,6 +94,8 @@ Two things still overwrite rather than merge:
 
 - `labels` replaces the whole set, so `[]` strips every label including `mcp`. Unlike `create_issue`, this tool does not re-add `mcp`
 - A `title` or `body` you did not read first overwrites the current text
+
+This tool cannot change the milestone. Use `set_issue_milestone`.
 
 ### `list_open_issues_prs`
 
@@ -123,6 +136,71 @@ Useful qualifiers: `repo:owner/name`, `org:name`, `is:issue`, `is:pr`,
 `is:open`, `is:closed`, `is:merged`, `author:login`, `assignee:login`,
 `label:"needs triage"`, `created:>2026-01-01`, `updated:<2026-06-01`,
 `in:title`. Search is rate limited separately at 30 requests a minute.
+
+### `list_milestones`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `state` | str | `open` | One of `open`, `closed`, `all` |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
+| `page` | int | `1` | Page number |
+
+Returns `{"total": int, "state": str, "milestones": [...]}`. Each milestone
+carries `number`, `title`, `description`, `state`, `due_on`, `open_issues`,
+`closed_issues` and `html_url`, so the issue counts tell you what is left
+without listing the issues themselves.
+
+### `create_milestone`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `title` | str | - | Milestone title, e.g. `v2.0` |
+| `description` | str | `""` | What the milestone covers |
+| `due_on` | str \| None | `None` | Due date as ISO 8601, e.g. `2026-12-31T23:59:59Z` |
+| `state` | str | `open` | `open` or `closed` |
+
+Titles are unique within a repository, so reusing one fails rather than
+returning the existing milestone. Call `list_milestones` first if you are not
+sure whether it is already there.
+
+### `update_milestone`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `title` | str | - | Title of the milestone to change |
+| `new_title` | str \| None | `None` | Replacement title |
+| `description` | str \| None | `None` | Replacement description |
+| `due_on` | str \| None | `None` | Replacement due date as ISO 8601 |
+| `state` | str \| None | `None` | `closed` to close it, `open` to reopen |
+
+Only the fields you pass are sent, so closing a milestone leaves its title and
+due date alone. A call supplying nothing to change is rejected. The `title`
+argument identifies the milestone and `new_title` renames it, so passing
+`title` alone changes nothing.
+
+### `set_issue_milestone`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `issue_number` | int | - | Issue number |
+| `milestone` | str \| None | `None` | Milestone title to file it under. Omit to take it off |
+
+Returns `IssueData`, whose `milestone` field reads back the title so you can
+confirm it landed. This is a separate tool rather than an argument on
+`update_issue` because clearing a milestone means sending an explicit null,
+and `update_issue` drops every argument left unset.
+
+Milestones are addressed by title here and by number in the GitHub API, so a
+title that matches nothing fails with a not-found error naming it. The lookup
+covers closed milestones as well as open ones.
 
 ### `list_repo_labels`
 
@@ -191,4 +269,6 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Pass `update_issue` only the fields you are changing, and read the current text before replacing a `title` or `body`
 - Include `mcp` in the `labels` you send to `update_issue`, since the list you send replaces the whole set
 - Close issues with `state="closed"` rather than deleting them
+- File an issue under a milestone as you create it, since `create_issue` takes the title directly
+- Read `open_issues` from `list_milestones` to see what a milestone has left, rather than listing and counting issues
 - Reference the resolving PR in the body, e.g. `Resolved by #123`
