@@ -68,6 +68,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 | Tool | Kind | Description |
 |------|------|-------------|
+| `list_repos` | read | Repositories for a user, an organisation, or the caller, private ones included |
 | `search_user` | read, task | Fetch a user's profile via GraphQL |
 | `get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
 | `get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing was cut short |
@@ -92,6 +93,6 @@ Workflow guidance ships with the server as MCP resources under the `skill://` UR
 | `skill://issue-management/SKILL.md` | Create, update, list and search issues and PRs, list labels, and run milestones |
 | `skill://release-management/SKILL.md` | Tag commits, publish releases, and correct or withdraw what is published |
 | `skill://project-boards/SKILL.md` | Place issues on a project board, set their fields, and read a board |
-| `skill://user-activity/SKILL.md` | Look up user profiles, contributions and star growth |
+| `skill://user-activity/SKILL.md` | Find repositories, and look up user profiles, contributions and star growth |
 | `skill://error-handling/SKILL.md` | Read the error codes and decide whether to retry |
 | `skill://interactive-ui/SKILL.md` | Ask the user to choose, or render data as a UI panel |

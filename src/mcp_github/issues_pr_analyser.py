@@ -127,6 +127,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Best Practices
 - Use all tools available for a comprehensive understanding of the PR and issue landscape.
+- Use list_repos when you do not already know the repository name, rather than guessing at one
 - Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
 - Use update_pr_description to keep PRs up-to-date
@@ -144,7 +145,7 @@ Workflow guidance is available as MCP resources under the skill:// URI scheme:
 - skill://issue-management/SKILL.md -- create, update, list and search issues and PRs, list labels, and run milestones
 - skill://release-management/SKILL.md -- tag commits, publish releases, and correct or withdraw what is published
 - skill://project-boards/SKILL.md -- place issues on a project board, set their fields, and read a board
-- skill://user-activity/SKILL.md -- look up user profiles, contributions and star growth
+- skill://user-activity/SKILL.md -- find repositories, and look up user profiles, contributions and star growth
 - skill://error-handling/SKILL.md -- read the error codes and decide whether to retry
 - skill://interactive-ui/SKILL.md -- ask the user to choose, or render data as a UI panel
 """

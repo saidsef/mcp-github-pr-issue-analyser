@@ -8,6 +8,7 @@ An [MCP](https://www.anthropic.com/news/model-context-protocol) server that conn
 - **Issues** - create, update, list, search and assign; read a repository's labels; run milestones and file issues under them
 - **Releases** - tag commits, publish releases, and list, correct or withdraw what is published
 - **Users** - profile lookup, contribution activity and star growth via GraphQL
+- **Repositories** - list what a user, an organisation or the caller owns, without knowing the names
 
 The full tool list is in [docs/tools.md](./docs/tools.md).
 
