@@ -92,6 +92,7 @@ class IssueData(TypedDict):
     state: str
     author: str
     labels: list[str]
+    milestone: str | None
     html_url: str
     created_at: str
     updated_at: str
@@ -141,6 +142,7 @@ TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, bounds reading the 
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))  # seconds, bounds opening the connection
 ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))  # 0 disables conditional reads
 DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))  # 128 KB, wider than any patch this repo produces
+MAX_MILESTONE_PAGES = 5  # 100 milestones per page × 5, enough to resolve a title in any real repo
 MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
 
@@ -149,6 +151,17 @@ _COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
 
 _RELEASE_FIELDS = ("id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
 
+_MILESTONE_FIELDS = (
+    "number",
+    "title",
+    "description",
+    "state",
+    "due_on",
+    "open_issues",
+    "closed_issues",
+    "html_url",
+)
+
 # One key per field-value type PROJECT_ITEMS_QUERY selects, in the order a node
 # is searched. Each node holds exactly one of them.
 _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
@@ -156,6 +169,7 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 # Named once so the comma does not sit inside a signature, where the complexity
 # counter reads it as another parameter.
 _OpenClosed = Literal["open", "closed"]
+_MilestoneState = Literal["open", "closed", "all"]
 
 logger = logging.getLogger(__name__)
 
@@ -241,6 +255,7 @@ def _issue_result(data: dict[str, Any]) -> IssueData:
         "state": data["state"],
         "author": (data.get("user") or {}).get("login", ""),
         "labels": [label["name"] for label in data.get("labels", [])],
+        "milestone": (data.get("milestone") or {}).get("title"),
         "html_url": data["html_url"],
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
@@ -773,20 +788,137 @@ class GitHubIntegration(ActivityMixin):
         labels = [_pick(label, "name", "description", "color") for label in data]
         return {"total": len(labels), "labels": labels}
 
+    async def _milestone_by_title(self, repo_owner: str, repo_name: str, title: str) -> dict[str, Any] | None:
+        """The milestone with this title, open or closed, or None. GitHub addresses
+        a milestone by number while people think in titles, so every tool that
+        takes a title comes through here."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
+        for page in range(1, MAX_MILESTONE_PAGES + 1):
+            batch = (
+                await self._request(
+                    "GET",
+                    url,
+                    context=f"milestones for {repo_owner}/{repo_name}",
+                    params={"state": "all", "per_page": 100, "page": page},
+                )
+            ).json()
+            for milestone in batch:
+                if milestone.get("title") == title:
+                    return milestone
+            if len(batch) < 100:
+                break
+        return None
+
+    async def _milestone_number(self, repo_owner: str, repo_name: str, title: str) -> int:
+        """As _milestone_by_title, for the callers that cannot proceed without one."""
+        milestone = await self._milestone_by_title(repo_owner, repo_name, title)
+        if milestone is None:
+            raise GitHubNotFoundError(f"No milestone titled '{title}' in {repo_owner}/{repo_name}")
+        return milestone["number"]
+
+    @_read_only
+    async def list_milestones(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        state: Annotated[_MilestoneState, "Which milestones to return"] = "open",
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists a repository's milestones with the count of issues in each."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
+        data = (
+            await self._request(
+                "GET",
+                url,
+                context=f"{state} milestones for {repo_owner}/{repo_name}",
+                params={"state": state, "per_page": per_page, "page": page},
+            )
+        ).json()
+        milestones = [_pick(milestone, *_MILESTONE_FIELDS) for milestone in data]
+        return {"total": len(milestones), "state": state, "milestones": milestones}
+
+    @_write
+    async def create_milestone(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        title: str,
+        description: str = "",
+        due_on: Annotated[str | None, "Due date as ISO 8601, e.g. 2026-12-31T23:59:59Z"] = None,
+        state: _OpenClosed = "open",
+    ) -> dict[str, Any]:
+        """Opens a milestone. Titles are unique per repository, so reusing one fails."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
+        payload: dict[str, Any] = {"title": title, "state": state, "description": description}
+        if due_on:
+            payload["due_on"] = due_on
+        data = (await self._request("POST", url, context=f"create milestone {title}", json=payload)).json()
+        return _pick(data, *_MILESTONE_FIELDS)
+
+    @_write(idempotent=True)
+    async def update_milestone(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        title: Annotated[str, "Title of the milestone to change"],
+        new_title: Annotated[str | None, "Replacement title. Omit to leave it alone"] = None,
+        description: Annotated[str | None, "Replacement description. Omit to leave it alone"] = None,
+        due_on: Annotated[str | None, "Replacement due date as ISO 8601"] = None,
+        state: Annotated[_OpenClosed | None, "Pass closed to close the milestone"] = None,
+    ) -> dict[str, Any]:
+        """Changes a milestone in place. Only the fields supplied are sent, so
+        closing one leaves its title and due date alone."""
+        fields: dict[str, Any] = {
+            "title": new_title,
+            "description": description,
+            "due_on": due_on,
+            "state": state,
+        }
+        payload = {name: value for name, value in fields.items() if value is not None}
+        if not payload:
+            raise GitHubValidationError("Supply at least one of new_title, description, due_on or state.")
+        number = await self._milestone_number(repo_owner, repo_name, title)
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones/{number}"
+        data = (await self._request("PATCH", url, context=f"milestone {title}", json=payload)).json()
+        return _pick(data, *_MILESTONE_FIELDS)
+
+    @_write(idempotent=True)
+    async def set_issue_milestone(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        issue_number: int,
+        milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null to take it off"] = None,
+    ) -> IssueData:
+        """Files an issue under a milestone, or takes it off one. Setting is its own
+        tool because update_issue drops every argument left as null, which is what
+        clearing a milestone has to send."""
+        number = await self._milestone_number(repo_owner, repo_name, milestone) if milestone else None
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        data = (
+            await self._request("PATCH", url, context=f"issue #{issue_number} milestone", json={"milestone": number})
+        ).json()
+        return _issue_result(data)
+
     @_write
     async def create_issue(
-        self, repo_owner: str, repo_name: str, title: str, body: str, labels: list[str]
+        self,
+        repo_owner: str,
+        repo_name: str,
+        title: str,
+        body: str,
+        labels: list[str],
+        milestone: Annotated[str, "Milestone title to file it under. Omit for none"] = "",
     ) -> IssueData:
         """Creates a new issue."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
         issue_labels = ["mcp"] if not labels else labels + ["mcp"]
+        payload: dict[str, Any] = {"title": title, "body": body, "labels": issue_labels}
+        if milestone:
+            payload["milestone"] = await self._milestone_number(repo_owner, repo_name, milestone)
         data = (
-            await self._request(
-                "POST",
-                url,
-                context=f"create issue in {repo_owner}/{repo_name}",
-                json={"title": title, "body": body, "labels": issue_labels},
-            )
+            await self._request("POST", url, context=f"create issue in {repo_owner}/{repo_name}", json=payload)
         ).json()
         return _issue_result(data)
 

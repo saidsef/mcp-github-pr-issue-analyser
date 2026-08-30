@@ -1225,6 +1225,7 @@ class TestResponseTrimming:
             "state": "open",
             "author": "octocat",
             "labels": ["bug", "mcp"],
+            "milestone": None,
             "html_url": "https://github.com/o/r/issues/7",
             "created_at": "2026-07-01T00:00:00Z",
             "updated_at": "2026-07-02T00:00:00Z",
@@ -1240,7 +1241,8 @@ class TestResponseTrimming:
         assert result["state"] == "closed"
         assert result["author"] == "octocat"
         assert set(result) == {
-            "number", "title", "body", "state", "author", "labels", "html_url", "created_at", "updated_at",
+            "number", "title", "body", "state", "author", "labels", "milestone",
+            "html_url", "created_at", "updated_at",
         }
 
     @pytest.mark.anyio
@@ -2249,3 +2251,161 @@ class TestGraphQLScopeErrors:
         with pytest.raises(GitHubAuthError):  # noqa: PT012 - the guard is what is under test
             async with gi._guard("do a thing"):
                 raise GitHubAuthError("Missing scope.")
+
+
+# ---------------------------------------------------------------------------
+# Milestones (#350)
+# ---------------------------------------------------------------------------
+
+
+def _milestone_payload(**overrides) -> dict:
+    payload = {
+        "number": 3,
+        "title": "v2.0",
+        "description": "the next one",
+        "state": "open",
+        "due_on": "2026-12-31T23:59:59Z",
+        "open_issues": 4,
+        "closed_issues": 9,
+        "html_url": "https://github.com/o/r/milestone/3",
+        "node_id": "MI_abc",
+        "creator": _NOISE_USER,
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestMilestones:
+    @pytest.mark.anyio
+    async def test_list_milestones_is_trimmed_and_carries_issue_counts(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_milestone_payload()]))
+        result = await gi.list_milestones("o", "r")
+        assert result["total"] == 1
+        assert result["state"] == "open"
+        assert result["milestones"][0] == {
+            "number": 3,
+            "title": "v2.0",
+            "description": "the next one",
+            "state": "open",
+            "due_on": "2026-12-31T23:59:59Z",
+            "open_issues": 4,
+            "closed_issues": 9,
+            "html_url": "https://github.com/o/r/milestone/3",
+        }
+
+    @pytest.mark.anyio
+    async def test_list_milestones_can_ask_for_closed_ones(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        await gi.list_milestones("o", "r", state="closed", per_page=10, page=2)
+        params = gi._http.request.call_args.kwargs["params"]
+        assert params == {"state": "closed", "per_page": 10, "page": 2}
+
+    @pytest.mark.anyio
+    async def test_create_milestone_sends_a_due_date_only_when_given(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_milestone_payload()))
+        await gi.create_milestone("o", "r", "v2.0", "the next one")
+        assert "due_on" not in gi._http.request.call_args.kwargs["json"]
+        await gi.create_milestone("o", "r", "v2.0", due_on="2026-12-31T23:59:59Z")
+        assert gi._http.request.call_args.kwargs["json"]["due_on"] == "2026-12-31T23:59:59Z"
+
+    @pytest.mark.anyio
+    async def test_update_milestone_resolves_the_title_then_patches_by_number(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=[_milestone_payload()]),
+            _mock_response(json_data=_milestone_payload(state="closed")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.update_milestone("o", "r", "v2.0", state="closed")
+        patch_call = gi._http.request.call_args_list[1]
+        assert patch_call.args[0] == "PATCH"
+        assert patch_call.args[1].endswith("/milestones/3")
+        assert patch_call.kwargs["json"] == {"state": "closed"}
+        assert result["state"] == "closed"
+
+    @pytest.mark.anyio
+    async def test_update_milestone_renames_without_touching_the_rest(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=[_milestone_payload()]),
+            _mock_response(json_data=_milestone_payload(title="v2.1")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.update_milestone("o", "r", "v2.0", new_title="v2.1")
+        assert gi._http.request.call_args_list[1].kwargs["json"] == {"title": "v2.1"}
+
+    @pytest.mark.anyio
+    async def test_update_milestone_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock()
+        with pytest.raises(GitHubValidationError):
+            await gi.update_milestone("o", "r", "v2.0")
+        gi._http.request.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_an_unknown_title_names_it_in_the_error(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        with pytest.raises(GitHubNotFoundError, match="No milestone titled 'v9.9'"):
+            await gi.update_milestone("o", "r", "v9.9", state="closed")
+
+    @pytest.mark.anyio
+    async def test_the_lookup_reads_closed_milestones_too(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        with pytest.raises(GitHubNotFoundError):
+            await gi.update_milestone("o", "r", "v9.9", state="open")
+        assert gi._http.request.call_args.kwargs["params"]["state"] == "all"
+
+    @pytest.mark.anyio
+    async def test_the_lookup_pages_past_the_first_hundred(self, gi: GitHubIntegration):
+        first = [_milestone_payload(number=n, title=f"m{n}") for n in range(100)]
+        responses = iter([
+            _mock_response(json_data=first),
+            _mock_response(json_data=[_milestone_payload(number=101, title="v2.0")]),
+            _mock_response(json_data=_milestone_payload(number=101, state="closed")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.update_milestone("o", "r", "v2.0", state="closed")
+        assert gi._http.request.call_args_list[1].kwargs["params"]["page"] == 2
+        assert gi._http.request.call_args_list[2].args[1].endswith("/milestones/101")
+
+    @pytest.mark.anyio
+    async def test_create_issue_files_it_under_a_milestone(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=[_milestone_payload()]),
+            _mock_response(json_data=_issue_payload(milestone={"title": "v2.0"})),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone="v2.0")
+        assert gi._http.request.call_args.kwargs["json"]["milestone"] == 3
+        assert result["milestone"] == "v2.0"
+
+    @pytest.mark.anyio
+    async def test_create_issue_without_a_milestone_sends_none_and_looks_nothing_up(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        result = await gi.create_issue("o", "r", "A bug", "Details", ["bug"])
+        assert gi._http.request.call_count == 1
+        assert "milestone" not in gi._http.request.call_args.kwargs["json"]
+        assert result["milestone"] is None
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_files_an_existing_issue(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=[_milestone_payload()]),
+            _mock_response(json_data=_issue_payload(milestone={"title": "v2.0"})),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.set_issue_milestone("o", "r", 7, "v2.0")
+        assert gi._http.request.call_args.kwargs["json"] == {"milestone": 3}
+        assert result["milestone"] == "v2.0"
+
+    @pytest.mark.anyio
+    async def test_clearing_sends_an_explicit_null(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        result = await gi.set_issue_milestone("o", "r", 7)
+        # An omitted key would leave the milestone in place, so null has to go up.
+        assert gi._http.request.call_args.kwargs["json"] == {"milestone": None}
+        assert gi._http.request.call_count == 1
+        assert result["milestone"] is None
+
+    def test_annotations(self, gi: GitHubIntegration):
+        assert gi.list_milestones._mcp_annotations.readOnlyHint is True
+        assert gi.create_milestone._mcp_annotations.destructiveHint is False
+        for name in ("update_milestone", "set_issue_milestone"):
+            assert getattr(gi, name)._mcp_annotations.idempotentHint is True, name
