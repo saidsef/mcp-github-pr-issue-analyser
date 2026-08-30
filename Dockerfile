@@ -8,11 +8,13 @@ FROM docker.io/python:3.14-slim AS builder
 COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
-COPY pyproject.toml README.md /app/
+COPY pyproject.toml uv.lock README.md /app/
 COPY src src
 
-RUN uv venv /opt/venv && \
-    VIRTUAL_ENV=/opt/venv uv pip install --no-cache .
+# Build from the lock, so the image ships the dependency set CI resolved rather
+# than whatever satisfies the ranges on the day it is built.
+RUN UV_PROJECT_ENVIRONMENT=/opt/venv \
+    uv sync --locked --no-dev --no-editable --no-cache
 
 FROM docker.io/python:3.14-slim
 
