@@ -92,6 +92,7 @@ class IssueData(TypedDict):
     state: str
     author: str
     labels: list[str]
+    assignees: list[str]
     milestone: str | None
     html_url: str
     created_at: str
@@ -272,6 +273,7 @@ def _issue_result(data: dict[str, Any]) -> IssueData:
         "state": data["state"],
         "author": (data.get("user") or {}).get("login", ""),
         "labels": [label["name"] for label in data.get("labels", [])],
+        "assignees": [user["login"] for user in data.get("assignees") or []],
         "milestone": (data.get("milestone") or {}).get("title"),
         "html_url": data["html_url"],
         "created_at": data["created_at"],
@@ -956,6 +958,19 @@ class GitHubIntegration(ActivityMixin):
         data = (
             await self._request("PATCH", url, context=f"issue #{issue_number} milestone", json={"milestone": number})
         ).json()
+        return _issue_result(data)
+
+    @_read_only
+    async def get_issue(self, repo_owner: str, repo_name: str, issue_number: int) -> IssueData:
+        """Fetches a single issue by number, with its body, labels, assignees and
+        milestone. Reads straight from the issue rather than the search index, so
+        it sees a write immediately. See #358."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        data = (await self._request("GET", url, context=f"issue #{issue_number}")).json()
+        # GitHub serves pull requests from this path too, and _issue_result would
+        # report one as an issue.
+        if "pull_request" in data:
+            raise GitHubValidationError(f"#{issue_number} is a pull request. Use get_pr_content instead.")
         return _issue_result(data)
 
     @_write

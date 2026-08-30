@@ -22,6 +22,11 @@ defines.
 3. Call `create_issue` with a title, body and labels, plus a `milestone` title if it belongs to one
 4. The `mcp` label is appended automatically, so do not pass it yourself
 
+### Reading an Issue
+
+1. Call `get_issue` when you have the number and need the body, labels, assignees or milestone
+2. Read it back this way after `create_issue`, `update_issue` or `update_assignees` to confirm what landed
+
 ### Updating an Issue
 
 1. Call `update_issue` with only the fields you are changing, the rest keep their current values
@@ -63,7 +68,7 @@ defines.
 | `milestone` | str | `""` | Milestone title to file it under. Omit for none |
 
 Returns `IssueData` with `number`, `title`, `body`, `state`, `author`,
-`labels`, `milestone`, `html_url`, `created_at`, `updated_at`.
+`labels`, `assignees`, `milestone`, `html_url`, `created_at`, `updated_at`.
 
 `milestone` is a title, not a number, and the milestone has to exist already.
 
@@ -96,6 +101,25 @@ Two things still overwrite rather than merge:
 - A `title` or `body` you did not read first overwrites the current text
 
 This tool cannot change the milestone. Use `set_issue_milestone`.
+
+### `get_issue`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `issue_number` | int | - | Issue number |
+
+Returns `IssueData`, the same shape `create_issue` and `update_issue` return.
+
+This is the only read that gives you an issue's body and assignees. The two
+listing tools return a trimmed search shape without either, and they go through
+GitHub's search index, which lags behind a write by up to a minute. `get_issue`
+reads the issue itself, so it sees a change straight away.
+
+Open or closed makes no difference. A number belonging to a pull request is
+rejected with a validation error, since GitHub serves both from this path and
+the result would describe a PR as an issue. Use `get_pr_content` for those.
 
 ### `list_open_issues_prs`
 
@@ -265,6 +289,7 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 ## Best Practices
 
 - Search for duplicates before creating an issue: `list_open_issues_prs` with `filtering="repo"` for the open ones, `search_issues_prs` when a closed one would also count
+- Read a known issue with `get_issue` rather than searching for it, since search omits the body and lags a write
 - Scope every `search_issues_prs` query with `repo:` or `org:`, or it searches all of GitHub
 - Call `list_repo_labels` before writing labels rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Title every issue as `<type>(<scope>): <prose summary>`, see Title Convention above
