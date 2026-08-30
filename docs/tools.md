@@ -24,15 +24,19 @@ The server registers every public method on the GitHub integration that carries 
 | `update_reviews` | write | Approve, request changes, or comment as a review |
 | `update_assignees` | write | Assign or update users on a PR or issue |
 
-## Issues and labels
+## Issues, labels and milestones
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `create_issue` | write | Open an issue with title, body and labels |
+| `create_issue` | write | Open an issue with title, body, labels and an optional milestone |
 | `update_issue` | write | Update any subset of an existing issue's title, body, labels or state |
 | `list_open_issues_prs` | read | List open PRs or issues for a user or organisation |
 | `search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included |
 | `list_repo_labels` | read | Name, description and colour of every label a repository defines |
+| `list_milestones` | read | Open, closed or all milestones, with the count of issues in each |
+| `create_milestone` | write | Open a milestone with a description and a due date |
+| `update_milestone` | write | Rename a milestone, move its due date, or close it |
+| `set_issue_milestone` | write | File an issue under a milestone, or take it off one |
 
 ## Tags and releases
 
@@ -86,7 +90,7 @@ Workflow guidance ships with the server as MCP resources under the `skill://` UR
 | `skill://pr-analysis/SKILL.md` | Fetch a PR's metadata, diff, linked issues and CI status |
 | `skill://pr-review/SKILL.md` | Post inline comments and submit review decisions |
 | `skill://pr-management/SKILL.md` | Create, update, assign, refresh and merge PRs |
-| `skill://issue-management/SKILL.md` | Create, update, list and search issues and PRs, and list labels |
+| `skill://issue-management/SKILL.md` | Create, update, list and search issues and PRs, list labels, and run milestones |
 | `skill://release-management/SKILL.md` | Tag commits, publish releases, and correct or withdraw what is published |
 | `skill://project-boards/SKILL.md` | Place issues on a project board, set their fields, and read a board |
 | `skill://user-activity/SKILL.md` | Find repositories, and look up user profiles, contributions and star growth |

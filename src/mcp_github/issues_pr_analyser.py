@@ -132,6 +132,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
 - Use update_pr_description to keep PRs up-to-date
 - Use create_issue and update_issue for issue management
+- Use set_issue_milestone to file an issue under a milestone after it exists, since update_issue cannot clear one
 - Use create_tag and create_release for release management
 - Use get_project_fields before set_project_field, since option names differ per board
 - Always maintain a professional, clear and concise tone
@@ -141,7 +142,7 @@ Workflow guidance is available as MCP resources under the skill:// URI scheme:
 - skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
 - skill://pr-review/SKILL.md -- post inline comments and submit review decisions
 - skill://pr-management/SKILL.md -- create, update, assign, refresh and merge PRs
-- skill://issue-management/SKILL.md -- create, update, list and search issues and PRs, and list a repository's labels
+- skill://issue-management/SKILL.md -- create, update, list and search issues and PRs, list labels, and run milestones
 - skill://release-management/SKILL.md -- tag commits, publish releases, and correct or withdraw what is published
 - skill://project-boards/SKILL.md -- place issues on a project board, set their fields, and read a board
 - skill://user-activity/SKILL.md -- find repositories, and look up user profiles, contributions and star growth
