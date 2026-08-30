@@ -1,6 +1,7 @@
 """Tests for auth.py — Redis client construction and token store selection."""
 
 import hashlib
+import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -223,3 +224,50 @@ class TestDynamoDBTokenStore:
             build_token_store()
         await aclose_token_store()
         assert auth._token_store is None
+
+
+DYNAMODB_TEST_ENDPOINT = os.getenv("DYNAMODB_TEST_ENDPOINT")
+
+
+@pytest.mark.skipif(
+    not DYNAMODB_TEST_ENDPOINT,
+    reason="set DYNAMODB_TEST_ENDPOINT to a DynamoDB Local endpoint to run these",
+)
+class TestDynamoDBStoreEndToEnd:
+    """Round trip against a real DynamoDB. Every other test here mocks the store,
+    so this is the only one that proves the table and its TTL are usable.
+
+    docker run --rm -p 8000:8000 amazon/dynamodb-local
+    DYNAMODB_TEST_ENDPOINT=http://localhost:8000 uv run pytest tests/test_auth.py
+    """
+
+    @pytest.fixture
+    def _aws_credentials(self):
+        with patch.dict(
+            os.environ, {"AWS_ACCESS_KEY_ID": "dummy", "AWS_SECRET_ACCESS_KEY": "dummy"}
+        ):
+            yield
+
+    @pytest.mark.anyio
+    async def test_stores_reads_and_deletes_a_token(self, _aws_credentials):
+        with (
+            patch("mcp_github.auth.DYNAMODB_TABLE_NAME", "oauth-state-test"),
+            patch("mcp_github.auth.DYNAMODB_REGION", "eu-west-1"),
+            patch("mcp_github.auth.DYNAMODB_ENDPOINT_URL", DYNAMODB_TEST_ENDPOINT),
+            patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
+        ):
+            store = build_token_store()
+            await store.put("client-1", {"client_secret": "abc"}, collection="oauth")
+            assert await store.get("client-1", collection="oauth") == {"client_secret": "abc"}
+
+            # The library writes the expiry to the table's TTL attribute, which is
+            # what keeps expired tokens from piling up.
+            await store.put("expiring", {"tok": "x"}, collection="oauth", ttl=60)
+            _, remaining = await store.ttl("expiring", collection="oauth")
+            assert remaining is not None and 0 < remaining <= 60
+
+            assert await store.delete("client-1", collection="oauth") is True
+            assert await store.get("client-1", collection="oauth") is None
+
+            await aclose_token_store()
+            assert auth._token_store is None

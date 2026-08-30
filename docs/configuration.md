@@ -76,6 +76,8 @@ Redis needs an instance to size, run and pay for by the hour. DynamoDB has none 
 
 The table is created on first use, on-demand billing, partitioned on `collection` with `key` as the sort key, and TTL enabled on the `ttl` attribute so expired tokens are removed without a sweep. Create it yourself if you would rather the running role could not.
 
+`py-key-value-aio` marks its Redis and memory stores as a stable API but not its DynamoDB one, so building the DynamoDB store logs `A configured store is unstable and may change in a backwards incompatible way`. The warning comes from the library, not from a misconfiguration. Anything running Python with `-W error` will need to allow it.
+
 Credentials come from the standard AWS chain, so an IRSA-annotated service account, an instance profile or `AWS_*` variables all work. On the table the server needs `dynamodb:GetItem`, `dynamodb:PutItem`, `dynamodb:DeleteItem`, `dynamodb:DescribeTable` and `dynamodb:DescribeTimeToLive`. Leaving the table to be created adds `dynamodb:CreateTable` and `dynamodb:UpdateTimeToLive`.
 
 ## Personal access token scopes
