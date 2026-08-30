@@ -12,7 +12,7 @@ Two modes are supported. The active mode is selected automatically from environm
 
 In static-token HTTP mode, clients must send `Authorization: Bearer <GITHUB_TOKEN>`. The value is compared against the server's `GITHUB_TOKEN` with a constant-time comparison, so every caller shares one identity and one rate limit.
 
-In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAuth2 flow, and requests the `repo`, `read:org` and `user` scopes. Each caller's own token is used for API calls, so audit trails and rate limits follow the individual user.
+In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAuth2 flow, and requests the `repo`, `read:org`, `user` and `project` scopes. Each caller's own token is used for API calls, so audit trails and rate limits follow the individual user.
 
 ## Environment variables
 
@@ -56,4 +56,4 @@ Keys are prefixed with a hash of `GITHUB_OAUTH_BASE_URL` when that is set, so se
 
 ## Personal access token scopes
 
-The PAT needs `repo` for private repositories. Reading org membership in user activity queries also needs `read:org`. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope.
+The PAT needs `repo` for private repositories. Reading org membership in user activity queries also needs `read:org`. The project board tools need `read:project` to read and `project` to write, which `repo` does not cover. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope, plus Projects read and write for the board tools.

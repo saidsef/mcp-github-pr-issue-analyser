@@ -109,7 +109,9 @@ def get_oauth_verifier() -> GitHubProvider:
         client_secret=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
         jwt_signing_key=_derive_jwt_signing_key(),
-        required_scopes=["repo", "read:org", "user"],
+        # project is separate from repo, so the board tools need it named. An
+        # authorisation granted before it was asked for stays without it. See #351.
+        required_scopes=["repo", "read:org", "user", "project"],
         client_storage=build_token_store(),
     )
 

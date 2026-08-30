@@ -48,6 +48,18 @@ The server registers every public method on the GitHub integration that carries 
 | `delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise |
 | `delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
 
+## Project boards
+
+Projects (v2) has no REST surface, so every tool here goes through GraphQL. The token needs a Projects grant separate from `repo`: `read:project` to read, `project` to write.
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `get_project_fields` | read | A board's fields and the options each single-select one accepts |
+| `list_project_items` | read | What is on a board, each card with its field values |
+| `add_to_project` | write | Put an issue or pull request on a board |
+| `set_project_field` | write | Set a single-select field such as Status, by field and option name |
+| `remove_from_project` | destructive | Take a card off a board, leaving the issue open |
+
 ## Users and activity
 
 | Tool | Kind | Description |
@@ -75,6 +87,7 @@ Workflow guidance ships with the server as MCP resources under the `skill://` UR
 | `skill://pr-management/SKILL.md` | Create, update, assign, refresh and merge PRs |
 | `skill://issue-management/SKILL.md` | Create, update, list and search issues and PRs, and list labels |
 | `skill://release-management/SKILL.md` | Tag commits, publish releases, and correct or withdraw what is published |
+| `skill://project-boards/SKILL.md` | Place issues on a project board, set their fields, and read a board |
 | `skill://user-activity/SKILL.md` | Look up user profiles, contributions and star growth |
 | `skill://error-handling/SKILL.md` | Read the error codes and decide whether to retry |
 | `skill://interactive-ui/SKILL.md` | Ask the user to choose, or render data as a UI panel |
