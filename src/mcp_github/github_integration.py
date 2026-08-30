@@ -156,6 +156,7 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 # Named once so the comma does not sit inside a signature, where the complexity
 # counter reads it as another parameter.
 _OpenClosed = Literal["open", "closed"]
+_RepoSort = Literal["updated", "pushed", "created", "full_name"]
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +204,22 @@ def _already_exists(response: httpx.Response) -> bool:
     except Exception:
         return False
     return any(error.get("code") == "already_exists" for error in errors)
+
+
+def _repo_result(repo: dict[str, Any]) -> dict[str, Any]:
+    """Trim a repository payload to what a caller needs to pick one and call
+    the next tool with it."""
+    return {
+        "name": repo["name"],
+        "owner": (repo.get("owner") or {}).get("login", ""),
+        "description": repo.get("description"),
+        "default_branch": repo.get("default_branch"),
+        "private": repo.get("private", False),
+        "fork": repo.get("fork", False),
+        "archived": repo.get("archived", False),
+        "pushed_at": repo.get("pushed_at"),
+        "html_url": repo.get("html_url"),
+    }
 
 
 def _search_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -772,6 +789,46 @@ class GitHubIntegration(ActivityMixin):
         data = (await self._request("GET", url, context=f"labels for {repo_owner}/{repo_name}")).json()
         labels = [_pick(label, "name", "description", "color") for label in data]
         return {"total": len(labels), "labels": labels}
+
+    async def _account_kind(self, owner: str) -> str:
+        """User or Organization. The two repo endpoints are not interchangeable,
+        so the account type has to be read rather than guessed at."""
+        response = await self._request(
+            "GET", f"https://api.github.com/users/{owner}", context=f"account {owner}", allow_status=(404,)
+        )
+        if response.status_code == 404:
+            raise GitHubNotFoundError(f"No user or organisation named '{owner}'")
+        return response.json().get("type", "User")
+
+    @_read_only
+    async def list_repos(
+        self,
+        owner: Annotated[
+            str, "User or organisation. Omit for the caller's own, which is the only way to see private ones"
+        ] = "",
+        sort: _RepoSort = "updated",
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 30,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists repositories for a user, an organisation, or the caller. The
+        owner's account type picks the endpoint, since /orgs 404s on a person and
+        /users hides an organisation's private repositories. See #354."""
+        if not owner:
+            # The only endpoint that returns the caller's own private repositories.
+            path = "user/repos"
+        elif await self._account_kind(owner) == "Organization":
+            path = f"orgs/{owner}/repos"
+        else:
+            path = f"users/{owner}/repos"
+        data = (
+            await self._request(
+                "GET",
+                f"https://api.github.com/{path}",
+                context=f"repos for {owner or 'the authenticated user'}",
+                params={"sort": sort, "per_page": per_page, "page": page},
+            )
+        ).json()
+        return {"total": len(data), "repos": [_repo_result(repo) for repo in data]}
 
     @_write
     async def create_issue(

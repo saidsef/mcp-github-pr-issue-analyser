@@ -2249,3 +2249,96 @@ class TestGraphQLScopeErrors:
         with pytest.raises(GitHubAuthError):  # noqa: PT012 - the guard is what is under test
             async with gi._guard("do a thing"):
                 raise GitHubAuthError("Missing scope.")
+
+
+# ---------------------------------------------------------------------------
+# list_repos (#354)
+# ---------------------------------------------------------------------------
+
+
+def _repo_payload(**overrides) -> dict:
+    payload = {
+        "name": "toolbox",
+        "full_name": "acme/toolbox",
+        "owner": _NOISE_USER,
+        "description": "a repo",
+        "default_branch": "main",
+        "private": False,
+        "fork": False,
+        "archived": False,
+        "pushed_at": "2026-08-01T00:00:00Z",
+        "html_url": "https://github.com/acme/toolbox",
+        "stargazers_count": 12,
+        "watchers_count": 12,
+        "permissions": {"admin": True, "push": True, "pull": True},
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestListRepos:
+    @pytest.mark.anyio
+    async def test_a_person_uses_the_users_endpoint(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data={"login": "someone", "type": "User"}),
+            _mock_response(json_data=[_repo_payload()]),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.list_repos("someone")
+        assert gi._http.request.call_args.args[1] == "https://api.github.com/users/someone/repos"
+
+    @pytest.mark.anyio
+    async def test_an_organisation_uses_the_orgs_endpoint(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data={"login": "acme", "type": "Organization"}),
+            _mock_response(json_data=[_repo_payload()]),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.list_repos("acme")
+        # /users/acme/repos would answer, but only with the public ones.
+        assert gi._http.request.call_args.args[1] == "https://api.github.com/orgs/acme/repos"
+
+    @pytest.mark.anyio
+    async def test_no_owner_reads_the_callers_own(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_repo_payload(private=True)]))
+        result = await gi.list_repos()
+        # No account lookup, since there is no owner to classify.
+        assert gi._http.request.call_count == 1
+        assert gi._http.request.call_args.args[1] == "https://api.github.com/user/repos"
+        assert result["repos"][0]["private"] is True
+
+    @pytest.mark.anyio
+    async def test_results_are_trimmed(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_repo_payload()]))
+        result = await gi.list_repos()
+        assert result == {
+            "total": 1,
+            "repos": [{
+                "name": "toolbox",
+                "owner": "octocat",
+                "description": "a repo",
+                "default_branch": "main",
+                "private": False,
+                "fork": False,
+                "archived": False,
+                "pushed_at": "2026-08-01T00:00:00Z",
+                "html_url": "https://github.com/acme/toolbox",
+            }],
+        }
+
+    @pytest.mark.anyio
+    async def test_sort_and_paging_go_out_as_params(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        await gi.list_repos(sort="full_name", per_page=100, page=3)
+        assert gi._http.request.call_args.kwargs["params"] == {"sort": "full_name", "per_page": 100, "page": 3}
+
+    @pytest.mark.anyio
+    async def test_an_owner_that_is_neither_names_itself_in_the_error(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(status_code=404, json_data={}))
+        with pytest.raises(GitHubNotFoundError, match="No user or organisation named 'nope'"):
+            await gi.list_repos("nope")
+        # The listing was never attempted.
+        assert gi._http.request.call_count == 1
+
+    def test_is_read_only(self, gi: GitHubIntegration):
+        assert gi.list_repos._mcp_annotations.readOnlyHint is True
