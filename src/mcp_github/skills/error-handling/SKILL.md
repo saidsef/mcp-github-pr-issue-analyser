@@ -11,12 +11,21 @@ Every tool in this server fails through one small set of typed errors. The code 
 Failures arrive as a `ToolError` whose message opens with a bracketed code:
 
 ```
-[NOT_FOUND] HTTP 404: PR #4321: Resource not found
+[NOT_FOUND] HTTP 404: PR #4321: Resource not found GitHub said: Not Found
 ```
 
 The prefix is `[<CODE>] HTTP <status>: ` when a status is known and `[<CODE>] `
 when it is not. Read the code first, since the prose after it varies with the
 call and is not stable enough to match on.
+
+What follows the prefix has three parts. The call that failed comes first, such
+as `PR #4321`. The server's own reading of the status comes next. Whatever
+GitHub said about the refusal comes last, after `GitHub said: `, and a 422
+appends its field-level errors as `<field>: <message>` after that. The last part
+is absent when GitHub sent no body or sent one that is not JSON.
+
+Report the `GitHub said` text to the user, since it names the cause where the
+codes only name the class.
 
 The GraphQL-backed tools wrap failures once more, so their messages read
 `[GITHUB_API_ERROR] Failed to <action>: <original error>`. The action names the
@@ -29,7 +38,7 @@ than being re-wrapped.
 | Code | Status | Means | Do |
 |---|---|---|---|
 | `AUTH_FAILED` | 401 | The token is missing, expired or revoked | Stop. Tell the user to re-authenticate. Retrying cannot help |
-| `RATE_LIMITED` | 403 | GitHub's rate limit is exhausted | Wait for the reset, then retry the same call unchanged |
+| `RATE_LIMITED` | 403 | The primary or the secondary rate limit is exhausted | Wait for the reset, then retry the same call unchanged |
 | `NOT_FOUND` | 404 | The resource is absent, or the token cannot see it | Check the owner, repo and number. Do not retry unchanged |
 | `VALIDATION_ERROR` | 422 | GitHub rejected the arguments | Fix the arguments. Retrying unchanged fails again |
 | `GITHUB_API_ERROR` | 403 or other | Permission denied, or any status not listed above | Read the message. Permission problems need a token or approval change, not a retry |
@@ -39,8 +48,19 @@ Two of these are easy to misread.
 **Permission denied shares a code with everything else.** A 403 that is not a
 rate limit raises `GITHUB_API_ERROR`, not a code of its own, so the code alone
 does not tell you a permission problem from an unexpected 500. Check the status
-and the message text, which begins `Permission denied. Check your token
-permissions.`
+and the message text. It reads `Refused.` where GitHub named a cause, and
+`Permission denied. Check your token permissions.` where GitHub sent no body,
+which is the one case the token is the likeliest suspect.
+
+A refused 403 has several causes and each needs a different fix, so the code and
+the status settle nothing on their own. `merge_pr` meets all of them.
+
+| GitHub said | Cause | Do |
+|---|---|---|
+| `Resource protected by organization SAML enforcement` | The token is not authorised for that organisation | Authorise the token for the org under its SSO settings |
+| `Resource not accessible by integration` | The App installation lacks the permission the call needs | Grant the permission on the installation |
+| `<n> of <m> required status checks have not succeeded`, or a ruleset refusal | Branch protection is refusing this actor | Report it. No token change helps |
+| `At least <n> approving review is required` | The PR is short of reviews | Report it. Retrying fails again |
 
 **A 404 does not prove the thing is missing.** GitHub returns 404 rather than
 403 for a resource the token cannot see, so a private repository the token
@@ -49,9 +69,16 @@ spelling before concluding the resource does not exist.
 
 ## Rate Limits
 
-`RATE_LIMITED` is the only code worth retrying on its own. The error carries a
-`reset_timestamp` taken from GitHub's `X-RateLimit-Reset` header, which is Unix
-epoch seconds and may be absent if GitHub omitted the header.
+`RATE_LIMITED` is the only code worth retrying on its own, and it covers two
+different limits. The primary limit is a budget of requests per hour, and its
+message reads `GitHub API rate limit exceeded`. The secondary limit is a throttle
+on writes made in quick succession, and its message reads `GitHub secondary rate
+limit hit`. A secondary limit clears in minutes, so the same call succeeds later
+without any change.
+
+Both carry a `reset_timestamp` in Unix epoch seconds, read from `Retry-After`
+where GitHub sent one and from `X-RateLimit-Reset` otherwise. It is absent when
+GitHub sent neither header, or sent a date rather than a number of seconds.
 
 No tool retries or backs off internally. A failed call is simply raised, so any
 waiting is yours to do. Do not retry in a tight loop, since every attempt spends
@@ -100,4 +127,4 @@ the server waits on a host it cannot reach.
 - Treat `AUTH_FAILED` as terminal and hand it back to the user
 - Re-read the arguments on `VALIDATION_ERROR` rather than trying the call again
 - On `NOT_FOUND`, check the spelling of owner, repo and number before reporting the resource as absent
-- Report what failed and what the user needs to do, not the raw exception text
+- Report what failed and what the user needs to do, quoting the `GitHub said` text and not the whole exception
