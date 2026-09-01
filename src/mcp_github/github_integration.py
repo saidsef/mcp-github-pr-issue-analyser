@@ -19,6 +19,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from contextlib import asynccontextmanager
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
@@ -221,6 +222,38 @@ def _already_exists(response: httpx.Response) -> bool:
     return any(error.get("code") == "already_exists" for error in errors)
 
 
+def _github_detail(response_body: dict | None) -> str:
+    """GitHub names the actual cause in the response body, and the exception text is
+    all an MCP client ever sees, so every branch folds it in rather than replacing
+    it with a status-class guess."""
+    if not isinstance(response_body, dict):
+        return ""
+    parts: list[str] = []
+    if message := str(response_body.get("message") or "").strip():
+        parts.append(message)
+    for error in response_body.get("errors") or []:
+        if isinstance(error, dict):
+            text = str(error.get("message") or error.get("code") or "").strip()
+            if field := error.get("field"):
+                text = f"{field}: {text}" if text else str(field)
+        else:
+            text = str(error or "").strip()
+        if text and text not in parts:
+            parts.append(text)
+    return f" GitHub said: {'; '.join(parts)}" if parts else ""
+
+
+def _reset_timestamp(response: httpx.Response) -> int | None:
+    """When to try again, as Unix epoch seconds. A secondary limit reports its wait
+    in Retry-After, where X-RateLimit-Reset is absent or points at the unrelated
+    primary window. Either header can be missing or non-numeric."""
+    retry_after = (response.headers.get("Retry-After") or "").strip()
+    if retry_after.isdigit():
+        return int(time.time()) + int(retry_after)
+    reset = (response.headers.get("X-RateLimit-Reset") or "").strip()
+    return int(reset) if reset.isdigit() else None
+
+
 def _repo_result(repo: dict[str, Any]) -> dict[str, Any]:
     """Trim a repository payload to what a caller needs to pick one and call
     the next tool with it."""
@@ -411,56 +444,66 @@ class GitHubIntegration(ActivityMixin):
         except Exception:
             response_body = None
 
+        detail = _github_detail(response_body)
+        where = f"{context}: " if context else ""
+
         if status == 401:
             msg = "Authentication failed. Check your GitHub token."
             if self._oauth_mode:
                 msg += (
-                    " The GitHub OAuth authorization may have been revoked — please re-authenticate via the OAuth flow."
+                    " The GitHub OAuth authorization may have been revoked, please re-authenticate via the OAuth flow."
                 )
-            raise GitHubAuthError(msg, response_body=response_body)
+            raise GitHubAuthError(f"{where}{msg}{detail}", response_body=response_body)
 
         if status == 403:
-            self._raise_for_403(response, response_body)
+            self._raise_for_403(response, response_body, where, detail)
 
         if status == 404:
-            msg = f"{context}: Resource not found" if context else "Resource not found"
+            msg = "Resource not found"
             if self._oauth_mode:
                 msg += (
                     " If this is a private organisation repository, the org admin may need to"
                     " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
                 )
-            raise GitHubNotFoundError(msg, response_body=response_body)
+            raise GitHubNotFoundError(f"{where}{msg}{detail}", response_body=response_body)
 
         if status == 422:
-            raise GitHubValidationError("Validation failed. Check your input data.", response_body=response_body)
+            raise GitHubValidationError(
+                f"{where}Validation failed. Check your input data.{detail}", response_body=response_body
+            )
 
         message = f"GitHub API error ({context})" if context else "GitHub API error"
-        gh_message = response_body.get("message") if isinstance(response_body, dict) else None
-        detail = f"{status} - {response.reason_phrase}"
-        if gh_message:
-            detail = f"{detail} - {gh_message}"
         raise GitHubAPIError(
-            f"{message}: {detail}",
+            f"{message}: {status} - {response.reason_phrase}{detail}",
             status_code=status,
             response_body=response_body,
         )
 
-    def _raise_for_403(self, response: httpx.Response, response_body: dict | None):
-        """Handle 403 response — distinguishes rate limit from permission error."""
+    def _raise_for_403(
+        self, response: httpx.Response, response_body: dict | None, where: str = "", detail: str = ""
+    ) -> None:
+        """Handle a 403, which is a rate limit or a refusal. A refusal covers a missing
+        scope, SAML enforcement and a branch protection rule alike, and only GitHub's
+        own wording separates them, so detail carries it into every message."""
         error_text = response.text.lower()
-        if "rate limit" not in error_text and "api rate limit" not in error_text:
-            msg = "Permission denied. Check your token permissions."
+        if "rate limit" not in error_text:
+            # Guessing at the token is only right when GitHub named no cause of its own.
+            msg = "Refused." if detail else "Permission denied. Check your token permissions."
             if self._oauth_mode:
                 msg += (
                     " If accessing a private organisation repository, the org admin may need to"
                     " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
                 )
-            raise GitHubAPIError(msg, status_code=403, response_body=response_body)
-        reset_header = response.headers.get("X-RateLimit-Reset")
+            raise GitHubAPIError(f"{where}{msg}{detail}", status_code=403, response_body=response_body)
+        msg = (
+            "GitHub secondary rate limit hit. Wait for the retry window before making more requests."
+            if "secondary rate limit" in error_text
+            else "GitHub API rate limit exceeded. Please wait before making more requests."
+        )
         raise GitHubRateLimitError(
-            "GitHub API rate limit exceeded. Please wait before making more requests.",
+            f"{where}{msg}{detail}",
             response_body=response_body,
-            reset_timestamp=int(reset_header) if reset_header else None,
+            reset_timestamp=_reset_timestamp(response),
         )
 
     def _raise_for_status(self, response: httpx.Response, context: str = "") -> None:

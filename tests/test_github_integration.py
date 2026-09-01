@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
@@ -14,6 +15,7 @@ from mcp_github.exceptions import (
     GitHubAPIError,
     GitHubAuthError,
     GitHubNotFoundError,
+    GitHubRateLimitError,
     GitHubValidationError,
 )
 from mcp_github.github_integration import CONNECT_TIMEOUT, TIMEOUT, GitHubIntegration, _timeout
@@ -26,15 +28,21 @@ from mcp_github.tool_annotations import _destructive, _read_only, _write
 
 
 def _mock_response(
-    status_code: int = 200, json_data: dict | list | None = None, text: str = "", etag: str | None = None
+    status_code: int = 200,
+    json_data: dict | list | None = None,
+    text: str = "",
+    etag: str | None = None,
+    headers: dict[str, str] | None = None,
+    reason_phrase: str = "OK",
 ) -> MagicMock:
     r = MagicMock(spec=httpx.Response)
     r.status_code = status_code
     r.is_success = status_code < 400
     r.json.return_value = json_data if json_data is not None else {}
     r.text = text
-    r.reason_phrase = "OK"
+    r.reason_phrase = reason_phrase
     r.headers = {"ETag": etag} if etag else {}
+    r.headers.update(headers or {})
     r.content = json.dumps(json_data).encode() if json_data is not None else text.encode()
     r.request = None
     return r
@@ -2520,3 +2528,132 @@ class TestListRepos:
 
     def test_is_read_only(self, gi: GitHubIntegration):
         assert gi.list_repos._mcp_annotations.readOnlyHint is True
+
+
+# ---------------------------------------------------------------------------
+# Error detail
+# ---------------------------------------------------------------------------
+
+
+_SAML_403 = {
+    "message": "Resource protected by organization SAML enforcement. You must grant your token access.",
+    "documentation_url": "https://docs.github.com/rest",
+}
+
+
+class TestErrorDetail:
+    """GitHub explains a refusal in the response body, and the exception text is all
+    the client sees, so the body has to survive into the message."""
+
+    @pytest.mark.anyio
+    async def test_a_permission_403_carries_githubs_own_message(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
+        )
+        with pytest.raises(ToolError, match="SAML enforcement"):
+            await gi.merge_pr("owner", "repo", 42)
+
+    @pytest.mark.anyio
+    async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
+        body = {"message": "At least 1 approving review is required by reviewers with write access."}
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=403, json_data=body, text=json.dumps(body))
+        )
+        with pytest.raises(ToolError, match=r"PR #42 merge: Refused.*approving review"):
+            await gi.merge_pr("owner", "repo", 42)
+
+    @pytest.mark.anyio
+    async def test_a_403_with_no_body_still_points_at_the_token(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(status_code=403, text=""))
+        gi._http.request.return_value.json.side_effect = ValueError("not json")
+        with pytest.raises(ToolError, match="Permission denied. Check your token permissions"):
+            await gi.merge_pr("owner", "repo", 42)
+
+    def test_a_permission_403_is_not_read_as_a_rate_limit(self, gi: GitHubIntegration):
+        response = _mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
+        with pytest.raises(GitHubAPIError) as caught:
+            gi._handle_response_error(response, "PR #42 merge")
+        assert not isinstance(caught.value, GitHubRateLimitError)
+        assert caught.value.status_code == 403
+        assert caught.value.response_body == _SAML_403
+
+    def test_a_secondary_rate_limit_says_so_and_waits_the_retry_after(self, gi: GitHubIntegration):
+        body = {"message": "You have exceeded a secondary rate limit. Please wait a few minutes."}
+        response = _mock_response(
+            status_code=403,
+            json_data=body,
+            text=json.dumps(body),
+            # The primary window is unrelated and long past, so Retry-After is the only usable wait.
+            headers={"Retry-After": "60", "X-RateLimit-Reset": "1"},
+        )
+        with pytest.raises(GitHubRateLimitError) as caught:
+            gi._handle_response_error(response, "issue #7")
+        assert "secondary rate limit hit" in str(caught.value)
+        assert caught.value.reset_timestamp == pytest.approx(int(time.time()) + 60, abs=5)
+
+    def test_a_primary_rate_limit_uses_the_reset_header(self, gi: GitHubIntegration):
+        body = {"message": "API rate limit exceeded for user ID 1."}
+        response = _mock_response(
+            status_code=403, json_data=body, text=json.dumps(body), headers={"X-RateLimit-Reset": "1893456000"}
+        )
+        with pytest.raises(GitHubRateLimitError) as caught:
+            gi._handle_response_error(response, "")
+        assert caught.value.reset_timestamp == 1893456000
+
+    def test_an_unusable_reset_header_is_dropped_rather_than_raising(self, gi: GitHubIntegration):
+        body = {"message": "API rate limit exceeded."}
+        response = _mock_response(
+            status_code=403, json_data=body, text=json.dumps(body), headers={"X-RateLimit-Reset": "Wed, 21 Oct 2026"}
+        )
+        with pytest.raises(GitHubRateLimitError) as caught:
+            gi._handle_response_error(response, "")
+        assert caught.value.reset_timestamp is None
+
+    def test_a_422_carries_the_field_level_errors(self, gi: GitHubIntegration):
+        body = {
+            "message": "Validation Failed",
+            "errors": [{"resource": "PullRequest", "field": "base", "message": "No commits between main and topic"}],
+        }
+        response = _mock_response(status_code=422, json_data=body)
+        with pytest.raises(GitHubValidationError, match="base: No commits between main and topic"):
+            gi._handle_response_error(response, "create PR")
+
+    def test_a_404_keeps_both_the_context_and_the_message(self, gi: GitHubIntegration):
+        body = {"message": "Not Found"}
+        response = _mock_response(status_code=404, json_data=body)
+        with pytest.raises(GitHubNotFoundError, match=r"PR #4321: Resource not found GitHub said: Not Found"):
+            gi._handle_response_error(response, "PR #4321")
+
+    def test_a_401_carries_githubs_own_message(self, gi: GitHubIntegration):
+        body = {"message": "Bad credentials"}
+        response = _mock_response(status_code=401, json_data=body)
+        with pytest.raises(GitHubAuthError, match="Bad credentials"):
+            gi._handle_response_error(response, "issue #7")
+
+    def test_an_unlisted_status_keeps_the_message_it_always_had(self, gi: GitHubIntegration):
+        body = {"message": "Pull Request is not mergeable"}
+        response = _mock_response(status_code=405, json_data=body, reason_phrase="Method Not Allowed")
+        with pytest.raises(
+            GitHubAPIError, match=r"405 - Method Not Allowed GitHub said: Pull Request is not mergeable"
+        ):
+            gi._handle_response_error(response, "PR #42 merge")
+
+    def test_a_body_that_is_not_json_leaves_the_message_alone(self, gi: GitHubIntegration):
+        response = _mock_response(status_code=403, text="<html>no</html>")
+        response.json.side_effect = ValueError("not json")
+        with pytest.raises(GitHubAPIError) as caught:
+            gi._handle_response_error(response, "PR #42 merge")
+        assert "GitHub said" not in str(caught.value)
+
+    def test_an_error_repeating_the_top_level_message_is_not_said_twice(self, gi: GitHubIntegration):
+        body = {"message": "Validation Failed", "errors": [{"message": "Validation Failed"}]}
+        response = _mock_response(status_code=422, json_data=body)
+        with pytest.raises(GitHubValidationError) as caught:
+            gi._handle_response_error(response, "")
+        assert str(caught.value).count("Validation Failed") == 1
+
+    def test_an_error_string_rather_than_an_object_still_reads(self, gi: GitHubIntegration):
+        body = {"message": "Validation Failed", "errors": ["milestone does not exist"]}
+        response = _mock_response(status_code=422, json_data=body)
+        with pytest.raises(GitHubValidationError, match="milestone does not exist"):
+            gi._handle_response_error(response, "")
