@@ -24,6 +24,7 @@ import sys
 import traceback
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from importlib.metadata import PackageNotFoundError, version
 from os import getenv
 from pathlib import Path
 from time import perf_counter
@@ -46,7 +47,7 @@ from prometheus_client import (
     generate_latest,
 )
 from starlette.requests import Request
-from starlette.responses import Response
+from starlette.responses import JSONResponse, Response
 
 from .auth import (
     GITHUB_OAUTH_BASE_URL,
@@ -62,6 +63,17 @@ logger = logging.getLogger(__name__)
 PORT = int(getenv("PORT", 8081))
 HOST = getenv("HOST", "localhost")
 LOG_LEVEL = getenv("LOG_LEVEL", "WARNING")
+
+
+def _package_version() -> str:
+    """The installed distribution version, or "unknown" when the package is not installed."""
+    try:
+        return version("mcp-github-pr-issue-analyser")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+VERSION = _package_version()
 
 
 def _env_enabled(name: str) -> bool:
@@ -180,6 +192,13 @@ class PRIssueAnalyser:
         async def metrics_route(_request: Request) -> Response:
             """Prometheus scrape endpoint, served in HTTP mode only."""
             return Response(generate_latest(registry=REGISTRY), media_type=CONTENT_TYPE_LATEST)
+
+        @self.mcp.custom_route("/", methods=["GET"])
+        async def landing_route(_request: Request) -> Response:
+            """Liveness endpoint, served in HTTP mode only. Reports no dependency state,
+            so a GitHub outage cannot mark the server down."""
+            tools = await self.mcp.list_tools(run_middleware=False)
+            return JSONResponse({"status": "ok", "service": self.mcp.name, "version": VERSION, "tools": len(tools)})
 
         logger.info("MCP Server initialised")
         self.register_tools()

@@ -65,7 +65,8 @@ spec:
           containerPort: 8081
           protocol: TCP
         readinessProbe:
-          tcpSocket:
+          httpGet:
+            path: /
             port: 8081
           initialDelaySeconds: 10
           periodSeconds: 5

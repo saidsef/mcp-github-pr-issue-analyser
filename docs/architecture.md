@@ -46,4 +46,4 @@ The DynamoDB store is prepared from the lifespan, not on the first request, so a
 
 ## Observability
 
-The metrics middleware wraps every tool call and the server serves `GET /metrics` on the same port as `/mcp`. That route sits outside the auth layer, so a scraper needs no credentials. See [Metrics](./metrics.md).
+The metrics middleware wraps every tool call and the server serves `GET /metrics` on the same port as `/mcp`. Alongside it, `GET /` returns the server's name, version and registered tool count as JSON. Both routes sit outside the auth layer, so a scraper and a probe need no credentials. See [Metrics](./metrics.md) and [Checking the server is up](./installation.md#checking-the-server-is-up).

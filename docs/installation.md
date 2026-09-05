@@ -89,6 +89,25 @@ Every key is optional except the token: supply one store and leave the other obj
 
 The pod runs as a non-root user with a read-only root filesystem, drops all capabilities, and carries `prometheus.io/scrape` annotations. For OAuth2 mode, add the three `GITHUB_OAUTH_*` variables to the container spec and expose the service on the host named in `GITHUB_OAUTH_BASE_URL`.
 
+## Checking the server is up
+
+In HTTP mode the server answers `GET /` with a JSON summary of itself, on the same port as `/mcp` (`PORT`, default `8081`).
+
+```sh
+curl http://localhost:8081/
+```
+
+```json
+{
+  "status": "ok",
+  "service": "GitHub PR and Issue Analyser",
+  "version": "31.0.5",
+  "tools": 48
+}
+```
+
+`tools` is the number of tools the server registered, so a response confirms tool discovery ran rather than only that the port is open. The endpoint calls neither the GitHub API nor the token store, which keeps it a liveness signal: a GitHub outage does not change what it returns. It sits outside the auth layer, as `/metrics` does, so a probe needs no credentials. The Kubernetes readiness probe in `deployment/` uses this path.
+
 ## Next
 
 Wire up a client with [Client configuration](./mcp-clients.md).
