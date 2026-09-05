@@ -5,6 +5,8 @@ FROM ghcr.io/astral-sh/uv:0.12.7 AS uv
 
 FROM docker.io/python:3.14-slim AS builder
 
+ARG VERSION=0.0.0
+
 COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
@@ -14,6 +16,7 @@ COPY src src
 # Build from the lock, so the image ships the dependency set CI resolved rather
 # than whatever satisfies the ranges on the day it is built.
 RUN UV_PROJECT_ENVIRONMENT=/opt/venv \
+    UV_DYNAMIC_VERSIONING_BYPASS=${VERSION} \
     uv sync --locked --no-dev --no-editable --no-cache
 
 FROM docker.io/python:3.14-slim
