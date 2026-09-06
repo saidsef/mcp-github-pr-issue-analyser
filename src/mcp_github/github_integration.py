@@ -711,6 +711,16 @@ class GitHubIntegration(ActivityMixin):
         ).json()
         return _pr_content(data)
 
+    async def _replace_labels(
+        self, repo_owner: str, repo_name: str, number: int, labels: list[str]
+    ) -> dict[str, Any]:
+        """Replaces the label set on an issue or a pull request, and returns the
+        issue payload GitHub answers with. Labels hang off the issues endpoint,
+        which serves pull requests too, so they cannot ride along with a pull
+        request payload."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{number}"
+        return (await self._request("PATCH", url, context=f"#{number} labels", json={"labels": labels})).json()
+
     @_write(idempotent=True)
     async def update_pr(
         self,
@@ -721,15 +731,24 @@ class GitHubIntegration(ActivityMixin):
         body: Annotated[str | None, "Replacement body in Markdown. Omit to leave the current body alone"] = None,
         state: Annotated[_OpenClosed | None, "Omit to leave the state alone"] = None,
         base: Annotated[str | None, "Branch to retarget the pull request onto"] = None,
+        labels: Annotated[
+            list[str] | None, "Replacement label set. Omit to keep the current labels, pass [] to strip them all"
+        ] = None,
     ) -> PRContent:
         """Updates an existing pull request. Only the fields supplied are sent, the
-        rest keep their current values, so a title can change without restating the body."""
+        rest keep their current values, so a title can change without restating the body.
+        Labels take a second call, since the pull request payload carries none."""
         fields: dict[str, Any] = {"title": title, "body": body, "state": state, "base": base}
         payload = {name: value for name, value in fields.items() if value is not None}
-        if not payload:
-            raise GitHubValidationError("Supply at least one of title, body, state or base to update.")
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
+        if not payload and labels is None:
+            raise GitHubValidationError("Supply at least one of title, body, state, base or labels to update.")
+        data: dict[str, Any] = {}
+        if payload:
+            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+            data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
+        if labels is not None:
+            # Sent last so the payload returned carries the fields above as well.
+            data = await self._replace_labels(repo_owner, repo_name, pr_number, labels)
         return _pr_content(data)
 
     @_write(idempotent=True)
@@ -770,8 +789,13 @@ class GitHubIntegration(ActivityMixin):
         head: str,
         base: str,
         draft: bool = False,
+        labels: Annotated[
+            list[str] | None, "Labels to apply, with mcp appended. Omit to leave the pull request unlabelled"
+        ] = None,
     ) -> dict[str, Any]:
-        """Creates a new pull request."""
+        """Creates a new pull request. Labels are applied in a second call, since
+        the create endpoint takes none, and they come back under labels so a set
+        the token could not write is visible."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
         data = (
             await self._request(
@@ -781,12 +805,16 @@ class GitHubIntegration(ActivityMixin):
                 json={"title": title, "body": body, "head": head, "base": base, "draft": draft},
             )
         ).json()
-        return {
+        result = {
             "pr_url": data.get("html_url"),
             "pr_number": data.get("number"),
             "status": data.get("state"),
             "title": data.get("title"),
         }
+        if labels is not None and result["pr_number"] is not None:
+            labelled = await self._replace_labels(repo_owner, repo_name, result["pr_number"], labels + ["mcp"])
+            result["labels"] = [label["name"] for label in labelled.get("labels", [])]
+        return result
 
     @_read_only
     async def list_open_issues_prs(

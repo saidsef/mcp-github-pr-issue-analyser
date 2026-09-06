@@ -1796,6 +1796,85 @@ class TestUpdatePR:
         assert ann.destructiveHint is False
 
 
+_CREATED_PR = {"html_url": "https://github.com/o/r/pull/7", "number": 7, "state": "open", "title": "A change"}
+
+
+def _label_payload(*names: str) -> dict:
+    return _pr_payload(labels=[{"name": name} for name in names])
+
+
+class TestPRLabels:
+    @pytest.mark.anyio
+    async def test_update_pr_sends_labels_to_the_issues_endpoint(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_label_payload("bug")))
+        await gi.update_pr("o", "r", 5, labels=["bug"])
+        method, url = gi._http.request.call_args.args
+        assert (method, url) == ("PATCH", "https://api.github.com/repos/o/r/issues/5")
+        assert gi._http.request.call_args.kwargs["json"] == {"labels": ["bug"]}
+
+    @pytest.mark.anyio
+    async def test_update_pr_labels_alone_still_returns_pr_content(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_label_payload("bug")))
+        result = await gi.update_pr("o", "r", 5, labels=["bug"])
+        assert gi._http.request.call_count == 1
+        assert result["title"] == "A change"
+        assert result["state"] == "open"
+
+    @pytest.mark.anyio
+    async def test_update_pr_strips_every_label_for_an_empty_list(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_label_payload()))
+        await gi.update_pr("o", "r", 5, labels=[])
+        assert gi._http.request.call_args.kwargs["json"] == {"labels": []}
+
+    @pytest.mark.anyio
+    async def test_update_pr_sends_the_labels_after_the_other_fields(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_pr_payload(title="A better title")),
+            _mock_response(json_data=_label_payload("bug")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.update_pr("o", "r", 5, title="A better title", labels=["bug"])
+        calls = gi._http.request.call_args_list
+        assert calls[0].args[1].endswith("/pulls/5")
+        assert calls[0].kwargs["json"] == {"title": "A better title"}
+        assert calls[1].args[1].endswith("/issues/5")
+
+    @pytest.mark.anyio
+    async def test_create_pr_applies_labels_and_appends_mcp(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_CREATED_PR),
+            _mock_response(json_data=_label_payload("bug", "mcp")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.create_pr("o", "r", "A change", "Details", "feat", "main", labels=["bug"])
+        calls = gi._http.request.call_args_list
+        assert calls[1].args == ("PATCH", "https://api.github.com/repos/o/r/issues/7")
+        assert calls[1].kwargs["json"] == {"labels": ["bug", "mcp"]}
+        assert result["labels"] == ["bug", "mcp"]
+
+    @pytest.mark.anyio
+    async def test_create_pr_labels_an_empty_list_as_mcp_alone(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_CREATED_PR),
+            _mock_response(json_data=_label_payload("mcp")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.create_pr("o", "r", "A change", "Details", "feat", "main", labels=[])
+        assert gi._http.request.call_args.kwargs["json"] == {"labels": ["mcp"]}
+
+    @pytest.mark.anyio
+    async def test_create_pr_leaves_the_pr_unlabelled_when_labels_are_omitted(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_CREATED_PR))
+        result = await gi.create_pr("o", "r", "A change", "Details", "feat", "main")
+        assert gi._http.request.call_count == 1
+        assert result == {
+            "pr_url": "https://github.com/o/r/pull/7",
+            "pr_number": 7,
+            "status": "open",
+            "title": "A change",
+        }
+
+
 class TestSetPRDraft:
     @pytest.mark.anyio
     async def test_ready_for_review_uses_the_mark_ready_mutation(self, gi: GitHubIntegration):

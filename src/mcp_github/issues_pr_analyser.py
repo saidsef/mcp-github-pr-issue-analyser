@@ -146,6 +146,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
 - Use update_pr_description to keep PRs up-to-date
 - Use create_issue and update_issue for issue management
+- Use the labels parameter on create_pr and update_pr to label a pull request, since GitHub keeps PR labels on the issues endpoint
 - Use set_issue_milestone to file an issue under a milestone after it exists, since update_issue cannot clear one
 - Use create_tag and create_release for release management
 - Use get_project_fields before set_project_field, since option names differ per board
