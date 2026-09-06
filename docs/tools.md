@@ -10,8 +10,8 @@ The server registers every public method on the GitHub integration that carries 
 | `get_pr_content` | read | PR title, description, author, timestamps and state |
 | `get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
-| `create_pr` | write | Open a PR with title, body, head and base branch, and a draft option |
-| `update_pr` | write | Change any subset of a PR's title, body, state and base branch |
+| `create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
+| `update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
 | `update_pr_description` | write | Change the title and body of a PR together |
 | `set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
 | `update_pr_branch` | write | Update the PR branch with the latest base branch |

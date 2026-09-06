@@ -16,12 +16,14 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Opening a PR
 
-1. Call `create_pr` with title, body, head branch and base branch
-2. Pass `draft=True` while the work is still in progress
+1. Call `list_repo_labels` to see the label names the repository defines
+2. Call `create_pr` with title, body, head branch, base branch and labels
+3. Pass `draft=True` while the work is still in progress
+4. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Updating a PR
 
-1. Call `update_pr` to change any subset of the title, body, state and base branch. This is the one to reach for, since it leaves the fields you omit alone
+1. Call `update_pr` to change any subset of the title, body, state, base branch and labels. This is the one to reach for, since it leaves the fields you omit alone
 2. Call `update_pr_description` only when replacing both the title and the body together
 3. Call `set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
 4. Call `update_assignees` to set the assignees
@@ -52,6 +54,15 @@ Open pull requests, keep them current, and merge them once they are ready.
 | `head` | str | - | Source branch name |
 | `base` | str | - | Target branch name, e.g. `main` |
 | `draft` | bool | `False` | Open as a draft PR |
+| `labels` | list[str] \| None | `None` | Labels to apply. Omit to leave the PR unlabelled |
+
+Returns `pr_url`, `pr_number`, `status` and `title`, plus `labels` whenever a
+label set was passed.
+
+The create endpoint takes no labels, so a set passed here is applied in a second
+call against the issues endpoint, and `mcp` is appended as it is for
+`create_issue`. Read the returned `labels` back, since writing them needs push
+access on the repository.
 
 ### `update_pr`
 
@@ -64,10 +75,16 @@ Open pull requests, keep them current, and merge them once they are ready.
 | `body` | str \| None | `None` | Replacement body in Markdown. Omit to leave it alone |
 | `state` | str \| None | `None` | `open` or `closed` |
 | `base` | str \| None | `None` | Branch to retarget the PR onto |
+| `labels` | list[str] \| None | `None` | Replacement label set. Omit to keep the current labels |
 
 Returns `PRContent`. Only the fields you pass are sent, so a title can change
 without restating the body. A call supplying none of them is rejected before it
 reaches GitHub.
+
+`labels` replaces the whole set, so `[]` strips every label including `mcp`.
+Unlike `create_pr`, this tool does not re-add `mcp`. Labels go to the issues
+endpoint in a second call, and `PRContent` carries none of them, so read them
+back with `get_issue` if they matter.
 
 Retargeting `base` recomputes the diff against the new branch, so the file list
 and the review comments' line anchors can both move.
@@ -181,5 +198,7 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Gate the merge on `get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `set_pr_draft` to flip it once the work is ready
 - Reach for `update_pr` to change one field, and `update_pr_description` only when replacing both title and body
+- Call `list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
+- Label a PR through `create_pr` or `update_pr` rather than a shell, since both write the same labels the issue tools do
 - Read the current title and body with `get_pr_content` before `update_pr_description`, since both fields are replaced
 - Delete the head branch after merging
