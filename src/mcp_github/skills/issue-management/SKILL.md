@@ -25,7 +25,7 @@ defines.
 ### Reading an Issue
 
 1. Call `get_issue` when you have the number and need the body, labels, assignees or milestone
-2. Read it back this way after `create_issue`, `update_issue` or `update_assignees` to confirm what landed
+2. Read it back this way after `create_issue`, `update_issue` or `update_assignees` to confirm what landed. `update_assignees` takes an `issue_number` and a list of logins, and the `pr-management` skill carries its parameters
 
 ### Updating an Issue
 

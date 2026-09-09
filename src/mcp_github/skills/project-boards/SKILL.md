@@ -71,9 +71,12 @@ rename `Status` options freely, and `Todo`, `To do` and `Backlog` are all in use
 | `per_page` | int | `50` | Items per page, 1 to 100 |
 | `after` | str \| None | `None` | `next_cursor` from a previous call |
 
-Returns `total`, `title` and `items`. Each item carries `item_id`, `type`,
-`number`, `title`, `state`, `url`, `repository` and a `fields` map keyed by
-field name.
+Returns `project_number`, `title`, `total`, `items` and `next_cursor`. Each
+item carries `item_id`, `type`, `number`, `title`, `state`, `url`, `repository`
+and a `fields` map keyed by field name.
+
+`total` is the number of cards on the board, not the number returned in this
+page, so a count is answerable from the first call. `items` still needs paging.
 
 `next_cursor` is a cursor when there is another page and `None` when there is
 not, so pass it back until it comes back `None`.
@@ -160,5 +163,5 @@ removed. An item on a different board does not count.
   adds the card itself
 - Confirm with the user in chat before `remove_from_project`, since the field
   values go with the card
-- Page `list_project_items` to the end before reporting a count, since a board
-  larger than `per_page` otherwise reads as smaller than it is
+- Read a card count from `total` rather than from the length of `items`, and
+  page to the end before reporting on the cards themselves

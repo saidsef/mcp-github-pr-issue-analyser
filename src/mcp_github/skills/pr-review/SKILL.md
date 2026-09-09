@@ -18,7 +18,7 @@ Post targeted inline comments on specific lines, then submit a review decision o
 2. **Read what is already there** - call `list_pr_comments` with `kind="inline"` so a second review does not repeat the first
 3. **Post inline comments** - call `add_inline_pr_comment` once per line needing feedback
 4. **Post a general comment** - optionally call `add_pr_comments` for remarks not tied to a line
-5. **Submit the decision** - call `update_reviews` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`
+5. **Submit the decision** - call `update_reviews` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`, leaving `body` unset on an approval
 
 ### Correcting a comment
 
@@ -106,7 +106,11 @@ another `add_pr_comments` call.
 | `repo_name` | str | - | Repository name |
 | `pr_number` | int | - | Pull request number |
 | `event` | str | - | One of `APPROVE`, `REQUEST_CHANGES`, `COMMENT` |
-| `body` | str \| None | `None` | Summary body for the review |
+| `body` | str \| None | `None` | Summary body for the review. Leave it unset on `APPROVE` unless the user asks for a message |
+
+Returns `id`, `state`, `body`, `html_url` and `submitted_at`. `state` reads back
+as `APPROVED`, `CHANGES_REQUESTED` or `COMMENTED`, which is the review's state
+rather than the `event` name sent.
 
 ## Review Decision Guide
 
@@ -119,13 +123,20 @@ another `add_pr_comments` call.
 GitHub rejects `APPROVE` and `REQUEST_CHANGES` on your own PR. Use `COMMENT`
 when reviewing a PR you authored.
 
+### The review body
+
+An approval carries no `body`. Submit `APPROVE` with the parameter unset unless the
+user explicitly asks for a message, and put anything worth saying about the code in an
+inline comment instead. `REQUEST_CHANGES` and `COMMENT` both take a `body`, since the
+author cannot act on either decision without knowing what prompted it.
+
 ## Best Practices
 
 - List the existing inline comments before reviewing again, otherwise the same remarks land twice
 - Post every inline comment before calling `update_reviews`
 - Use `add_inline_pr_comment` for line-specific feedback and `add_pr_comments` for high-level remarks
 - Fix a wrong comment with `update_pr_comment` rather than posting a correction underneath it
-- Always pass a `body` to `update_reviews` giving the rationale for the decision
+- Approve with no `body`, and write one only where the user asks for it or the decision is `REQUEST_CHANGES` or `COMMENT`
 - Check `is_draft` via `list_open_issues_prs` before approving, and never approve a draft
 - `REQUEST_CHANGES` blocks the merge on a repo with required reviews until it is dismissed, so reserve it for genuinely blocking problems
 - Reference issue numbers where relevant, e.g. `Fixes #42`

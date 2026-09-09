@@ -25,7 +25,7 @@ then read, correct or withdraw what has already been published.
 ### Correcting a release
 
 1. Call `update_release` with only the fields that are wrong
-2. Publishing again over the same tag also works: `create_release` updates a tag that already has a release rather than failing
+2. Publishing again over the same tag also works: `create_release` updates a tag that already has a release rather than failing, though it cannot change `make_latest` or `generate_release_notes` that way
 
 ### Withdrawing a release
 
@@ -87,7 +87,10 @@ rather than replacing it, so a hand-written `What Changed` section will be
 duplicated. Set it to `False` when you supply that section yourself.
 
 A tag that already carries a release is updated instead of rejected, so a retry
-after a half-finished release recovers rather than erroring.
+after a half-finished release recovers rather than erroring. That path sends the
+title, notes, `draft` and `prerelease` alone. `make_latest` and
+`generate_release_notes` are dropped, so a second call over the same tag cannot
+change either of them.
 
 ### `list_releases`
 
@@ -128,8 +131,10 @@ Only the fields you pass are sent, so correcting a title leaves the notes alone.
 The notes replace rather than append, so read the release first if you are
 adding to them. A call supplying nothing to change is rejected.
 
-`make_latest` is settable on `create_release` only, so publishing again over the
-same tag is the way to change it.
+`make_latest` is settable on `create_release` only, and only on the call that
+first publishes the tag. Publishing again over the same tag falls through to
+this tool, which does not send it. Changing which release is latest means
+deleting the release and publishing it again, or setting it in the GitHub UI.
 
 ### `list_tags`
 
@@ -151,6 +156,8 @@ Returns `total` and `tags`, each a `name` and the `sha` it points at.
 | `tag_name` | str | - | Tag of the release to delete |
 | `delete_tag` | bool | `False` | Also remove the tag it was published from |
 
+Returns `status`, `tag_name`, `release_id` and `tag_deleted`.
+
 Destructive and not reversible. The tag survives by default, so the commit stays
 reachable and the release can be published again.
 
@@ -162,6 +169,9 @@ reachable and the release can be published again.
 | `repo_name` | str | - | Repository name |
 | `tag_name` | str | - | Tag to delete |
 | `force` | bool | `False` | Delete even though a release was published from it |
+
+Returns `status`, `tag_name` and `release_still_published`, the last being
+`True` where `force` removed a tag a release still names.
 
 Destructive and not reversible. A tag a release points at is refused unless
 `force=True`, because removing it leaves the release naming code nobody can
