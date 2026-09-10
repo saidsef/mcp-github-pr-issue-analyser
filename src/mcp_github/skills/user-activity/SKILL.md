@@ -12,8 +12,10 @@ Find the repositories an account owns, then retrieve a user's profile, their con
 - The target GitHub `username`, or the owner whose repositories you want
 - GitHub token with `read:user` scope, since most of these tools use the GraphQL API
 
-`search_user`, `get_user_activities` and `get_repo_stars_since` run as long-running
-tasks and report progress while they work. `list_repos` is a plain read.
+`search_user`, `get_user_activities` and `get_repo_stars_since` run as
+long-running tasks. `get_user_activities` and `get_repo_stars_since` report
+progress while they work, `search_user` returns in one step and reports none,
+and `list_repos` is a plain read.
 
 ## Workflow
 
@@ -90,7 +92,7 @@ on a pull request or issue is when that item was opened.
 Four things about this tool are easy to get wrong:
 
 - **`max_results` is per section.** It caps commits, pull requests, issues, reviews and repo_stars independently, so `max_results=50` can return up to 250 entries
-- **`total_contributions` is not filtered.** It reports the account-wide totals for the period, so it will exceed the length of the returned lists whenever `org`, `repo` or `max_results` trims them. Do not present it as a count of the listed items
+- **`total_contributions` is not filtered.** It holds `commits`, `pull_requests`, `issues`, `reviews` and `repo_stars`, reporting the account-wide totals for the period, so it will exceed the length of the returned lists whenever `org`, `repo` or `max_results` trims them. Do not present it as a count of the listed items. Its `repo_stars` entry is the current total of stars across the user's public repos, up to the 100 the query reads, and not stars gained in the period
 - **`org` and `repo` do not touch `repo_stars`**, which always lists the user's own top public repos by star count
 - **The window cannot exceed one year.** GitHub's contributions API rejects a `since`/`until` range longer than that. Split a longer question into per-year calls
 

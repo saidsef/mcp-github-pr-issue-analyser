@@ -11,6 +11,11 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - `repo_owner`, `repo_name` and `pr_number` for the target PR
 - GitHub token with `repo` read access
 
+`get_pr_linked_issues` and `get_pr_status_checks` run as long-running tasks.
+Neither reports incremental progress, and `get_pr_status_checks` logs one
+summary line once it has finished paging through the check suites.
+`get_pr_content` and `get_pr_diff` are plain reads.
+
 ## Workflow
 
 1. **Fetch metadata** - call `get_pr_content` for title, description, author, state and timestamps
@@ -103,9 +108,15 @@ Returns `StatusChecksResult`:
 | `commit_statuses` | list | Legacy commit statuses on the head commit |
 | `truncated` | bool | `True` if the check-suite or check-run page caps were hit |
 
+Each entry in `check_runs` carries `name`, `status`, `conclusion`,
+`details_url` and `suite_app`, the last naming the app that owns the suite.
+Each entry in `commit_statuses` carries `context`, `state`, `description` and
+`target_url`.
+
 `overall` is derived, and `failing` and `pending` are authoritative. `passing`
 is returned only when the full set of checks was read, so `truncated=True`
-downgrades an otherwise-clean result to `unknown` rather than `passing`. Treat
+downgrades an otherwise-clean result to `unknown` rather than `passing`. A head
+commit with no checks and no statuses at all also reads `unknown`. Treat
 `unknown` as "not verified", never as "fine".
 
 ## Analysis Output Structure

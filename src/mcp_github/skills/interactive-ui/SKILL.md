@@ -8,8 +8,8 @@ Two ways to put something in front of the user: a set of buttons to choose from,
 
 ## Prerequisites
 
-- A client that renders MCP UI. Text-only clients will not show these
-- No GitHub token, since neither tool calls GitHub
+- A client that renders MCP UI. Text-only clients will not show `choose` or `github_pr_issue_analyser_ui`, though `search_prefab_components` returns plain text and works anywhere
+- No GitHub token, since none of the three tools here calls GitHub
 
 ## Choosing Between Them
 
