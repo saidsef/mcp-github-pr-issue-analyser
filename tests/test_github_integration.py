@@ -11,6 +11,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_REPO_PAGES
+from mcp_github.auth import MISSING_CREDENTIALS
 from mcp_github.exceptions import (
     GitHubAPIError,
     GitHubAuthError,
@@ -2736,3 +2737,27 @@ class TestErrorDetail:
         response = _mock_response(status_code=422, json_data=body)
         with pytest.raises(GitHubValidationError, match="milestone does not exist"):
             gi._handle_response_error(response, "")
+
+
+class TestMissingCredentials:
+    """What a tool does when the server holds no GitHub credentials. See #386."""
+
+    def _unconfigured(self) -> GitHubIntegration:
+        with (
+            patch("mcp_github.github_integration.GITHUB_TOKEN", None),
+            patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_ID", None),
+            patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_SECRET", None),
+            patch("mcp_github.github_integration.GITHUB_OAUTH_BASE_URL", None),
+        ):
+            return GitHubIntegration()
+
+    def test_building_the_integration_does_not_raise(self):
+        assert self._unconfigured().credentials_configured is False
+
+    def test_a_request_refuses_with_the_documented_code(self):
+        with pytest.raises(GitHubAuthError) as raised:
+            self._unconfigured()._get_headers()
+
+        assert raised.value.status_code == 401
+        assert "[AUTH_FAILED] HTTP 401" in str(raised.value)
+        assert MISSING_CREDENTIALS in str(raised.value)

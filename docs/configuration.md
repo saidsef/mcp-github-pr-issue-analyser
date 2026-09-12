@@ -18,7 +18,7 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GITHUB_TOKEN` | Yes | GitHub PAT with `repo` scope, and the bearer token in static-token HTTP mode |
+| `GITHUB_TOKEN` | Unless OAuth2 | GitHub PAT with `repo` scope, and the bearer token in static-token HTTP mode. Without it and without the OAuth2 settings the server still starts, and refuses every call with `[AUTH_FAILED]` |
 | `MCP_ENABLE_REMOTE` | No | `true`, `1`, `yes` or `on` enables HTTP mode, required for OAuth2. Anything else stays on stdio. Set to `true` in the published image |
 | `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |

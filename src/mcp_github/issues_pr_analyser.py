@@ -47,6 +47,7 @@ from prometheus_client import (
     ProcessCollector,
     generate_latest,
 )
+from starlette.middleware import Middleware as ASGIMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -54,6 +55,7 @@ from .auth import (
     GITHUB_OAUTH_BASE_URL,
     GITHUB_OAUTH_CLIENT_ID,
     GITHUB_OAUTH_CLIENT_SECRET,
+    UnconfiguredCredentials,
     aclose_token_store,
     setup_token_store,
 )
@@ -239,7 +241,15 @@ class PRIssueAnalyser:
         try:
             logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport="http", host=HOST, port=PORT, stateless_http=True)
+                self.mcp.run(
+                    transport="http",
+                    host=HOST,
+                    port=PORT,
+                    stateless_http=True,
+                    middleware=[
+                        ASGIMiddleware(UnconfiguredCredentials, configured=lambda: self.gi.credentials_configured)
+                    ],
+                )
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:
