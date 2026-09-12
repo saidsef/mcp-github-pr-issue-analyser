@@ -36,6 +36,7 @@ from fastmcp.apps.generative import GenerativeUI
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
+from fastmcp_tasks import TasksExtension
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     REGISTRY,
@@ -188,6 +189,9 @@ class PRIssueAnalyser:
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
         self.mcp.add_middleware(MetricsMiddleware())
+        # Background tasks are an extension in FastMCP 4, so a tool marked task=True
+        # runs in the request path until the extension is registered.
+        self.mcp.add_extension(TasksExtension())
 
         @self.mcp.custom_route("/metrics", methods=["GET"])
         async def metrics_route(_request: Request) -> Response:
