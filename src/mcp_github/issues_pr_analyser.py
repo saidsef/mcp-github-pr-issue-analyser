@@ -61,7 +61,7 @@ from .auth import (
     setup_token_store,
 )
 from .github_integration import GitHubIntegration as GI
-from .tool_annotations import WRITE_SCOPES
+from .tool_annotations import GATED_SCOPES
 
 logger = logging.getLogger(__name__)
 
@@ -196,7 +196,7 @@ class PRIssueAnalyser:
         # A tool carries the scopes it needs as its tags, so one check per scope gates
         # every tool that declares it. The middleware names the shortfall on a refused
         # call, which a per-tool check cannot do. See #388.
-        self.mcp.add_middleware(AuthMiddleware(auth=[restrict_tag(s, scopes=[s]) for s in WRITE_SCOPES]))
+        self.mcp.add_middleware(AuthMiddleware(auth=[restrict_tag(s, scopes=[s]) for s in GATED_SCOPES]))
         # Background tasks are an extension in FastMCP 4, so a tool marked task=True
         # runs in the request path until the extension is registered.
         self.mcp.add_extension(TasksExtension())
