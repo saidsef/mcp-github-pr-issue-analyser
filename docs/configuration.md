@@ -35,7 +35,6 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
 | `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
-| `MCP_ACCEPT_LEGACY_TOOL_NAMES` | No, default on | Whether a tool name from before a rename still reaches the tool it was renamed to. Set to `false`, `0`, `no` or `off` to close the window |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
@@ -126,20 +125,25 @@ metadata:
 ## Tool renames
 
 A client fetches the tool list when it connects and caches it, so renaming a tool
-breaks the sessions already open as well as the ones that follow. The connector
-reports a name it cannot resolve as `not found or not authorized`, which reads as
-a credential problem rather than a rename.
+leaves that client calling a name the server no longer has.
 
-The server therefore accepts a tool's previous name and dispatches it to the one
-it now answers to. The previous name is never listed, so it costs nothing in the
-schema a client pays for on connect, and the tool count stays as it is.
+The server does not forward the old name. A call naming a tool it does not
+register is refused, and the client is told the tool list has changed so that it
+re-reads it. A retired name and a misspelled one are the same thing here, and
+both are answered that way.
 
-`mcp_legacy_tool_name_total` counts each call that arrived under a previous name,
-labelled by the name asked for. When that counter stops moving, nothing is
-relying on the window and `MCP_ACCEPT_LEGACY_TOOL_NAMES=false` closes it.
+The notification rides the in-flight request, which is the only channel back to a
+client on a sessionless connection. A client that acts on it re-reads the list and
+sees the current names.
 
-A tool that was removed rather than renamed has nothing to forward to, so it stays
-gone.
+Two cases deliberately do not ask for a re-read. A tool withheld because the grant
+is short raises a scope error, and re-reading would return the same list. A
+transport with no session to push down cannot be told at all, and the caller's own
+error is returned rather than one about failing to notify them.
+
+`mcp_stale_tool_list_total` counts the calls that named a tool the server does not
+register. It carries no label, since a label holding the name asked for would let a
+caller add a series per invented tool.
 
 ## Skills
 

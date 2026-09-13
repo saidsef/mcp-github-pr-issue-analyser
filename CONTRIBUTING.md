@@ -53,8 +53,9 @@ you meant:
 uv run python tests/test_tool_registry.py
 ```
 
-A renamed tool also needs its previous name to keep reaching it, which
-`MCP_ACCEPT_LEGACY_TOOL_NAMES` covers. See `docs/configuration.md`.
+A rename is breaking for any client already connected, since it holds a cached
+tool list. The server refuses the old name and asks the client to re-read the
+list. See `docs/configuration.md`.
 
 ### Code Style and Linting
 

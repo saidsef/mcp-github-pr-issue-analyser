@@ -33,11 +33,12 @@ from typing import Any
 from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
-from fastmcp.exceptions import NotFoundError
+from fastmcp.exceptions import AuthorizationError, InsufficientScopeError, NotFoundError
 from fastmcp.server.auth import AuthProvider, MultiAuth, restrict_tag
 from fastmcp.server.middleware import AuthMiddleware, Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
 from fastmcp_tasks import TasksExtension
+from mcp.types import ToolListChangedNotification
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     REGISTRY,
@@ -78,20 +79,13 @@ def _package_version() -> str:
 VERSION = _package_version()
 
 
-def _env_enabled(name: str, default: bool = False) -> bool:
+def _env_enabled(name: str) -> bool:
     """True only for an explicit yes. A plain emptiness check read the text "false"
-    as on, which is the opposite of what it says. See #303. An unset variable takes
-    the default, so a window that is open until closed can say so."""
-    raw = getenv(name, "").strip().lower()
-    return default if not raw else raw in {"1", "true", "yes", "on"}
+    as on, which is the opposite of what it says. See #303."""
+    return getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
 
 
 MCP_ENABLE_REMOTE = _env_enabled("MCP_ENABLE_REMOTE")
-
-# A client caches the tool list when it connects, so a rename breaks the sessions
-# already open rather than only the ones that follow. Set this to false once the
-# counter below shows nobody calling the previous names. See #435.
-ACCEPT_LEGACY_TOOL_NAMES = _env_enabled("MCP_ACCEPT_LEGACY_TOOL_NAMES", default=True)
 
 TOOL_PREFIX = "github_"
 
@@ -114,32 +108,52 @@ except ValueError:
 TOOL_CALLS = Counter("mcp_tool_invocations_total", "Total tool calls", ["tool_name", "outcome"])
 TOOL_DURATION = Histogram("mcp_tool_duration_seconds", "Tool call duration", ["tool_name", "outcome"])
 TOOL_IN_PROGRESS = Gauge("mcp_tool_in_progress", "Tool calls currently running")
-LEGACY_TOOL_CALLS = Counter(
-    "mcp_legacy_tool_name_total", "Calls naming a tool as it was before a rename", ["requested"]
-)
+# Unlabelled on purpose. A label carrying the name asked for would let a caller
+# grow the series count by inventing tools, which is what #304 fixed.
+STALE_TOOL_LIST = Counter("mcp_stale_tool_list_total", "Tool calls naming a tool the server does not register")
 
 
-class LegacyToolNames(Middleware):
-    """Dispatches a name from before a rename to the tool it now answers to.
+class StaleToolList(Middleware):
+    """Tells a client to re-read the tool list when it names a tool that is gone.
 
-    A rename is invisible to a client holding a cached tool list, and the name it
-    keeps asking for comes back as "not found", which reads as a credential
-    problem rather than a rename. The previous name is never listed, so it costs
-    nothing in the schema a client pays for, and the counter says whether the
-    window is still carrying anyone. See #435.
+    A client fetches the list when it connects and caches it, so a rename leaves
+    it calling a name the server no longer has. The notification rides the
+    in-flight request, which is the only channel back to a sessionless
+    connection. A retired name and a misspelled one are the same thing here, and
+    both are answered the same way. See #439.
+
+    A name nobody has reaches this in two shapes. Over stdio the lookup fails and
+    raises NotFoundError. Over HTTP the authorization middleware gets there first
+    and answers "not found or not authorized" for a tool that is absent and for
+    one the caller may not see alike, deliberately, so as not to disclose which.
+    Either way the client's own list lacks the name, so asking it to re-read
+    discloses nothing it cannot already see.
     """
 
-    def __init__(self, names: dict[str, str]):
-        self._names = names
-
     async def on_call_tool(self, context: MiddlewareContext, call_next: Any) -> Any:
-        requested = getattr(context.message, "name", "")
-        current = self._names.get(requested)
-        if current:
-            logger.info(f"Tool {requested} is now {current}; dispatching to it")
-            LEGACY_TOOL_CALLS.labels(requested=requested).inc()
-            context.message.name = current
-        return await call_next(context)
+        try:
+            return await call_next(context)
+        except InsufficientScopeError:
+            # The tool exists and the grant is short. Re-reading would return the
+            # same list, so this is a permissions answer rather than a stale one.
+            raise
+        except (NotFoundError, AuthorizationError):
+            STALE_TOOL_LIST.inc()
+            logger.info(f"No tool named {getattr(context.message, 'name', '')}; asking the client to re-read the list")
+            await self._ask_for_a_refresh(context)
+            raise
+
+    @staticmethod
+    async def _ask_for_a_refresh(context: MiddlewareContext) -> None:
+        """Best effort. A transport with no session to push down cannot be told,
+        and losing the notification must not replace the caller's own error with
+        one about notifying them."""
+        if context.fastmcp_context is None:
+            return
+        try:
+            await context.fastmcp_context.send_notification(ToolListChangedNotification())
+        except Exception as reason:
+            logger.info(f"Could not ask the client to re-read the tool list: {reason}")
 
 
 class MetricsMiddleware(Middleware):
@@ -222,8 +236,6 @@ class PRIssueAnalyser:
 
     def __init__(self):
         self.gi = GI()
-        # Filled by register_tools, read by the middleware on every call.
-        self._legacy_names: dict[str, str] = {}
 
         def _select_auth() -> AuthProvider | None:
             """The transport's authentication. Where both credentials are configured the
@@ -249,8 +261,7 @@ class PRIssueAnalyser:
                 components_tool_name="github_search_prefab_components",
             )
         )
-        if ACCEPT_LEGACY_TOOL_NAMES:
-            self.mcp.add_middleware(LegacyToolNames(self._legacy_names))
+        self.mcp.add_middleware(StaleToolList())
         self.mcp.add_middleware(MetricsMiddleware())
         # A tool carries the scopes it needs as its tags, so one check per scope gates
         # every tool that declares it. The middleware names the shortfall on a refused
@@ -303,8 +314,6 @@ class PRIssueAnalyser:
                     # one, so a session holding this server and a GitLab one does not
                     # offer an agent three tools called create_issue. See #406.
                     registered = _tool_name(name)
-                    if registered != name:
-                        self._legacy_names[name] = registered
                     self.mcp.tool(registered, annotations=annotations, task=task, tags=scopes or None)(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
