@@ -20,15 +20,17 @@ summary line once it has finished paging through the check suites.
 
 1. **Fetch metadata** - call `get_pr_content` for title, description, author, state and timestamps
 2. **Fetch the diff** - call `get_pr_diff` for the raw unified diff of every changed file
-3. **Fetch linked issues** - call `get_pr_linked_issues` to see what merging will auto-close
-4. **Fetch CI status** - call `get_pr_status_checks` to see whether the head commit is green
-5. **Synthesise** - combine the four into a structured analysis
+3. **Read the surrounding code** - call `get_repository_file` on a file whose hunk does not say enough on its own
+4. **Fetch linked issues** - call `get_pr_linked_issues` to see what merging will auto-close
+5. **Fetch CI status** - call `get_pr_status_checks` to see whether the head commit is green
+6. **Synthesise** - combine what you have into a structured analysis
 
-Steps 3 and 4 do not depend on steps 1 and 2, so issue them together.
+Steps 4 and 5 do not depend on steps 1 and 2, so issue them together.
 
 ## Tool Parameters
 
-All four tools take the same three arguments.
+`get_pr_content`, `get_pr_diff`, `get_pr_linked_issues` and
+`get_pr_status_checks` take the same three arguments.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -82,6 +84,57 @@ for the patch at all. A cut lands on a byte boundary and any character split
 across it is dropped, so the tail of a truncated patch can end mid-line.
 
 The default is set by `GITHUB_DIFF_MAX_BYTES`.
+
+### `get_repository_file`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `path` | str | - | File path from the repository root, e.g. `src/mcp_github/auth.py` |
+| `ref` | str \| None | `None` | Branch, tag or SHA to read at. Omit for the default branch |
+| `offset` | int | `0` | Byte to start the window at |
+| `limit` | int | `131072` | Cap on the bytes returned. `0` asks the size without reading |
+
+Returns:
+
+| Field | Type | Description |
+|---|---|---|
+| `path` | str | The file read |
+| `ref` | str \| None | The ref asked for, `None` where the default branch was used |
+| `content` | str | The window, empty when the file is binary |
+| `binary` | bool | `True` where the window holds a NUL byte |
+| `bytes_returned` | int | Size of the window |
+| `bytes_total` | int | Size of the whole file |
+| `truncated` | bool | `True` when the window stops short of the end |
+| `next_offset` | int \| None | Where to carry on, `None` once the end is reached |
+
+A hunk shows a few lines either side of a change, which is often not enough to
+judge whether the change is right. Read the file to see what surrounds it.
+
+Pass `next_offset` back as `offset` to walk a long file. A cut lands on a byte
+boundary and any character split across it is dropped, so a window can end
+mid-line. A binary file returns no content rather than mangled text.
+
+A directory is an error naming `list_repository_tree`. The default is set by
+`GITHUB_FILE_MAX_BYTES`.
+
+### `list_repository_tree`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `path` | str | `""` | Subdirectory to list. Omit for the repository root |
+| `ref` | str \| None | `None` | Branch, tag or SHA to list at. Omit for the default branch |
+| `recursive` | bool | `False` | Descend into every subdirectory rather than one level |
+
+Returns `path`, `ref`, `total`, `entries` and `truncated`. Each entry carries
+`path`, `mode`, `type`, `size` and `sha`. `type` is `blob` for a file, `tree`
+for a directory and `commit` for a submodule.
+
+`truncated` is `True` where the tree exceeded GitHub's cap of 100,000 entries or
+7 MB. Paging does not widen it, so list a subdirectory at a time instead.
 
 ### `get_pr_linked_issues`
 

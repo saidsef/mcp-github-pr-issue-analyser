@@ -39,6 +39,13 @@ The server registers every public method on the GitHub integration that carries 
 | `update_milestone` | write | Rename a milestone, move its due date, or close it |
 | `set_issue_milestone` | write | File an issue under a milestone, or take it off one |
 
+## Repository contents
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `get_repository_file` | read | One file at a branch, tag or SHA, windowed by `offset` and `limit` |
+| `list_repository_tree` | read | Entries of a directory, one level deep or every level |
+
 ## Tags and releases
 
 | Tool | Kind | Description |

@@ -23,7 +23,7 @@ import time
 from contextlib import asynccontextmanager
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 import httpx
 from fastmcp import Context
@@ -122,6 +122,25 @@ class LinkedIssuesResult(TypedDict):
     linked_issues: list[dict[str, Any]]
 
 
+class FileResult(TypedDict):
+    path: str
+    ref: str | None
+    content: str
+    binary: bool
+    bytes_returned: int
+    bytes_total: int
+    truncated: bool
+    next_offset: int | None
+
+
+class TreeResult(TypedDict):
+    path: str
+    ref: str | None
+    total: int
+    entries: list[dict[str, Any]]
+    truncated: bool
+
+
 class DiffResult(TypedDict):
     pr_number: int
     patch: str
@@ -143,6 +162,7 @@ TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, bounds reading the 
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))  # seconds, bounds opening the connection
 ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))  # 0 disables conditional reads
 DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))  # 128 KB, wider than any patch this repo produces
+FILE_MAX_BYTES = int(getenv("GITHUB_FILE_MAX_BYTES", "131072"))  # 128 KB, a window rather than a cap on the file
 MAX_MILESTONE_PAGES = 5  # 100 milestones per page × 5, enough to resolve a title in any real repo
 MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
@@ -1171,6 +1191,79 @@ class GitHubIntegration(ActivityMixin):
                 f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}"
             )
         return result
+
+    @_read_only
+    async def get_repository_file(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        path: Annotated[str, "File path from the repository root, e.g. src/mcp_github/auth.py"],
+        ref: Annotated[str | None, "Branch, tag or SHA to read at. Omit for the default branch"] = None,
+        offset: Annotated[int, "Byte to start the window at. Pass a previous next_offset to carry on"] = 0,
+        limit: Annotated[int, "Cap on the bytes returned. Pass 0 to learn the size without reading"] = FILE_MAX_BYTES,
+    ) -> FileResult:
+        """Reads one file from a repository at ref, windowed to limit bytes from
+        offset. bytes_total is the whole file either way and next_offset says where
+        to carry on, so a partial read never passes for the lot. A directory
+        belongs to list_repository_tree. See #409."""
+        if offset < 0 or limit < 0:
+            raise GitHubValidationError("offset and limit cannot be negative.")
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{quote(path.lstrip('/'))}"
+        if ref:
+            url += f"?ref={quote(ref, safe='')}"
+        where = f"{path} at {ref or 'the default branch'}"
+        # The raw media type sidesteps the 1 MB ceiling the base64 body carries,
+        # and a directory answers as JSON however the Accept header is set.
+        response = await self._request(
+            "GET", url, context=where, headers={"Accept": "application/vnd.github.raw"}
+        )
+        if response.headers.get("content-type", "").startswith("application/json"):
+            raise GitHubValidationError(f"{path} is a directory. Call list_repository_tree to list it.")
+        content = response.content
+        window = content[offset : offset + limit]
+        end = offset + len(window)
+        # A NUL byte is how git itself calls a blob binary. Decoding one would
+        # return mangled text under a name that promises the file.
+        binary = b"\x00" in window
+        return {
+            "path": path,
+            "ref": ref,
+            "content": "" if binary else window.decode("utf-8", errors="ignore"),
+            "binary": binary,
+            "bytes_returned": len(window),
+            "bytes_total": len(content),
+            "truncated": end < len(content),
+            "next_offset": end if end < len(content) else None,
+        }
+
+    @_read_only
+    async def list_repository_tree(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        path: Annotated[str, "Subdirectory to list. Omit for the repository root"] = "",
+        ref: Annotated[str | None, "Branch, tag or SHA to list at. Omit for the default branch"] = None,
+        recursive: Annotated[bool, "Descend into every subdirectory rather than one level"] = False,
+    ) -> TreeResult:
+        """Lists a repository's tree at ref, one level deep unless recursive. Each
+        entry carries path, mode, type, size and sha. truncated is True where the
+        tree exceeded GitHub's cap, which no amount of paging widens. See #409."""
+        target = f"{ref or 'HEAD'}:{path.strip('/')}" if path.strip("/") else (ref or "HEAD")
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees/{quote(target, safe='')}"
+        # GitHub reads any value of recursive as on, "false" and "0" included, so
+        # a one-level listing needs the parameter absent rather than negative.
+        if recursive:
+            url += "?recursive=1"
+        where = f"{path or 'the root'} at {ref or 'the default branch'}"
+        data = (await self._request("GET", url, context=f"tree of {where}")).json()
+        entries = [_pick(entry, "path", "mode", "type", "size", "sha") for entry in data.get("tree", [])]
+        return {
+            "path": path,
+            "ref": ref,
+            "total": len(entries),
+            "entries": entries,
+            "truncated": data.get("truncated", False),
+        }
 
     @_read_only
     async def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
