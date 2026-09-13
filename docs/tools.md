@@ -52,7 +52,7 @@ The server registers every public method on the GitHub integration that carries 
 |------|------|-------------|
 | `get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
 | `create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
-| `create_release` | write | Publish a release with a changelog, updating one that already exists for the tag |
+| `create_release` | write | Publish a release with a changelog, refusing a tag that already has one unless `if_exists="update"` |
 | `list_releases` | read | A repository's releases, newest first |
 | `get_release` | read | One release, by tag or the latest published |
 | `update_release` | write | Change a published release's title, notes, draft or prerelease state |

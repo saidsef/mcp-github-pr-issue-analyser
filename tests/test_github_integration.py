@@ -1514,6 +1514,7 @@ class TestResponseTrimming:
             "draft": False,
             "prerelease": False,
             "body": "Generated notes",
+            "updated": False,
         }
 
 
@@ -2077,19 +2078,34 @@ class TestReleasesAndTags:
         gi._http.request.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_create_release_updates_when_the_tag_already_has_one(self, gi: GitHubIntegration):
+    async def test_create_release_refuses_a_tag_that_already_has_one(self, gi: GitHubIntegration):
+        """A retry after a timeout used to land here and replace the published
+        notes without saying so. See #401."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=422, json_data={"errors": [{"code": "already_exists"}]})
+        )
+        with pytest.raises(GitHubValidationError, match="update_release"):
+            await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "second attempt")
+        # The POST went out and nothing followed it.
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_create_release_updates_when_asked_to(self, gi: GitHubIntegration):
         responses = iter([
             _mock_response(status_code=422, json_data={"errors": [{"code": "already_exists"}]}),
             _mock_response(json_data=_release_payload()),
             _mock_response(json_data=_release_payload(body="second attempt")),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "second attempt")
+        result = await gi.create_release(
+            "o", "r", "v1.0.0", "v1.0.0", "second attempt", if_exists="update"
+        )
         calls = gi._http.request.call_args_list
         assert calls[0].args[0] == "POST"
         assert calls[2].args[0] == "PATCH"
         assert calls[2].kwargs["json"]["body"] == "second attempt"
         assert result["body"] == "second attempt"
+        assert result["updated"] is True
 
     @pytest.mark.anyio
     async def test_create_release_still_raises_on_other_validation_errors(self, gi: GitHubIntegration):
