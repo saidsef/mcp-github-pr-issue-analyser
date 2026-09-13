@@ -26,6 +26,7 @@ from mcp_github.auth import (
     get_oauth_verifier,
 )
 from mcp_github.issues_pr_analyser import VERSION, PRIssueAnalyser, _package_version
+from mcp_github.skills_access import SKILLS_DIR
 from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
@@ -503,3 +504,28 @@ class TestListOpenIssuesPrsSchema:
 
         assert "is:open" in description
         assert "search_issues_prs" in description
+
+
+class TestRemovedTools:
+    """A name the server no longer answers to must not survive in the prose a
+    client reads, or it advertises a tool nobody can call. See #399."""
+
+    @pytest.mark.anyio
+    async def test_update_pr_description_is_gone(self):
+        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+
+        assert "update_pr_description" not in names
+        assert "update_pr" in names
+
+    @pytest.mark.anyio
+    async def test_the_instructions_do_not_name_it(self):
+        assert "update_pr_description" not in (_analyser().mcp.instructions or "")
+
+    def test_no_skill_still_points_at_it(self):
+        stale = [
+            path.parent.name
+            for path in SKILLS_DIR.glob("*/SKILL.md")
+            if "update_pr_description" in path.read_text(encoding="utf-8")
+        ]
+
+        assert stale == []

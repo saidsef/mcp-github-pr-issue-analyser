@@ -196,7 +196,7 @@ class TestAnnotations:
             assert set(PROJECT_SCOPES) <= set(getattr(gi, name)._mcp_scopes), name
 
     def test_idempotent_tools_annotated_correctly(self, gi: GitHubIntegration):
-        for name in ("update_pr_description", "update_pr_branch", "update_issue", "update_assignees"):
+        for name in ("update_pr", "update_pr_branch", "update_issue", "update_assignees"):
             method = getattr(gi, name)
             ann = method._mcp_annotations
             assert ann.idempotent_hint is True, f"{name} should have idempotent_hint=True"
@@ -412,11 +412,11 @@ class TestMergePr:
 
 
 # ---------------------------------------------------------------------------
-# update_pr_description — reuses the PATCH response (no redundant GET)
+# update_pr — reuses the PATCH response (no redundant GET). See #399.
 # ---------------------------------------------------------------------------
 
 
-class TestUpdatePrDescription:
+class TestUpdatePrTitleAndBody:
     @pytest.mark.anyio
     async def test_reuses_patch_response_with_single_call(self, gi: GitHubIntegration):
         pr_payload = {
@@ -430,7 +430,7 @@ class TestUpdatePrDescription:
             "state": "open",
         }
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=pr_payload))
-        result = await gi.update_pr_description("o", "r", 5, "New title", "New body")
+        result = await gi.update_pr("o", "r", 5, title="New title", body="New body")
         # A single PATCH — the old implementation issued a follow-up GET.
         gi._http.request.assert_awaited_once()
         assert gi._http.request.call_args.args[0] == "PATCH"
