@@ -19,8 +19,10 @@ defines.
 
 1. Call `github_list_open_issues_prs` with `issue="issue"` and `filtering="repo"` to check for a duplicate, or `github_search_issues_prs` to include closed ones
 2. Call `github_list_repo_labels` to see the label names the repository defines
-3. Call `github_create_issue` with a title, body and labels, plus a `milestone` title if it belongs to one
-4. The `mcp` label is appended automatically, so do not pass it yourself
+3. Write the title to the Title Convention and the body to the Issue Body template below
+4. Call `github_create_issue` with that title, body and labels, plus a `milestone` title if it belongs to one
+5. Call `github_set_assignees` with whoever owns the work
+6. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Reading an Issue
 
@@ -132,9 +134,12 @@ the result would describe a PR as an issue. Use `github_get_pr_content` for thos
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `{"total": int, "open_prs" | "open_issues": [...]}`, where the list key
-follows the `issue` argument. Each entry carries `url`, `title`, `number`,
-`state`, `created_at`, `updated_at`, `author`, `label_names` and `is_draft`.
+Returns `{"total": int, "count": int, "has_more": bool, "open_prs" | "open_issues": [...]}`,
+where the list key follows the `issue` argument. Each entry carries `url`,
+`title`, `number`, `state`, `created_at`, `updated_at`, `author`, `label_names`
+and `is_draft`.
+
+`total` is every match GitHub found, `count` is the entries on this page.
 
 Only open items are returned, since the search is hardcoded to `is:open`. Reach
 for `github_search_issues_prs` for a closed or merged item.
@@ -151,8 +156,8 @@ review or merge decision that turns on it.
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `{"total": int, "incomplete_results": bool, "items": [...]}`, each item
-in the same shape `github_list_open_issues_prs` returns.
+Returns `{"total": int, "incomplete_results": bool, "count": int, "has_more": bool, "items": [...]}`,
+each item in the same shape `github_list_open_issues_prs` returns.
 
 The query is yours, so nothing is scoped for you. Without a `repo:` or `org:`
 qualifier the search runs across all of GitHub. `total` counts every match, not
@@ -241,9 +246,9 @@ covers closed milestones as well as open ones.
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `{"total": int, "labels": [{"name", "description", "color"}]}`, where
-`count` is the labels on the page returned. Page on while `has_more` is true.
-`description` is `null` for a label that has none.
+Returns `{"count": int, "has_more": bool, "labels": [{"name", "description", "color"}]}`,
+where `count` is the labels on the page returned. Page on while `has_more` is
+true. `description` is `null` for a label that has none.
 
 Returns every label the repository defines, not only those in use. Reading
 labels needs no more access than reading the repository.
@@ -262,6 +267,36 @@ labels needs no more access than reading the repository.
 
 Use `repo` for a duplicate check and `involves` for "what is on my plate".
 
+## Issue Body
+
+Five `##` sections, in this order, with nothing above the first or after the
+last.
+
+```
+## Problem Statement
+## Proposed Solution
+## Affected Resources
+## Resource Links
+## Acceptance Criteria
+```
+
+| Section | Holds |
+|---|---|
+| Problem Statement | What is wrong and what it costs, to someone who has not seen the code. Two or three sentences, or a table where the problem is a set of measurements |
+| Proposed Solution | One way it could be fixed, same length. Code belongs here as a sketch of fifteen lines at most, never a finished patch |
+| Affected Resources | The files, tools, services and docs that would change, as a list. Name things that exist, and say where a guess is a guess |
+| Resource Links | External links that help: upstream documentation, a spec, a release note. Cut the section when there is nothing useful |
+| Acceptance Criteria | What done looks like, as three to five outcomes of one line each |
+
+An issue describes work nobody has started, so it carries no account of how the
+problem was found. State the problem and the outcome wanted, and leave out the
+reasoning that led there. Acceptance criteria are goals rather than steps: one
+naming a specific function or flag is wrong the moment the work takes another
+route.
+
+Three hundred words across all five sections is the ceiling. A section with
+nothing true under it comes out rather than getting filled.
+
 ## Title Convention
 
 Issue titles share one shape with PR titles and commit subjects:
@@ -275,6 +310,15 @@ Issue titles share one shape with PR titles and commit subjects:
 | `<type>` | One of `feat`, `fix`, `chore`, `docs`, `refactor`, `test`, `perf`, `ci`, `build` |
 | `<scope>` | Lowercase area touched: `auth`, `tools`, `deps`, `cache`, `skills`, `readme`, `k8s`. Use `/` for a compound scope such as `docker/k8s` |
 | Summary | Prose, not a slug. Lowercase start, imperative mood, no trailing full stop, roughly 72 characters or fewer |
+
+The summary names the action and what it acts on, and stops there. What the
+change displaces belongs in the body, where there is room to say why, so
+`docs(site): publish the documentation on Read the Docs` beats the same line
+with `instead of one long README` on the end. A title that leads with the fault
+reads the wrong way round: `fix(api): retry a failed token refresh`, not
+`fix(api): token refresh never retried`. A version being released never appears
+in the title, though versions being moved do, as in `chore(deps): bump ruff from
+0.16.7 to 0.16.8`.
 
 Examples:
 
@@ -296,7 +340,8 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Call `github_list_repo_labels` before writing labels rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Title every issue as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Keep the type honest: `fix` for defects, `feat` for new behaviour, `chore` for maintenance
-- Write bodies in Markdown, with steps to reproduce for a bug or acceptance criteria for a feature
+- Write bodies to the Issue Body template above, and cut a section rather than padding it
+- Assign every issue with `github_set_assignees` as you open it, so it has an owner from the start
 - Pass `github_update_issue` only the fields you are changing, and read the current text before replacing a `title` or `body`
 - Include `mcp` in the `labels` you send to `github_update_issue`, since the list you send replaces the whole set
 - Close issues with `state="closed"` rather than deleting them

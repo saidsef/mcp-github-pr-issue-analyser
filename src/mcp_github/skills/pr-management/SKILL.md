@@ -17,9 +17,11 @@ Open pull requests, keep them current, and merge them once they are ready.
 ### Opening a PR
 
 1. Call `github_list_repo_labels` to see the label names the repository defines
-2. Call `github_create_pr` with title, body, head branch, base branch and labels
-3. Pass `draft=True` while the work is still in progress
-4. The `mcp` label is appended automatically, so do not pass it yourself
+2. Write the title to the Title Convention and the body to the PR Body template below
+3. Call `github_create_pr` with that title, body, head branch, base branch and labels
+4. Call `github_set_assignees` with whoever owns the work
+5. Pass `draft=True` while the work is still in progress
+6. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Updating a PR
 
@@ -156,6 +158,15 @@ squashing, otherwise the subject landing on the default branch inherits a
 branch commit. Append the PR reference, e.g.
 `feat(auth): support GitHub App tokens (#123)`.
 
+The summary names the action and what it acts on, and stops there. What the
+change displaces belongs in the body, where there is room to say why, so
+`docs(site): publish the documentation on Read the Docs` beats the same line
+with `instead of one long README` on the end. A title that leads with the fault
+reads the wrong way round: `fix(api): retry a failed token refresh`, not
+`fix(api): token refresh never retried`. A version being released never appears
+in the title, though versions being moved do, as in `chore(deps): bump ruff from
+0.16.7 to 0.16.8`.
+
 Examples:
 
 - `fix(tools): handle empty diff response from the compare endpoint`
@@ -166,6 +177,36 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 `[WIP] cache work`, a kebab-case slug where prose belongs such as
 `fix(tools): empty-diff-handling`, and a type with no scope such as
 `fix: empty diff`.
+
+## PR Body
+
+Five `##` sections, in this order, with nothing above the first or after the
+last.
+
+```
+## Summary
+## Related Issues
+## Changes Made
+## Testing
+## Checklist
+```
+
+| Section | Holds |
+|---|---|
+| Summary | Two or three sentences on what the change does, in the reviewer's terms. Opens on the change rather than the problem, since the issue holds the problem |
+| Related Issues | `Fixes #N.` and nothing else, which closes the issue on merge. `Refs #N.` where the PR leaves part of the issue undone |
+| Changes Made | Grouped by what the change does, never by which file it touched. Five bullets is the ceiling. This is where the decision that was not obvious goes |
+| Testing | The commands and what they returned, one bullet each. Not how the checking was done, not what the new tests assert |
+| Checklist | What Testing cannot show: docs updated, nothing breaking for existing callers. Every box ticked |
+
+Never walk the change file by file. GitHub already renders the file list, so a
+bullet per file restates it.
+
+An unticked box states what was not done, so delete the line instead of leaving
+it empty. Where Changes Made can only repeat Summary, as on a one-line fix, it
+comes out.
+
+Two hundred and fifty words across all five sections is the ceiling.
 
 ## Merge Method Guide
 
@@ -179,7 +220,9 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 
 - Title every PR as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Pass `commit_title` in the same form when merging so the branch history stays parseable
-- Write PR bodies in Markdown with a summary, the motivation, and how it was tested
+- Write PR bodies to the PR Body template above, and cut a section rather than padding it
+- Link the issue with `Fixes #N.` under Related Issues, so merging closes it
+- Assign every PR with `github_set_assignees` as you open it, so it has an owner from the start
 - Gate the merge on `github_get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
