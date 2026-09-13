@@ -65,7 +65,7 @@ defines.
 | `title` | str | - | Issue title, see Title Convention |
 | `body` | str | - | Issue description in Markdown |
 | `labels` | list[str] | - | Labels to apply. Required, pass `[]` for none |
-| `milestone` | str | `""` | Milestone title to file it under. Omit for none |
+| `milestone` | str \| None | `None` | Milestone title to file it under. Omit or pass null for no milestone |
 
 Returns `IssueData` with `number`, `title`, `body`, `state`, `author`,
 `labels`, `assignees`, `milestone`, `html_url`, `created_at`, `updated_at`.
@@ -221,7 +221,7 @@ argument identifies the milestone and `new_title` renames it, so passing
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
 | `issue_number` | int | - | Issue number |
-| `milestone` | str \| None | `None` | Milestone title to file it under. Omit to take it off |
+| `milestone` | str \| None | `None` | Milestone title to file it under. Omit or pass null for no milestone |
 
 Returns `IssueData`, whose `milestone` field reads back the title so you can
 confirm it landed. This is a separate tool rather than an argument on
