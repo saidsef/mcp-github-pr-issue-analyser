@@ -76,6 +76,10 @@ logger = logging.getLogger(__name__)
 # The store the server built, kept so shutdown can release its client. See #357.
 _token_store: AsyncKeyValue | None = None
 
+# What build_token_store handed out, so the OAuth state and the response cache
+# share one client instead of opening a second one each. See #391.
+_store_view: AsyncKeyValue | None = None
+
 
 class APIKeyVerifier(TokenVerifier):
     """Verifies requests using a static GitHub personal access token."""
@@ -237,9 +241,12 @@ def _namespaced(store: AsyncKeyValue) -> AsyncKeyValue:
 
 
 def build_token_store() -> AsyncKeyValue:
-    """Return a token store for OAuth state. DynamoDB when DYNAMODB_TABLE_ARN is set,
-    Redis when REDIS_HOST_PORT is set, otherwise in process."""
-    global _token_store
+    """Return the store holding OAuth state and cached tool results. DynamoDB when
+    DYNAMODB_TABLE_ARN is set, Redis when REDIS_HOST_PORT is set, otherwise in process.
+    The first caller builds it and every later caller is given the same one."""
+    global _token_store, _store_view
+    if _store_view is not None:
+        return _store_view
     replaced = [name for name in DYNAMODB_REPLACED_SETTINGS if getenv(name)]
     if replaced:
         logger.warning("%s no longer configure the token store, DYNAMODB_TABLE_ARN does", ", ".join(replaced))
@@ -250,14 +257,17 @@ def build_token_store() -> AsyncKeyValue:
     elif REDIS_HOST_PORT:
         _token_store = RedisStore(client=_build_redis_client(REDIS_HOST_PORT))
     else:
-        return MemoryStore()
-    return _namespaced(_token_store)
+        # The in-process store holds no client, so shutdown has nothing to release.
+        _store_view = MemoryStore()
+        return _store_view
+    _store_view = _namespaced(_token_store)
+    return _store_view
 
 
 async def aclose_token_store() -> None:
     """Release the token store's client on shutdown. See #357."""
-    global _token_store
-    store, _token_store = _token_store, None
+    global _token_store, _store_view
+    store, _token_store, _store_view = _token_store, None, None
     if store is not None:
         await store.close()  # type: ignore[attr-defined]
 

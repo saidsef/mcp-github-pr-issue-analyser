@@ -11,10 +11,13 @@ curl http://localhost:8081/metrics
 | `mcp_tool_invocations_total` | counter | Tool calls, labelled by `tool_name` and `outcome` |
 | `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` and `outcome` |
 | `mcp_tool_in_progress` | gauge | Tool calls currently running |
+| `mcp_tool_cache_lookups_total` | counter | Cached tool result lookups, labelled by `outcome` |
 | `process_*` | gauge | CPU, memory and file descriptor usage of the server process, Linux only |
 | `python_info` | gauge | Interpreter version |
 
 `outcome` is `success` or `error`. A call for a tool that does not exist is recorded as `tool_name="unknown"`, which keeps the label bounded to registered tools.
+
+On `mcp_tool_cache_lookups_total` the `outcome` is `hit` or `miss`, counting the read-only calls answered from the shared store against those that reached GitHub. The metric appears only where `MCP_ENABLE_CACHE` is on, and a call the cache answers is still counted by `mcp_tool_invocations_total`.
 
 ## Scraping
 
@@ -47,4 +50,8 @@ histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_seconds_
 
 # calls currently running
 mcp_tool_in_progress
+
+# share of read-only calls answered from the cache
+sum(rate(mcp_tool_cache_lookups_total{outcome="hit"}[5m]))
+  / sum(rate(mcp_tool_cache_lookups_total[5m]))
 ```

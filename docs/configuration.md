@@ -33,6 +33,8 @@ In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAut
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
 | `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
+| `MCP_ENABLE_CACHE` | No | `true`, `1`, `yes` or `on` serves a repeated read-only tool call from the shared store. Anything else, `false` included, calls GitHub every time |
+| `MCP_CACHE_TTL` | No, default `300` | Seconds a cached tool result is served for. A write by the same caller drops that caller's entries before it expires |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
 ## Creating the GitHub OAuth App
@@ -118,6 +120,18 @@ metadata:
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/mcp-github
 ```
+
+## Cached tool results
+
+`MCP_ENABLE_CACHE` serves a repeated read-only tool call from the store above rather than from GitHub. The same arguments and the same access token are answered from one entry, and the key carries a hash of that token, so one caller's result is never handed to another. The entries live in the store the replicas share, so a replica that has just started answers from what another one read.
+
+Only the tools annotated read-only are cached. A call to any other tool moves that caller's marker on, and the entries cached under the previous marker are never read again, so a read taken straight after a write reports the new state. The marker is stored beside the entries and is moved on whether the write succeeded or failed, since a write that reported an error can still have changed the state.
+
+Nothing else invalidates an entry. A read is up to `MCP_CACHE_TTL` seconds behind GitHub when the change came from somewhere other than this caller, and a tool polled for such a change, `get_pr_status_checks` among them, reports the same answer until the entry expires. Leave the cache off where that matters.
+
+A result larger than 1 MB is not cached and is fetched every time. DynamoDB sees `GetItem` and `PutItem` for this, both of which the table already needs, so the IAM policy above covers it.
+
+With neither `DYNAMODB_TABLE_ARN` nor `REDIS_HOST_PORT` set, the cache falls back to the in-process store, which is per replica and lost on restart.
 
 ## Personal access token scopes
 

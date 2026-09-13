@@ -47,9 +47,10 @@ def _sts_session(account=None, error=None):
 
 @pytest.fixture(autouse=True)
 def _reset_token_store():
-    """build_token_store records what it built, so drop it between tests."""
+    """build_token_store records what it built and hands the same one back, so drop
+    both the store and the view between tests."""
     yield
-    auth._token_store = None
+    auth._token_store = auth._store_view = None
 
 
 class TestBuildRedisClient:
@@ -169,6 +170,9 @@ class TestBuildTokenStore:
             patch("mcp_github.auth.PrefixCollectionsWrapper", side_effect=capture_wrapper),
         ):
             build_token_store()
+            # One process builds the store once, so drop what it recorded to get
+            # the prefix a second process would compute.
+            auth._token_store = auth._store_view = None
             build_token_store()
 
         assert len(prefixes) == 2
@@ -182,6 +186,7 @@ class TestBuildTokenStore:
             return MagicMock()
 
         for url in ("https://server-a.example.com", "https://server-b.example.com"):
+            auth._token_store = auth._store_view = None
             with (
                 patch("mcp_github.auth.REDIS_HOST_PORT", "redis://localhost:6379"),
                 patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", url),
@@ -192,6 +197,27 @@ class TestBuildTokenStore:
                 build_token_store()
 
         assert prefixes[0] != prefixes[1]
+
+    def test_every_caller_is_given_the_same_store(self):
+        """The OAuth state and the response cache share one client. See #391."""
+        with (
+            patch("mcp_github.auth.REDIS_HOST_PORT", "redis://localhost:6379"),
+            patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
+            patch("mcp_github.auth._build_redis_client", return_value=MagicMock()),
+            patch("mcp_github.auth.RedisStore") as mock_store_cls,
+        ):
+            first = build_token_store()
+            second = build_token_store()
+
+        assert first is second
+        mock_store_cls.assert_called_once()
+
+    def test_the_memory_store_is_shared_too(self):
+        with (
+            patch("mcp_github.auth.REDIS_HOST_PORT", None),
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
+        ):
+            assert build_token_store() is build_token_store()
 
 
 class TestParseTableArn:
@@ -300,6 +326,21 @@ class TestDynamoDBTokenStore:
         await aclose_token_store()
         await aclose_token_store()
         store.close.assert_awaited_once()
+
+    @pytest.mark.anyio
+    async def test_aclose_drops_the_store_it_hands_out(self):
+        """A closed client must not be handed to the next caller. See #391."""
+        store = MagicMock()
+        store.close = AsyncMock()
+        with (
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
+            patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
+            patch("mcp_github.auth.DynamoDBStore", return_value=store),
+        ):
+            build_token_store()
+            await aclose_token_store()
+            assert auth._store_view is None
+            assert build_token_store() is store
 
     @pytest.mark.anyio
     async def test_aclose_is_a_no_op_for_the_memory_store(self):

@@ -222,6 +222,16 @@ class TestEtagCache:
         assert len(gi._etags) == 2
 
     @pytest.mark.anyio
+    async def test_another_token_does_not_read_the_first_one_s_body(self, gi: GitHubIntegration):
+        """What GitHub returns for a URL depends on the token that asked. See #391."""
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"a": 1}, etag='"abc"'))
+        await gi._request("GET", "https://api.github.com/x")
+        gi.github_token = "another-token"
+        await gi._request("GET", "https://api.github.com/x")
+        assert "If-None-Match" not in gi._http.request.call_args.kwargs["headers"]
+        assert len(gi._etags) == 2
+
+    @pytest.mark.anyio
     async def test_a_write_is_never_cached(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data={"a": 1}, etag='"abc"'))
         await gi._request("POST", "https://api.github.com/x", json={})

@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -524,9 +525,12 @@ class GitHubIntegration(ActivityMixin):
         }
         return headers
 
-    def _cache_key(self, url: str, params: Any) -> str:
-        """Params ride outside the URL, so page 2 must not read page 1's body."""
-        return f"{url}?{sorted(params.items())}" if params else url
+    def _cache_key(self, url: str, params: Any, authorization: str) -> str:
+        """Params ride outside the URL, so page 2 must not read page 1's body. The
+        token is in the key because what GitHub returns for a URL depends on which
+        token asked for it. See #391."""
+        target = f"{url}?{sorted(params.items())}" if params else url
+        return f"{hashlib.sha256(authorization.encode()).hexdigest()}:{target}"
 
     async def _request(
         self,
@@ -545,7 +549,8 @@ class GitHubIntegration(ActivityMixin):
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
         sent = {**self._get_headers(), **(headers or {})}
-        key = self._cache_key(url, kwargs.get("params")) if method == "GET" and ETAG_CACHE_ENTRIES else None
+        conditional = method == "GET" and bool(ETAG_CACHE_ENTRIES)
+        key = self._cache_key(url, kwargs.get("params"), sent["Authorization"]) if conditional else None
         cached = self._etags.get(key) if key else None
         if cached:
             sent["If-None-Match"] = cached[0]

@@ -57,8 +57,10 @@ from .auth import (
     GITHUB_OAUTH_CLIENT_SECRET,
     UnconfiguredCredentials,
     aclose_token_store,
+    build_token_store,
     setup_token_store,
 )
+from .caching import ToolResultCache
 from .github_integration import GitHubIntegration as GI
 
 logger = logging.getLogger(__name__)
@@ -86,6 +88,8 @@ def _env_enabled(name: str) -> bool:
 
 
 MCP_ENABLE_REMOTE = _env_enabled("MCP_ENABLE_REMOTE")
+MCP_ENABLE_CACHE = _env_enabled("MCP_ENABLE_CACHE")
+MCP_CACHE_TTL = int(getenv("MCP_CACHE_TTL", "300"))
 
 try:
     # CPU, memory and runtime metrics alongside the tool counters below
@@ -225,6 +229,8 @@ class PRIssueAnalyser:
     def register_tools(self, methods: Any = None) -> None:
         if methods is None:
             methods = self.gi
+        read_only: list[str] = []
+        writes: list[str] = []
         for name in dir(methods):
             if name.startswith("_"):
                 continue
@@ -234,7 +240,14 @@ class PRIssueAnalyser:
                 if annotations is not None:
                     task = getattr(method, "_mcp_task", False)
                     self.mcp.tool(annotations=annotations, task=task)(method)
+                    (read_only if annotations.read_only_hint else writes).append(name)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
+        if MCP_ENABLE_CACHE:
+            # The cacheable tools are the ones the annotations call read-only, so the
+            # cache is registered here rather than beside the other middleware. See #391.
+            self.mcp.add_middleware(
+                ToolResultCache(build_token_store(), ttl=MCP_CACHE_TTL, cacheable=read_only, invalidating=writes)
+            )
 
     def run(self) -> None:
         """Runs the MCP server. Uses HTTP when MCP_ENABLE_REMOTE is true, otherwise stdio."""
