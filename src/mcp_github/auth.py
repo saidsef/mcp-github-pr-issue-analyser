@@ -64,6 +64,11 @@ DYNAMODB_SETUP_RETRY_SECONDS = 5.0
 # missing its secret gets one answer rather than two wordings.
 MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
+# The scopes both verifiers grant. project is separate from repo, so the board tools
+# need it named, and an authorisation granted before it was asked for stays without
+# it. See #351.
+GITHUB_SCOPES: tuple[str, ...] = ("repo", "read:org", "user", "project")
+
 # The settings the ARN replaced. Left set, they now configure nothing.
 DYNAMODB_REPLACED_SETTINGS = ("DYNAMODB_TABLE_NAME", "DYNAMODB_REGION", "DYNAMODB_ENDPOINT_URL")
 
@@ -78,7 +83,12 @@ _token_store: AsyncKeyValue | None = None
 
 
 class APIKeyVerifier(TokenVerifier):
-    """Verifies requests using a static GitHub personal access token."""
+    """Verifies requests using a static GitHub personal access token.
+
+    The minted token carries the same scopes the OAuth flow asks GitHub for, so a
+    deployment configured with GITHUB_TOKEN reaches every tool rather than losing
+    the ones the scope gate protects. See #388.
+    """
 
     def __init__(self, valid_api_keys: str):
         super().__init__()
@@ -90,7 +100,7 @@ class APIKeyVerifier(TokenVerifier):
                 token=token,
                 client_id="github_token",
                 expires_at=None,
-                scopes=["api:read", "api:write"],
+                scopes=list(GITHUB_SCOPES),
                 claims={"authenticated": True},
             )
         return None
@@ -281,9 +291,7 @@ def get_oauth_verifier() -> GitHubProvider:
         client_secret=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
         jwt_signing_key=_derive_jwt_signing_key(),
-        # project is separate from repo, so the board tools need it named. An
-        # authorisation granted before it was asked for stays without it. See #351.
-        required_scopes=["repo", "read:org", "user", "project"],
+        required_scopes=list(GITHUB_SCOPES),
         client_storage=build_token_store(),
     )
 

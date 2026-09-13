@@ -28,6 +28,10 @@ from typing import Any
 
 from mcp.types import ToolAnnotations
 
+# The scopes a grant needs before a tool that changes anything is listed or called.
+# Read-only tools need none, so this is also every scope the server gates on. See #388.
+WRITE_SCOPES: tuple[str, ...] = ("repo",)
+
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
     def deco(fn: Any = None, *, task: bool = False, idempotent: bool = False) -> Any:
@@ -36,6 +40,7 @@ def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
                 read_only_hint=ro, destructive_hint=destructive, idempotent_hint=idempotent
             )
             f._mcp_task = task
+            f._mcp_scopes = () if ro else WRITE_SCOPES
             return f
 
         if fn is not None:
