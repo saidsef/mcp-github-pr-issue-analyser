@@ -165,6 +165,11 @@ Returns `status`, `tag_name`, `release_id` and `tag_deleted`.
 Destructive and not reversible. The tag survives by default, so the commit stays
 reachable and the release can be published again.
 
+`delete_tag=True` removes the ref that the `delete_tag` tool refuses to touch
+while a release names it, and asks for no `force` in exchange. The release is
+deleted first, so the dangling release that guard exists to prevent cannot be
+what is left behind.
+
 ### `delete_tag`
 
 | Parameter | Type | Default | Description |
@@ -179,7 +184,11 @@ Returns `status`, `tag_name` and `release_still_published`, the last being
 
 Destructive and not reversible. A tag a release points at is refused unless
 `force=True`, because removing it leaves the release naming code nobody can
-fetch. Delete the release first instead.
+fetch. Delete the release first instead, or call `delete_release` with
+`delete_tag=True` to do both in the right order.
+
+The check reads published releases, so a draft naming the tag is invisible to it
+and the tag is removed without complaint.
 
 ## Semantic Versioning Guide
 

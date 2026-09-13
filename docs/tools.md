@@ -57,7 +57,7 @@ The server registers every public method on the GitHub integration that carries 
 | `get_release` | read | One release, by tag or the latest published |
 | `update_release` | write | Change a published release's title, notes, draft or prerelease state |
 | `list_tags` | read | A repository's tags and the commit each points at |
-| `delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise |
+| `delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise, which skips the `delete_tag` force check |
 | `delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
 
 ## Project boards
