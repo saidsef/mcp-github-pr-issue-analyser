@@ -31,6 +31,12 @@ from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 _MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 _STATIC_TOKEN = "test-token"
+_SNAKE = {
+    "readOnlyHint": "read_only_hint",
+    "destructiveHint": "destructive_hint",
+    "idempotentHint": "idempotent_hint",
+    "openWorldHint": "open_world_hint",
+}
 _AUTH_HEADERS = _MCP_HEADERS | {"Authorization": f"Bearer {_STATIC_TOKEN}"}
 _A_RELEASE = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
 _OAUTH_SETTINGS = {
@@ -503,3 +509,51 @@ class TestListOpenIssuesPrsSchema:
 
         assert "is:open" in description
         assert "search_issues_prs" in description
+
+
+class TestAnnotationCoverage:
+    """Every tool this repo registers declares all four hints, so a new one
+    cannot ship unannotated. See #407."""
+
+    # The Choice and GenerativeUI providers register these, so their annotations
+    # are FastMCP's to set rather than this repo's.
+    _PROVIDED = {"choose", "github_pr_issue_analyser_ui", "search_prefab_components"}
+
+    async def _own_tools(self) -> list[Any]:
+        tools = await _analyser().mcp.list_tools(run_middleware=False)
+        return [tool for tool in tools if tool.name not in self._PROVIDED]
+
+    @pytest.mark.anyio
+    async def test_every_tool_declares_all_four_hints(self):
+        missing = {
+            tool.name: [
+                hint
+                for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+                if getattr(tool.annotations, _SNAKE[hint], None) is None
+            ]
+            for tool in await self._own_tools()
+            if tool.annotations is None
+            or any(
+                getattr(tool.annotations, _SNAKE[hint], None) is None
+                for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+            )
+        }
+
+        assert missing == {}
+
+    @pytest.mark.anyio
+    async def test_every_tool_acts_on_an_open_world(self):
+        """All of them reach api.github.com."""
+        assert all(tool.annotations.open_world_hint is True for tool in await self._own_tools())
+
+    @pytest.mark.anyio
+    async def test_the_coverage_check_sees_the_whole_tool_list(self):
+        """A guard that silently skipped every tool would pass the check above."""
+        assert len(await self._own_tools()) > 40
+
+    @pytest.mark.anyio
+    async def test_no_tool_that_writes_claims_to_be_read_only(self):
+        writers = [t for t in await self._own_tools() if t.tags]
+
+        assert writers
+        assert all(tool.annotations.read_only_hint is False for tool in writers)
