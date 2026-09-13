@@ -21,7 +21,14 @@ from mcp_github.exceptions import (
 )
 from mcp_github.github_integration import CONNECT_TIMEOUT, TIMEOUT, GitHubIntegration, _timeout
 from mcp_github.graphql_client import handle_graphql_errors
-from mcp_github.tool_annotations import _destructive, _read_only, _write
+from mcp_github.tool_annotations import (
+    GATED_SCOPES,
+    PROJECT_SCOPES,
+    WRITE_SCOPES,
+    _destructive,
+    _read_only,
+    _write,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -116,6 +123,7 @@ class TestAnnotations:
         assert ann.destructive_hint is False
         assert ann.idempotent_hint is False
         assert fn._mcp_task is False
+        assert fn._mcp_scopes == ()
 
     def test_read_only_with_task(self):
         def fn(): ...
@@ -124,6 +132,7 @@ class TestAnnotations:
         ann = fn._mcp_annotations
         assert ann.read_only_hint is True
         assert fn._mcp_task is True
+        assert fn._mcp_scopes == ()
 
     def test_write_hints(self):
         def fn(): ...
@@ -134,6 +143,7 @@ class TestAnnotations:
         assert ann.destructive_hint is False
         assert ann.idempotent_hint is False
         assert fn._mcp_task is False
+        assert fn._mcp_scopes == WRITE_SCOPES
 
     def test_write_idempotent(self):
         def fn(): ...
@@ -151,6 +161,39 @@ class TestAnnotations:
         ann = fn._mcp_annotations
         assert ann.destructive_hint is True
         assert ann.read_only_hint is False
+        assert fn._mcp_scopes == WRITE_SCOPES
+
+    def test_a_tool_may_name_a_scope_beyond_its_class(self):
+        def fn(): ...
+
+        _write(idempotent=True, scopes=PROJECT_SCOPES)(fn)
+        assert fn._mcp_scopes == WRITE_SCOPES + PROJECT_SCOPES
+
+    def test_every_tool_scopes_match_its_class(self, gi: GitHubIntegration):
+        """A read-only tool needs no scope, anything that changes state needs the
+        write scopes, and every scope declared is one the server gates on. See #388."""
+        seen = 0
+        for name in dir(gi):
+            if name.startswith("_"):
+                continue
+            method = getattr(gi, name)
+            annotations = getattr(method, "_mcp_annotations", None)
+            if annotations is None:
+                continue
+            seen += 1
+            scopes = method._mcp_scopes
+            assert set(scopes) <= set(GATED_SCOPES), name
+            if annotations.read_only_hint:
+                assert scopes == (), name
+            else:
+                assert set(WRITE_SCOPES) <= set(scopes), name
+        assert seen > 0
+
+    def test_the_board_tools_need_the_project_scope(self, gi: GitHubIntegration):
+        """A board sits outside the repository it tracks, so repo does not reach it.
+        See #351."""
+        for name in ("add_to_project", "set_project_field", "remove_from_project"):
+            assert set(PROJECT_SCOPES) <= set(getattr(gi, name)._mcp_scopes), name
 
     def test_idempotent_tools_annotated_correctly(self, gi: GitHubIntegration):
         for name in ("update_pr_description", "update_pr_branch", "update_issue", "update_assignees"):
