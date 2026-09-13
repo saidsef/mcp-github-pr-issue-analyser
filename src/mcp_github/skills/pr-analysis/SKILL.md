@@ -50,13 +50,20 @@ Returns `PRContent` with exactly these fields:
 | `created_at` | str | ISO 8601 timestamp |
 | `updated_at` | str | ISO 8601 timestamp |
 | `state` | str | `open` or `closed` |
+| `head_sha` | str \| None | Newest commit on the PR branch |
+| `head_ref` | str \| None | Branch the PR merges from |
+| `base_ref` | str \| None | Branch the PR merges into |
 
-Nothing else is returned. Draft status, base and head refs, labels and
-`mergeable` are **not** available from this tool. `state` is `closed` for both
-merged and abandoned PRs and does not distinguish the two.
+Nothing else is returned. Draft status, labels and `mergeable` are **not**
+available from this tool. `state` is `closed` for both merged and abandoned PRs
+and does not distinguish the two.
+
+`head_sha` is what `update_pr_branch` takes as `expected_head_sha`.
 
 To learn whether a PR is a draft, call `list_open_issues_prs` with
-`filtering="repo"` and read `is_draft` on the matching entry.
+`filtering="repo"` and read `is_draft` on the matching entry. That tool returns
+open PRs only, so read a closed or merged one through `search_issues_prs`, which
+returns the same shape.
 
 ### `get_pr_diff`
 

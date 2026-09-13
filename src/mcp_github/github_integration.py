@@ -69,6 +69,9 @@ class PRContent(TypedDict):
     created_at: str
     updated_at: str
     state: str
+    head_sha: str | None
+    head_ref: str | None
+    base_ref: str | None
 
 
 class CommentData(TypedDict):
@@ -82,6 +85,9 @@ class CommentData(TypedDict):
 class ReviewCommentData(CommentData, total=False):
     path: str | None
     line: int | None
+    side: str | None
+    start_line: int | None
+    start_side: str | None
     in_reply_to_id: int | None
 
 
@@ -192,6 +198,7 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
+_Side = Literal["LEFT", "RIGHT"]
 
 logger = logging.getLogger(__name__)
 
@@ -209,7 +216,10 @@ def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 
 def _pr_content(data: dict[str, Any]) -> PRContent:
-    """Trim a GitHub pull request payload to the PRContent contract."""
+    """Trim a GitHub pull request payload to the PRContent contract. head_sha is
+    what update_pr_branch takes as expected_head_sha, which had no source before.
+    See #411."""
+    head = data.get("head") or {}
     return {
         "title": data["title"],
         "description": data["body"],
@@ -217,6 +227,9 @@ def _pr_content(data: dict[str, Any]) -> PRContent:
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
         "state": data["state"],
+        "head_sha": head.get("sha"),
+        "head_ref": head.get("ref"),
+        "base_ref": (data.get("base") or {}).get("ref"),
     }
 
 
@@ -312,6 +325,9 @@ def _review_comment_result(data: dict[str, Any]) -> ReviewCommentData:
         **_comment_result(data),
         "path": data.get("path"),
         "line": data.get("line"),
+        "side": data.get("side"),
+        "start_line": data.get("start_line"),
+        "start_side": data.get("start_side"),
         "in_reply_to_id": data.get("in_reply_to_id"),
     }
 
@@ -642,18 +658,36 @@ class GitHubIntegration(ActivityMixin):
         path: str,
         line: int,
         comment_body: str,
+        side: Annotated[_Side, "LEFT for a line the PR deletes, RIGHT for one it adds or leaves as context"] = "RIGHT",
+        start_line: Annotated[
+            int | None, "First line of a range ending at line. Omit to comment on line alone"
+        ] = None,
+        start_side: Annotated[_Side | None, "Side start_line sits on. Omit to match side"] = None,
     ) -> CommentData:
-        """Adds an inline review comment to a specific line in a file within a PR."""
+        """Adds an inline review comment to a line, or to a range of lines, in a
+        file within a PR. The line must fall inside the PR's diff hunks: GitHub
+        rejects a comment on an unchanged line outside any hunk, and on a path not
+        in the diff. A deleted line exists only on side LEFT."""
+        if start_line is not None and start_line >= line:
+            raise GitHubValidationError(f"start_line {start_line} must come before line {line} on {path}.")
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
         pr_data = (await self._request("GET", pr_url, context=f"PR #{pr_number}")).json()
         commit_id = pr_data.get("head", {}).get("sha")
         if not commit_id:
             raise ToolError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
-        payload = {"body": comment_body, "commit_id": commit_id, "path": path, "line": line, "side": "RIGHT"}
-        data = (
-            await self._request("POST", review_url, context=f"inline comment on {path}:{line}", json=payload)
-        ).json()
+        payload: dict[str, Any] = {
+            "body": comment_body,
+            "commit_id": commit_id,
+            "path": path,
+            "line": line,
+            "side": side,
+        }
+        if start_line is not None:
+            payload["start_line"] = start_line
+            payload["start_side"] = start_side or side
+        where = f"{path}:{start_line}-{line}" if start_line is not None else f"{path}:{line}"
+        data = (await self._request("POST", review_url, context=f"inline comment on {where}", json=payload)).json()
         return _comment_result(data)
 
     @_read_only
@@ -838,14 +872,22 @@ class GitHubIntegration(ActivityMixin):
     @_read_only
     async def list_open_issues_prs(
         self,
-        repo_owner: str,
-        repo_name: str = "",
-        issue: Literal["pr", "issue"] = "pr",
-        filtering: Literal["user", "org", "repo", "involves"] = "involves",
+        repo_owner: Annotated[
+            str, "Username under involves and user, organisation under org, repository owner under repo"
+        ],
+        repo_name: Annotated[str, "Repository name. Required when filtering is repo, ignored otherwise"] = "",
+        issue: Annotated[Literal["pr", "issue"], "pr for pull requests, issue for issues"] = "pr",
+        filtering: Annotated[
+            Literal["user", "org", "repo", "involves"],
+            "involves for items that user authored, is assigned, is mentioned in or reviewed, anywhere on GitHub. "
+            "user for items in that user's repositories. org for an organisation's. repo for one repository",
+        ] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
+        page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
     ) -> dict[str, Any]:
-        """Lists open pull requests or issues."""
+        """Lists open pull requests or issues. The search is fixed to is:open, so
+        closed and merged items are out of reach here. Call search_issues_prs for
+        those, and for any qualifier this tool does not expose."""
         if filtering == "repo":
             if not repo_name:
                 raise ToolError("repo_name is required when filtering='repo'")
@@ -1109,9 +1151,13 @@ class GitHubIntegration(ActivityMixin):
         repo_owner: str,
         repo_name: str,
         pr_number: int,
-        expected_head_sha: str | None = None,
+        expected_head_sha: Annotated[
+            str | None, "Refuse unless the head still matches this SHA, as get_pr_content reports it"
+        ] = None,
     ) -> dict[str, Any]:
-        """Updates the pull request branch with the latest upstream changes."""
+        """Updates the pull request branch with the latest upstream changes. Read
+        head_sha from get_pr_content and pass it as expected_head_sha to be refused
+        rather than to overwrite a push that landed since."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
         payload: dict[str, Any] = {}
         if expected_head_sha is not None:
@@ -1266,12 +1312,29 @@ class GitHubIntegration(ActivityMixin):
         }
 
     @_read_only
-    async def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
-        """Fetches the SHA of the latest commit."""
+    async def get_latest_sha(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        ref: Annotated[
+            str | None, "Branch, tag or SHA to read the newest commit of. Omit for the default branch"
+        ] = None,
+    ) -> str | None:
+        """Fetches the SHA of the newest commit on ref, or on the default branch when
+        ref is omitted. Returns None if the repository has no commits. The answer is
+        a reading rather than a pin, so a push landing afterwards moves it."""
         # per_page=1 because only the newest SHA is read. The default of 30
         # returns every field of 30 commits to answer with 40 characters.
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits?per_page=1"
-        data = (await self._request("GET", url, context=f"commits for {repo_owner}/{repo_name}")).json()
+        if ref:
+            url += f"&sha={quote(ref, safe='')}"
+        where = f"{ref or 'default branch'} of {repo_owner}/{repo_name}"
+        # An empty repository answers 409 rather than with an empty list, so the
+        # no-commits contract only holds by reading that status. See #411.
+        response = await self._request("GET", url, context=f"commits for {where}", allow_status=(409,))
+        if response.status_code == 409:
+            return None
+        data = response.json()
         if data:
             return data[0]["sha"]
         return None

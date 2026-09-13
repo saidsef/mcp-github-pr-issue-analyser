@@ -41,9 +41,13 @@ then read, correct or withdraw what has already been published.
 |---|---|---|
 | `repo_owner` | str | GitHub organisation or username |
 | `repo_name` | str | Repository name |
+| `ref` | str \| None | Branch, tag or SHA to read. Omit for the default branch |
 
-Returns the SHA of the newest commit on the default branch, or `None` if the
-repository has no commits.
+Returns the SHA of the newest commit on `ref`, or `None` if the repository has
+no commits. A ref GitHub cannot resolve is an error rather than `None`.
+
+The answer is a reading rather than a pin. A push landing afterwards moves it,
+so re-read it if time has passed.
 
 ### `create_tag`
 
