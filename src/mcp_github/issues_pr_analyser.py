@@ -132,6 +132,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Features
 - Fetch PR diffs, content, linked issues, and CI status
+- Read a repository's files and directory tree at any branch, tag or SHA
 - Update PR descriptions and post inline review comments
 - Create and update GitHub issues
 - Place issues and PRs on project boards and set their fields
@@ -145,6 +146,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use all tools available for a comprehensive understanding of the PR and issue landscape.
 - Use list_repos when you do not already know the repository name, rather than guessing at one
 - Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
+- Use get_repository_file to read the code a hunk sits in, since a few lines of context rarely settle whether a change is right
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
 - Use update_pr_description to keep PRs up-to-date
 - Use create_issue and update_issue for issue management
