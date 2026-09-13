@@ -7,6 +7,9 @@ from contextlib import ExitStack, contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from fastmcp.exceptions import InsufficientScopeError
+from fastmcp.server.auth import AccessToken
+from fastmcp.server.context import reset_transport, set_transport
 from prometheus_client import REGISTRY
 
 from mcp_github import issues_pr_analyser as server
@@ -119,6 +122,50 @@ class TestDispatch:
         analyser = _analyser()
         with pytest.raises(Exception, match="nonesuch"):
             await analyser.mcp.call_tool("nonesuch", {})
+
+
+@contextmanager
+def _grant(scopes: list[str]) -> Iterator[None]:
+    """A request over an HTTP transport carrying an OAuth grant with these scopes."""
+    token = AccessToken(token="t", client_id="c", expires_at=None, scopes=scopes, claims={})
+    transport = set_transport("streamable-http")
+    try:
+        with patch("fastmcp.server.middleware.authorization.get_access_token", return_value=token):
+            yield
+    finally:
+        reset_transport(transport)
+
+
+class TestTheScopeGateStillApplies:
+    """The shim runs outermost so the gate resolves a tool that exists. That must
+    not turn a previous name into a way around the gate."""
+
+    _ISSUE = {"repo_owner": "o", "repo_name": "r", "title": "t", "body": "b", "labels": []}
+
+    @pytest.mark.anyio
+    async def test_a_previous_name_is_refused_without_the_scope(self):
+        analyser = _analyser()
+        with _grant(["read:org"]), pytest.raises(InsufficientScopeError):
+            await analyser.mcp.call_tool("create_issue", self._ISSUE)
+
+    @pytest.mark.anyio
+    async def test_the_current_name_is_refused_the_same_way(self):
+        analyser = _analyser()
+        with _grant(["read:org"]), pytest.raises(InsufficientScopeError):
+            await analyser.mcp.call_tool("github_create_issue", self._ISSUE)
+
+    @pytest.mark.anyio
+    async def test_a_previous_name_for_a_read_tool_needs_no_scope(self):
+        """A read tool is ungated, so the window reaches it on any grant."""
+        analyser = _analyser()
+        response = AsyncMock()
+        response.status_code, response.is_success = 200, True
+        response.json, response.headers, response.content = list, {}, b"[]"
+        analyser.gi._http.request = AsyncMock(return_value=response)
+        with _grant(["read:org"]):
+            result = await analyser.mcp.call_tool("list_repo_labels", {"repo_owner": "o", "repo_name": "r"})
+
+        assert result.structured_content == {"count": 0, "has_more": False, "labels": []}
 
 
 class TestClosingTheWindow:
