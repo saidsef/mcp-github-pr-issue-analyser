@@ -1442,7 +1442,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         return {**_pick(response.json(), *_RELEASE_FIELDS), "updated": False}
 
     async def _release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any] | None:
-        """The release published for a tag, or None when the tag carries none."""
+        """The release published for a tag, or None when the tag carries none.
+        GitHub serves published releases here, so a draft naming the tag reads as
+        none and neither the delete_tag guard nor delete_release sees it."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/tags/{tag_name}"
         response = await self._request(
             "GET", url, context=f"release for tag {tag_name}", allow_status=(404,)
@@ -1516,12 +1518,21 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_owner: str,
         repo_name: str,
         tag_name: str,
-        delete_tag: Annotated[bool, "Also remove the tag the release was published from"] = False,
+        delete_tag: Annotated[
+            bool, "Also remove the tag the release was published from, without the delete_tag force check"
+        ] = False,
     ) -> dict[str, Any]:
         """Deletes a release. The tag it was published from survives unless
-        delete_tag asks for it, since the commit history usually should not move."""
+        delete_tag asks for it, since the commit history usually should not move.
+
+        delete_tag=True removes the ref that the delete_tag tool refuses to touch
+        while a release names it. No force flag is asked for here because the
+        release goes first, so the dangling release that guard protects against
+        cannot be what is left behind. See #404."""
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
         base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        # Order matters: the release is gone before the tag, so a failure here
+        # leaves a tag with no release, which is the ordinary state.
         await self._request("DELETE", f"{base}/releases/{release['id']}", context=f"delete release {tag_name}")
         if delete_tag:
             await self._delete_tag_ref(repo_owner, repo_name, tag_name)

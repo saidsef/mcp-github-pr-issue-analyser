@@ -3214,6 +3214,52 @@ class TestMissingCredentials:
 
 
 # ---------------------------------------------------------------------------
+# delete_release(delete_tag=True) against a released tag. See #404.
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteReleaseWithTag:
+    @pytest.mark.anyio
+    async def test_the_release_goes_before_the_tag(self, gi: GitHubIntegration):
+        """The whole reason this path needs no force flag. Reverse the order and
+        a failed tag delete would strand a release naming a ref nobody can fetch."""
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=204),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.delete_release("o", "r", "v1.0.0", delete_tag=True)
+
+        methods_and_urls = [(c.args[0], c.args[1]) for c in gi._http.request.call_args_list]
+        assert len(methods_and_urls) == 3
+        assert methods_and_urls[0][0] == "GET"
+        assert methods_and_urls[1] == ("DELETE", "https://api.github.com/repos/o/r/releases/55")
+        assert methods_and_urls[2][0] == "DELETE"
+        assert methods_and_urls[2][1].endswith("/git/refs/tags/v1.0.0")
+
+    @pytest.mark.anyio
+    async def test_a_failed_release_delete_leaves_the_tag_alone(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=500, reason_phrase="Server Error"),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(ToolError):
+            await gi.delete_release("o", "r", "v1.0.0", delete_tag=True)
+        assert gi._http.request.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_the_same_ref_is_refused_through_delete_tag(self, gi: GitHubIntegration):
+        """The asymmetry the description now explains: one path deletes this ref
+        freely, the other refuses it."""
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_release_payload()))
+        with pytest.raises(GitHubValidationError, match="force=True"):
+            await gi.delete_tag("o", "r", "v1.0.0")
+        assert gi._http.request.call_count == 1
+
+
+# ---------------------------------------------------------------------------
 # milestone sentinel — one encoding across both tools. See #403.
 # ---------------------------------------------------------------------------
 
