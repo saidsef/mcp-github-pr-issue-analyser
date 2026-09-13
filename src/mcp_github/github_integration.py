@@ -59,6 +59,7 @@ from .graphql_queries import (
     SEARCH_USER_QUERY,
     SET_PROJECT_FIELD_MUTATION,
 )
+from .skills_access import SkillsMixin
 from .tool_annotations import PROJECT_SCOPES, _destructive, _read_only, _write
 
 
@@ -429,7 +430,7 @@ def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-class GitHubIntegration(ActivityMixin):
+class GitHubIntegration(ActivityMixin, SkillsMixin):
     def __init__(self):
         """Initialises the GitHubIntegration instance."""
         self.github_token = GITHUB_TOKEN

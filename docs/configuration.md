@@ -122,6 +122,24 @@ metadata:
     eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/mcp-github
 ```
 
+## Skills
+
+Workflow guidance ships inside the package, under `src/mcp_github/skills/`. The
+server publishes it two ways, and every client reaches at least one of them.
+
+| Path | What a client needs | What it sees |
+|------|---------------------|--------------|
+| `list_skills` and `get_skill` tools | Tool support only | The name, description and full text of every skill |
+| `skill://<name>/SKILL.md` resources | `resources/list` and `resources/read` | The same text, plus a `skill://<name>/_manifest` per skill |
+
+The tools are the path to rely on. A host that consumes only tools never issues
+`resources/list`, so a `skill://` URI stays invisible to it however correctly it
+is served. Both paths read the same files, so neither goes stale against the
+other.
+
+The resources capability is declared on initialise as
+`{"subscribe": false, "listChanged": true}`, over HTTP and over stdio alike.
+
 ## Personal access token scopes
 
 The PAT needs `repo` for private repositories. Reading org membership in user activity queries also needs `read:org`. The project board tools need `read:project` to read and `project` to write, which `repo` does not cover. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope, plus Projects read and write for the board tools.

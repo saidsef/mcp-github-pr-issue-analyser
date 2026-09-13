@@ -144,6 +144,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Best Practices
 - Use all tools available for a comprehensive understanding of the PR and issue landscape.
+- Use get_skill to read the guidance covering a task before starting it, since it carries constraints the tool schemas do not
 - Use list_repos when you do not already know the repository name, rather than guessing at one
 - Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
 - Use get_repository_file to read the code a hunk sits in, since a few lines of context rarely settle whether a change is right
@@ -157,7 +158,9 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Always maintain a professional, clear and concise tone
 
 ## Skills
-Workflow guidance is available as MCP resources under the skill:// URI scheme:
+Workflow guidance ships with the server. Call list_skills for the set and get_skill
+to read one, which needs nothing but tool support. The same content is served as MCP
+resources under the skill:// URI scheme, for a client that reads resources:
 - skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
 - skill://pr-review/SKILL.md -- post inline comments and submit review decisions
 - skill://pr-management/SKILL.md -- create, update, assign, refresh and merge PRs

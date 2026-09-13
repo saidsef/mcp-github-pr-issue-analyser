@@ -91,7 +91,12 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 ## Skills
 
-Workflow guidance ships with the server as MCP resources under the `skill://` URI scheme. Clients that support skills load them on demand.
+Workflow guidance ships with the server. `list_skills` and `get_skill` reach it with tool support alone, and the same content is served as MCP resources under the `skill://` URI scheme for clients that read resources. [Configuration](./configuration.md#skills) covers which path a given client gets.
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `list_skills` | read | Every bundled skill, with its name, description and `skill://` URI |
+| `get_skill` | read | One skill in full, by the name `list_skills` reports |
 
 | Resource | Covers |
 |----------|--------|
