@@ -54,7 +54,9 @@ Nothing else is returned. Draft status, base and head refs, labels and
 merged and abandoned PRs and does not distinguish the two.
 
 To learn whether a PR is a draft, call `list_open_issues_prs` with
-`filtering="repo"` and read `is_draft` on the matching entry.
+`filtering="repo"` and read `is_draft` on the matching entry. That tool returns
+open PRs only, so read a closed or merged one through `search_issues_prs`, which
+returns the same shape.
 
 ### `get_pr_diff`
 

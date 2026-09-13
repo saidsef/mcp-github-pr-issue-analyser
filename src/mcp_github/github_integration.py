@@ -818,14 +818,22 @@ class GitHubIntegration(ActivityMixin):
     @_read_only
     async def list_open_issues_prs(
         self,
-        repo_owner: str,
-        repo_name: str = "",
-        issue: Literal["pr", "issue"] = "pr",
-        filtering: Literal["user", "org", "repo", "involves"] = "involves",
+        repo_owner: Annotated[
+            str, "Username under involves and user, organisation under org, repository owner under repo"
+        ],
+        repo_name: Annotated[str, "Repository name. Required when filtering is repo, ignored otherwise"] = "",
+        issue: Annotated[Literal["pr", "issue"], "pr for pull requests, issue for issues"] = "pr",
+        filtering: Annotated[
+            Literal["user", "org", "repo", "involves"],
+            "involves for items that user authored, is assigned, is mentioned in or reviewed, anywhere on GitHub. "
+            "user for items in that user's repositories. org for an organisation's. repo for one repository",
+        ] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
+        page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
     ) -> dict[str, Any]:
-        """Lists open pull requests or issues."""
+        """Lists open pull requests or issues. The search is fixed to is:open, so
+        closed and merged items are out of reach here. Call search_issues_prs for
+        those, and for any qualifier this tool does not expose."""
         if filtering == "repo":
             if not repo_name:
                 raise ToolError("repo_name is required when filtering='repo'")
