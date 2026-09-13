@@ -71,7 +71,8 @@ rename `Status` options freely, and `Todo`, `To do` and `Backlog` are all in use
 | `per_page` | int | `50` | Items per page, 1 to 100 |
 | `after` | str \| None | `None` | `next_cursor` from a previous call |
 
-Returns `project_number`, `title`, `total`, `items` and `next_cursor`. Each
+Returns `project_number`, `title`, `total`, `count`, `has_more`, `items` and
+`next_cursor`. Each
 item carries `item_id`, `type`, `number`, `title`, `state`, `url`, `repository`
 and a `fields` map keyed by field name.
 
@@ -79,7 +80,9 @@ and a `fields` map keyed by field name.
 page, so a count is answerable from the first call. `items` still needs paging.
 
 `next_cursor` is a cursor when there is another page and `None` when there is
-not, so pass it back until it comes back `None`.
+not, so pass it back until `has_more` comes back false. A board is a GraphQL
+connection, which pages by cursor rather than by page number, so this tool
+takes `after` where the REST list tools take `page`.
 
 Draft issues on the board have a `title` but no `number`, `url` or `repository`,
 because they are notes on the board rather than issues in a repository.
