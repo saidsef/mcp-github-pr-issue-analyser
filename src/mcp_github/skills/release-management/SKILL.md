@@ -25,7 +25,7 @@ then read, correct or withdraw what has already been published.
 ### Correcting a release
 
 1. Call `update_release` with only the fields that are wrong
-2. Publishing again over the same tag also works: `create_release` updates a tag that already has a release rather than failing, though it cannot change `make_latest` or `generate_release_notes` that way
+2. Publishing again over the same tag fails unless you pass `if_exists="update"`, which overwrites the title and notes and cannot change `make_latest` or `generate_release_notes`
 
 ### Withdrawing a release
 
@@ -90,11 +90,15 @@ Returns `id`, `tag_name`, `name`, `html_url`, `draft`, `prerelease`, `body`.
 rather than replacing it, so a hand-written `What Changed` section will be
 duplicated. Set it to `False` when you supply that section yourself.
 
-A tag that already carries a release is updated instead of rejected, so a retry
-after a half-finished release recovers rather than erroring. That path sends the
-title, notes, `draft` and `prerelease` alone. `make_latest` and
-`generate_release_notes` are dropped, so a second call over the same tag cannot
-change either of them.
+A tag that already carries a release fails, because overwriting published notes
+cannot be undone. Pass `if_exists="update"` to replace them deliberately, and
+read `updated` on the reply to tell which path ran.
+
+That update path sends the title, notes, `draft` and `prerelease` alone.
+`make_latest` and `generate_release_notes` are dropped, so the generated
+changelog from the first publish is replaced by `body` on its own, and a
+prerelease is promoted to a full release unless you pass `prerelease=True`
+again. Reach for `update_release` when you only mean to correct something.
 
 ### `list_releases`
 

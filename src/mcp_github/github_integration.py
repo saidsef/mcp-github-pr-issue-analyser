@@ -200,6 +200,7 @@ _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
 _Side = Literal["LEFT", "RIGHT"]
+_IfExists = Literal["fail", "update"]
 
 logger = logging.getLogger(__name__)
 
@@ -1040,7 +1041,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         due_on: Annotated[str | None, "Due date as ISO 8601, e.g. 2026-12-31T23:59:59Z"] = None,
         state: _OpenClosed = "open",
     ) -> dict[str, Any]:
-        """Opens a milestone. Titles are unique per repository, so reusing one fails."""
+        """Opens a milestone. A title the repository already uses fails, since
+        titles are unique per repository. Edit the existing one with
+        update_milestone."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
         payload: dict[str, Any] = {"title": title, "state": state, "description": description}
         if due_on:
@@ -1388,9 +1391,18 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         prerelease: bool = False,
         generate_release_notes: bool = True,
         make_latest: Literal["true", "false", "legacy"] = "true",
+        if_exists: Annotated[
+            _IfExists, "fail if the tag already carries a release, or update to overwrite its title and notes"
+        ] = "fail",
     ) -> dict[str, Any]:
-        """Creates a new release. A tag that already carries one is updated instead
-        of rejected, so a retry after a half-finished release recovers. See #347."""
+        """Publishes a release for a tag. A tag that already carries one fails,
+        since overwriting published notes cannot be undone. Pass if_exists='update'
+        to replace them deliberately, and read updated on the reply to tell which
+        happened. See #401.
+
+        The update path sends the title, notes, draft and prerelease only, so
+        make_latest and generate_release_notes are dropped and the generated
+        changelog from the first publish is replaced by body alone."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
         response = await self._request(
             "POST",
@@ -1410,8 +1422,13 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         if response.status_code == 422:
             if not _already_exists(response):
                 self._handle_response_error(response, f"create release {release_name}")
+            if if_exists == "fail":
+                raise GitHubValidationError(
+                    f"A release already exists for tag '{tag_name}' in {repo_owner}/{repo_name}. "
+                    "Edit it with update_release, or pass if_exists='update' to overwrite its title and notes."
+                )
             logger.info(f"Release for {tag_name} already exists, updating it instead")
-            return await self.update_release(
+            updated = await self.update_release(
                 repo_owner,
                 repo_name,
                 tag_name,
@@ -1420,7 +1437,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 draft=draft,
                 prerelease=prerelease,
             )
-        return _pick(response.json(), *_RELEASE_FIELDS)
+            return {**updated, "updated": True}
+        return {**_pick(response.json(), *_RELEASE_FIELDS), "updated": False}
 
     async def _release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any] | None:
         """The release published for a tag, or None when the tag carries none."""
@@ -1630,8 +1648,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_name: str,
         issue_number: Annotated[int, "Issue or pull request to put on the board"],
     ) -> dict[str, Any]:
-        """Puts an issue or pull request on a project board. One already there comes
-        back with the item it already has, so a retry does not make a second card."""
+        """Puts an issue or pull request on a project board. One the board already
+        holds comes back with the card it already has, so a retry adds nothing and
+        overwrites nothing."""
         project = await self._project(project_owner, project_number)
         node = await self._issue_node(repo_owner, repo_name, issue_number)
         item_id = await self._add_project_item(project["id"], node["id"])
