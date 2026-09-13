@@ -734,7 +734,9 @@ class GitHubIntegration(ActivityMixin):
         state: Annotated[_OpenClosed | None, "Omit to leave the state alone"] = None,
         base: Annotated[str | None, "Branch to retarget the pull request onto"] = None,
         labels: Annotated[
-            list[str] | None, "Replacement label set. Omit to keep the current labels, pass [] to strip them all"
+            list[str] | None,
+            "Replacement label set. Omit to keep the current labels, pass [] to strip them all. "
+            "The 'mcp' tracking label is not re-added here",
         ] = None,
     ) -> PRContent:
         """Updates an existing pull request. Only the fields supplied are sent, the
@@ -792,8 +794,13 @@ class GitHubIntegration(ActivityMixin):
         base: str,
         draft: bool = False,
         labels: Annotated[
-            list[str] | None, "Labels to apply, with mcp appended. Omit to leave the pull request unlabelled"
+            list[str] | None,
+            "Labels to apply, with the 'mcp' tracking label appended unless mcp_label is False. "
+            "Omit to leave the pull request unlabelled",
         ] = None,
+        mcp_label: Annotated[
+            bool, "Append the 'mcp' tracking label to labels. Pass False to opt out"
+        ] = True,
     ) -> dict[str, Any]:
         """Creates a new pull request. Labels are applied in a second call, since
         the create endpoint takes none, and they come back under labels so a set
@@ -814,7 +821,10 @@ class GitHubIntegration(ActivityMixin):
             "title": data.get("title"),
         }
         if labels is not None and result["pr_number"] is not None:
-            labelled = await self._replace_labels(repo_owner, repo_name, result["pr_number"], labels + ["mcp"])
+            final_labels = (
+                [*labels, "mcp"] if mcp_label and "mcp" not in labels else list(labels)
+            )
+            labelled = await self._replace_labels(repo_owner, repo_name, result["pr_number"], final_labels)
             result["labels"] = [label["name"] for label in labelled.get("labels", [])]
         return result
 
@@ -1053,13 +1063,25 @@ class GitHubIntegration(ActivityMixin):
         repo_name: str,
         title: str,
         body: str,
-        labels: list[str],
+        labels: Annotated[
+            list[str] | None,
+            "Labels to apply, with the 'mcp' tracking label appended unless mcp_label is False. "
+            "Omit to leave the issue unlabelled",
+        ] = None,
         milestone: Annotated[str, "Milestone title to file it under. Omit for none"] = "",
+        mcp_label: Annotated[
+            bool, "Append the 'mcp' tracking label to labels. Pass False to opt out"
+        ] = True,
     ) -> IssueData:
-        """Creates a new issue."""
+        """Creates a new issue. The update tools replace the label set as given
+        and never re-add 'mcp'; only the create tools append it, and only when
+        mcp_label is left enabled."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
-        issue_labels = ["mcp"] if not labels else labels + ["mcp"]
-        payload: dict[str, Any] = {"title": title, "body": body, "labels": issue_labels}
+        payload: dict[str, Any] = {"title": title, "body": body}
+        if labels is not None:
+            payload["labels"] = (
+                [*labels, "mcp"] if mcp_label and "mcp" not in labels else list(labels)
+            )
         if milestone:
             payload["milestone"] = await self._milestone_number(repo_owner, repo_name, milestone)
         data = (
@@ -1110,7 +1132,9 @@ class GitHubIntegration(ActivityMixin):
         title: Annotated[str | None, "Replacement title. Omit to leave the current title alone"] = None,
         body: Annotated[str | None, "Replacement body in Markdown. Omit to leave the current body alone"] = None,
         labels: Annotated[
-            list[str] | None, "Replacement label set. Omit to keep the current labels, pass [] to strip them all"
+            list[str] | None,
+            "Replacement label set. Omit to keep the current labels, pass [] to strip them all. "
+            "The 'mcp' tracking label is not re-added here",
         ] = None,
         state: Annotated[
             _OpenClosed | None, "Omit to leave the issue in whichever state it is already in"

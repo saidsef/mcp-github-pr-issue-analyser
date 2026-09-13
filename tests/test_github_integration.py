@@ -1260,6 +1260,48 @@ class TestResponseTrimming:
         assert gi._http.request.call_args.kwargs["json"]["labels"] == ["bug", "mcp"]
 
     @pytest.mark.anyio
+    async def test_create_issue_without_labels_creates_an_unlabelled_issue(
+        self, gi: GitHubIntegration
+    ):
+        # #402: labels must be omittable, and omitting must not append anything.
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload(labels=[])))
+        result = await gi.create_issue("o", "r", "A bug", "Details")
+        assert "labels" not in gi._http.request.call_args.kwargs["json"]
+        assert result["labels"] == []
+
+    @pytest.mark.anyio
+    async def test_create_issue_mcp_label_opt_out(self, gi: GitHubIntegration):
+        # #402: the 'mcp' append is opt-out.
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(json_data=_issue_payload(labels=[{"name": "bug"}]))
+        )
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], mcp_label=False)
+        assert gi._http.request.call_args.kwargs["json"]["labels"] == ["bug"]
+
+    @pytest.mark.anyio
+    async def test_create_issue_does_not_duplicate_a_caller_supplied_mcp_label(
+        self, gi: GitHubIntegration
+    ):
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(json_data=_issue_payload(labels=[{"name": "mcp"}]))
+        )
+        await gi.create_issue("o", "r", "A bug", "Details", ["mcp"])
+        assert gi._http.request.call_args.kwargs["json"]["labels"] == ["mcp"]
+
+    @pytest.mark.anyio
+    async def test_create_pr_mcp_label_opt_out(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_CREATED_PR),
+            _mock_response(json_data=_label_payload("bug")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.create_pr(
+            "o", "r", "A change", "Details", "feat", "main", labels=["bug"], mcp_label=False
+        )
+        assert gi._http.request.call_args_list[1].kwargs["json"] == {"labels": ["bug"]}
+        assert result["labels"] == ["bug"]
+
+    @pytest.mark.anyio
     async def test_update_issue_returns_trimmed_issue(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(
             return_value=_mock_response(json_data=_issue_payload(state="closed"))
