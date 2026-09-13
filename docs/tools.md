@@ -7,7 +7,7 @@ The server registers every public method on the GitHub integration that carries 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
-| `get_pr_content` | read | PR title, description, author, timestamps and state |
+| `get_pr_content` | read | PR title, description, author, timestamps, state, head SHA and the branches either side |
 | `get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
@@ -43,7 +43,7 @@ The server registers every public method on the GitHub integration that carries 
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_latest_sha` | read | The latest commit SHA on a repository's default branch |
+| `get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
 | `create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
 | `create_release` | write | Publish a release with a changelog, updating one that already exists for the tag |
 | `list_releases` | read | A repository's releases, newest first |
