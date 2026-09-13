@@ -36,13 +36,25 @@ Post targeted inline comments on specific lines, then submit a review decision o
 | `repo_name` | str | Repository name |
 | `pr_number` | int | Pull request number |
 | `path` | str | File path relative to repo root, e.g. `src/mcp_github/auth.py` |
-| `line` | int | Line number in the **new** file, the right side of the diff |
+| `line` | int | Line the comment ends on, in the file as `side` sees it |
 | `comment_body` | str | Markdown comment text |
+| `side` | str | `RIGHT` for an added or context line, `LEFT` for a deleted one. Default `RIGHT` |
+| `start_line` | int \| None | First line of a range ending at `line`. Omit to comment on `line` alone |
+| `start_side` | str \| None | Side `start_line` sits on. Omit to match `side` |
 
 Returns `CommentData` with `id`, `body`, `author`, `html_url`, `created_at`.
 
 The line must fall inside the diff hunks of the PR. GitHub rejects a comment on
-an unchanged line outside any hunk, and on a path not present in the diff.
+an unchanged line outside any hunk, and on a path not present in the diff. A
+rejection names the path and the line it was given.
+
+A line the PR deletes exists only on `LEFT`, so commenting on a deletion means
+passing `side="LEFT"` and numbering the line as it stands in the old file. An
+addition and an unchanged context line both sit on `RIGHT`.
+
+Pass `start_line` to cover a block in one comment rather than picking a line out
+of it. `start_line` must come before `line`, which is checked before the call is
+sent.
 
 ### `add_pr_comments`
 
@@ -67,9 +79,10 @@ standalone comment rather than part of a review.
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `total`, `kind` and `comments`. Inline comments carry `path`, `line` and
-`in_reply_to_id` on top of the usual `CommentData` fields, which is what lets a
-review tell whether it has already spoken about a line.
+Returns `total`, `kind` and `comments`. Inline comments carry `path`, `line`,
+`side`, `start_line`, `start_side` and `in_reply_to_id` on top of the usual
+`CommentData` fields, which is what lets a review tell whether it has already
+spoken about a line or a range.
 
 ### `update_pr_comment`
 

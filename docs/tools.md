@@ -7,7 +7,7 @@ The server registers every public method on the GitHub integration that carries 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
-| `get_pr_content` | read | PR title, description, author, timestamps and state |
+| `get_pr_content` | read | PR title, description, author, timestamps, state, head SHA and the branches either side |
 | `get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
@@ -17,8 +17,8 @@ The server registers every public method on the GitHub integration that carries 
 | `update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `merge_pr` | write | Merge using the merge, squash or rebase method |
 | `add_pr_comments` | write | Post a general comment on the PR thread |
-| `add_inline_pr_comment` | write | Comment on specific lines of a PR's files |
-| `list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file and line |
+| `add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
+| `list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
 | `update_pr_comment` | write | Rewrite a comment already posted |
 | `reply_to_review_comment` | write | Reply on an existing review thread |
 | `update_reviews` | write | Approve, request changes, or comment as a review |
@@ -43,7 +43,7 @@ The server registers every public method on the GitHub integration that carries 
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_latest_sha` | read | The latest commit SHA on a repository's default branch |
+| `get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
 | `create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
 | `create_release` | write | Publish a release with a changelog, updating one that already exists for the tag |
 | `list_releases` | read | A repository's releases, newest first |

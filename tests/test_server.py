@@ -6,6 +6,7 @@ import json
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from importlib.metadata import PackageNotFoundError
+from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -464,3 +465,41 @@ class TestSkillsAreReachable:
 
         assert "list_skills" in instructions
         assert "get_skill" in instructions
+
+
+class TestListOpenIssuesPrsSchema:
+    """What `filtering` does to `repo_owner` only ever reached the skill, so a
+    tool-only client had to guess at the field. See #412."""
+
+    @staticmethod
+    async def _schema() -> Any:
+        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        return tools["list_open_issues_prs"]
+
+    @pytest.mark.anyio
+    async def test_repo_owner_carries_the_per_mode_meaning(self):
+        properties = (await self._schema()).parameters["properties"]
+        described = properties["repo_owner"]["description"].lower()
+
+        assert "username" in described
+        assert "organisation" in described
+        assert "owner" in described
+
+    @pytest.mark.anyio
+    async def test_filtering_names_what_each_mode_returns(self):
+        described = (await self._schema()).parameters["properties"]["filtering"]["description"].lower()
+
+        assert {"involves", "user", "org", "repo"} <= set(described.split())
+
+    @pytest.mark.anyio
+    async def test_every_parameter_is_described(self):
+        properties = (await self._schema()).parameters["properties"]
+
+        assert [name for name, field in properties.items() if not field.get("description")] == []
+
+    @pytest.mark.anyio
+    async def test_the_description_states_open_only_and_points_onward(self):
+        description = (await self._schema()).description or ""
+
+        assert "is:open" in description
+        assert "search_issues_prs" in description
