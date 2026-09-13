@@ -82,6 +82,9 @@ class CommentData(TypedDict):
 class ReviewCommentData(CommentData, total=False):
     path: str | None
     line: int | None
+    side: str | None
+    start_line: int | None
+    start_side: str | None
     in_reply_to_id: int | None
 
 
@@ -172,6 +175,7 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
+_Side = Literal["LEFT", "RIGHT"]
 
 logger = logging.getLogger(__name__)
 
@@ -292,6 +296,9 @@ def _review_comment_result(data: dict[str, Any]) -> ReviewCommentData:
         **_comment_result(data),
         "path": data.get("path"),
         "line": data.get("line"),
+        "side": data.get("side"),
+        "start_line": data.get("start_line"),
+        "start_side": data.get("start_side"),
         "in_reply_to_id": data.get("in_reply_to_id"),
     }
 
@@ -622,18 +629,36 @@ class GitHubIntegration(ActivityMixin):
         path: str,
         line: int,
         comment_body: str,
+        side: Annotated[_Side, "LEFT for a line the PR deletes, RIGHT for one it adds or leaves as context"] = "RIGHT",
+        start_line: Annotated[
+            int | None, "First line of a range ending at line. Omit to comment on line alone"
+        ] = None,
+        start_side: Annotated[_Side | None, "Side start_line sits on. Omit to match side"] = None,
     ) -> CommentData:
-        """Adds an inline review comment to a specific line in a file within a PR."""
+        """Adds an inline review comment to a line, or to a range of lines, in a
+        file within a PR. The line must fall inside the PR's diff hunks: GitHub
+        rejects a comment on an unchanged line outside any hunk, and on a path not
+        in the diff. A deleted line exists only on side LEFT."""
+        if start_line is not None and start_line >= line:
+            raise GitHubValidationError(f"start_line {start_line} must come before line {line} on {path}.")
         pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
         pr_data = (await self._request("GET", pr_url, context=f"PR #{pr_number}")).json()
         commit_id = pr_data.get("head", {}).get("sha")
         if not commit_id:
             raise ToolError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
-        payload = {"body": comment_body, "commit_id": commit_id, "path": path, "line": line, "side": "RIGHT"}
-        data = (
-            await self._request("POST", review_url, context=f"inline comment on {path}:{line}", json=payload)
-        ).json()
+        payload: dict[str, Any] = {
+            "body": comment_body,
+            "commit_id": commit_id,
+            "path": path,
+            "line": line,
+            "side": side,
+        }
+        if start_line is not None:
+            payload["start_line"] = start_line
+            payload["start_side"] = start_side or side
+        where = f"{path}:{start_line}-{line}" if start_line is not None else f"{path}:{line}"
+        data = (await self._request("POST", review_url, context=f"inline comment on {where}", json=payload)).json()
         return _comment_result(data)
 
     @_read_only

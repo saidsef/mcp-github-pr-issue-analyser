@@ -1475,6 +1475,135 @@ class TestListRepoLabels:
 
 
 # ---------------------------------------------------------------------------
+# add_inline_pr_comment — side and multi-line ranges. See #410.
+# ---------------------------------------------------------------------------
+
+
+def _inline_responses(**overrides):
+    """A head-SHA read followed by the created review comment."""
+    comment = {
+        "id": 22,
+        "path": "app.py",
+        "body": "fix this",
+        "user": _NOISE_USER,
+        "html_url": "https://github.com/o/r/pull/5#discussion_r22",
+        "created_at": "2026-07-01T00:00:00Z",
+        **overrides,
+    }
+    return iter([_mock_response(json_data={"head": {"sha": "abc123"}}), _mock_response(json_data=comment)])
+
+
+class TestInlineCommentPlacement:
+    @staticmethod
+    def _posted(gi: GitHubIntegration) -> dict:
+        return gi._http.request.call_args_list[1].kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_an_added_line_defaults_to_the_right_side(self, gi: GitHubIntegration):
+        responses = _inline_responses()
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.add_inline_pr_comment("o", "r", 5, "app.py", 3, "fix this")
+        posted = self._posted(gi)
+        assert posted["side"] == "RIGHT"
+        assert posted["line"] == 3
+        assert "start_line" not in posted
+
+    @pytest.mark.anyio
+    async def test_a_deleted_line_is_reachable_on_the_left_side(self, gi: GitHubIntegration):
+        responses = _inline_responses()
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.add_inline_pr_comment("o", "r", 5, "app.py", 7, "why drop this?", side="LEFT")
+        assert self._posted(gi)["side"] == "LEFT"
+
+    @pytest.mark.anyio
+    async def test_a_context_line_stays_on_the_right_side(self, gi: GitHubIntegration):
+        """An unchanged line shown for context lives on RIGHT, same as an addition."""
+        responses = _inline_responses()
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.add_inline_pr_comment("o", "r", 5, "app.py", 11, "context", side="RIGHT")
+        assert self._posted(gi)["side"] == "RIGHT"
+
+    @pytest.mark.anyio
+    async def test_a_range_sends_start_line_and_matches_the_side(self, gi: GitHubIntegration):
+        responses = _inline_responses()
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.add_inline_pr_comment("o", "r", 5, "app.py", 9, "this block", start_line=4)
+        posted = self._posted(gi)
+        assert posted["start_line"] == 4
+        assert posted["line"] == 9
+        assert posted["start_side"] == "RIGHT"
+
+    @pytest.mark.anyio
+    async def test_a_range_can_start_on_the_other_side(self, gi: GitHubIntegration):
+        responses = _inline_responses()
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.add_inline_pr_comment("o", "r", 5, "app.py", 9, "spans", start_line=4, start_side="LEFT")
+        assert self._posted(gi)["start_side"] == "LEFT"
+
+    @pytest.mark.anyio
+    async def test_a_backwards_range_is_refused_before_github_sees_it(self, gi: GitHubIntegration):
+        responses = _inline_responses()
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(GitHubValidationError, match="must come before"):
+            await gi.add_inline_pr_comment("o", "r", 5, "app.py", 4, "backwards", start_line=9)
+        gi._http.request.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_a_line_outside_the_diff_names_the_path_and_line(self, gi: GitHubIntegration):
+        """GitHub rejects a line outside every hunk. The message has to say which
+        line, since the caller picked it from a diff it read separately."""
+        responses = iter([
+            _mock_response(json_data={"head": {"sha": "abc123"}}),
+            _mock_response(
+                status_code=422,
+                json_data={
+                    "message": "Validation Failed",
+                    "errors": [{"resource": "PullRequestReviewComment", "field": "line", "code": "invalid"}],
+                },
+                reason_phrase="Unprocessable Entity",
+            ),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(ToolError, match=r"app\.py:999"):
+            await gi.add_inline_pr_comment("o", "r", 5, "app.py", 999, "out of hunk")
+
+    @pytest.mark.anyio
+    async def test_a_failed_range_names_both_ends(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data={"head": {"sha": "abc123"}}),
+            _mock_response(status_code=422, json_data={"message": "Validation Failed"}),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(ToolError, match=r"app\.py:4-9"):
+            await gi.add_inline_pr_comment("o", "r", 5, "app.py", 9, "range", start_line=4)
+
+    @pytest.mark.anyio
+    async def test_the_read_side_reports_where_a_comment_sits(self, gi: GitHubIntegration):
+        """list_pr_comments has to carry the fields the write side can now set,
+        or a second review cannot tell what the first said about a range."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(
+                json_data=[{
+                    "id": 1,
+                    "body": "b",
+                    "user": _NOISE_USER,
+                    "html_url": "https://github.com/o/r/pull/5#discussion_r1",
+                    "created_at": "2026-07-01T00:00:00Z",
+                    "path": "app.py",
+                    "line": 9,
+                    "side": "RIGHT",
+                    "start_line": 4,
+                    "start_side": "RIGHT",
+                }]
+            )
+        )
+        comment = (await gi.list_pr_comments("o", "r", 5, kind="inline"))["comments"][0]
+        assert comment["side"] == "RIGHT"
+        assert comment["start_line"] == 4
+        assert comment["start_side"] == "RIGHT"
+
+
+# ---------------------------------------------------------------------------
 # get_pr_diff — size reporting and truncation (#314)
 # ---------------------------------------------------------------------------
 

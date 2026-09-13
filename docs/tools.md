@@ -17,8 +17,8 @@ The server registers every public method on the GitHub integration that carries 
 | `update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `merge_pr` | write | Merge using the merge, squash or rebase method |
 | `add_pr_comments` | write | Post a general comment on the PR thread |
-| `add_inline_pr_comment` | write | Comment on specific lines of a PR's files |
-| `list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file and line |
+| `add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
+| `list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
 | `update_pr_comment` | write | Rewrite a comment already posted |
 | `reply_to_review_comment` | write | Reply on an existing review thread |
 | `update_reviews` | write | Approve, request changes, or comment as a review |
