@@ -118,9 +118,11 @@ Returns `RepoStarsSinceResult`: `username`, the normalised `since` cutoff,
 `repos` sorted by `new_stars` descending, each with `repo`, `owner`, `url`,
 `description`, `new_stars` and `total_stars`, and `truncated`.
 
-`truncated` is `True` when the account has more public repos than the listing
-could read, 500 being the ceiling. The answer is then built on a subset and may
-miss a repo that gained stars, so say so rather than reporting it as complete.
+`truncated` is `True` in either of two cases. The account has more public repos
+than the listing could read, 500 being the ceiling, or one repo's star history
+ran past the twelve pages the walk reads, which is roughly seven years. The
+answer is then built on a subset and may miss a repo that gained stars, or
+undercount one that did, so say so rather than reporting it as complete.
 
 This is the tool for any question of the form "which repos gained the most
 stars recently".
@@ -132,18 +134,19 @@ get_repo_stars_since(username="saidsef", since="2024-04-01", top_n=5)
 How it picks and counts:
 
 - Reads the user's public repos, up to 5 pages of 100, drops any with zero stars, then inspects the `max_repos` with the highest total star count
-- For each, it walks the stargazers endpoint backwards from the last page and stops at the first star older than the cutoff
+- For each, it reads the repo's weekly star history newest first and stops once the walk passes the cutoff
+- Counts resolve to whole UTC days, since the history endpoint reports per-day totals rather than per-star timestamps
 - Repos that gained no stars in the window are omitted rather than returned with `new_stars: 0`
 
-Cost scales with how popular the repos are, since a repo with 5,000 stars can
-need many pages before the walk stops. Keep `max_repos` low on accounts with
-large repositories.
+Cost follows the length of the window rather than the popularity of the repo.
+One page of history covers 30 weeks, so a 30-day window costs a single request
+per repo whether that repo has 5 stars or 50,000.
 
 ## Star Counts: Which Tool to Use
 
 `repo_stars` in `github_get_user_activities` is each repo's **current cumulative
-total** and ignores `since` and `until`. GitHub does not expose per-period
-deltas there. Use `github_get_repo_stars_since` whenever the question is about a time
+total** and ignores `since` and `until`, so it never reports stars gained within a
+window. Use `github_get_repo_stars_since` whenever the question is about a time
 window, and `github_get_user_activities` only for a snapshot of where a user stands
 today.
 
