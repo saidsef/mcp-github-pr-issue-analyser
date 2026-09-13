@@ -34,7 +34,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `HOST` | No, default `localhost` | HTTP server bind address |
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
-| `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
+| `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
@@ -129,7 +129,7 @@ server publishes it two ways, and every client reaches at least one of them.
 
 | Path | What a client needs | What it sees |
 |------|---------------------|--------------|
-| `list_skills` and `get_skill` tools | Tool support only | The name, description and full text of every skill |
+| `github_list_skills` and `github_get_skill` tools | Tool support only | The name, description and full text of every skill |
 | `skill://<name>/SKILL.md` resources | `resources/list` and `resources/read` | The same text, plus a `skill://<name>/_manifest` per skill |
 
 The tools are the path to rely on. A host that consumes only tools never issues
@@ -150,10 +150,10 @@ Every tool declares the scopes its work needs, and the server checks that declar
 
 | Tool class | Scopes required | Examples |
 |------------|-----------------|----------|
-| Read-only | None | `get_pr_diff`, `list_repos`, `search_issues_prs` |
-| Write | `repo` | `create_issue`, `update_pr`, `merge_pr` |
-| Destructive | `repo` | `delete_release`, `delete_tag` |
-| Board write | `repo` and `project` | `add_to_project`, `set_project_field`, `remove_from_project` |
+| Read-only | None | `github_get_pr_diff`, `github_list_repos`, `github_search_issues_prs` |
+| Write | `repo` | `github_create_issue`, `github_update_pr`, `github_merge_pr` |
+| Destructive | `repo` | `github_delete_release`, `github_delete_tag` |
+| Board write | `repo` and `project` | `github_add_to_project`, `github_set_project_field`, `github_remove_from_project` |
 
 The check runs when the tools are listed as well as when one is called. In OAuth2 mode a grant without `repo` sees only the read-only tools, and a call to any of the others is refused with `insufficient scope (required: repo)`. The refusal names the scope the grant lacks, so a client can re-authorise for it rather than reading a GitHub `403` raised from inside the call.
 

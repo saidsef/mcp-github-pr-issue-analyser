@@ -11,26 +11,26 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - `repo_owner`, `repo_name` and `pr_number` for the target PR
 - GitHub token with `repo` read access
 
-`get_pr_linked_issues` and `get_pr_status_checks` run as long-running tasks.
-Neither reports incremental progress, and `get_pr_status_checks` logs one
+`github_get_pr_linked_issues` and `github_get_pr_status_checks` run as long-running tasks.
+Neither reports incremental progress, and `github_get_pr_status_checks` logs one
 summary line once it has finished paging through the check suites.
-`get_pr_content` and `get_pr_diff` are plain reads.
+`github_get_pr_content` and `github_get_pr_diff` are plain reads.
 
 ## Workflow
 
-1. **Fetch metadata** - call `get_pr_content` for title, description, author, state and timestamps
-2. **Fetch the diff** - call `get_pr_diff` for the raw unified diff of every changed file
-3. **Read the surrounding code** - call `get_repository_file` on a file whose hunk does not say enough on its own
-4. **Fetch linked issues** - call `get_pr_linked_issues` to see what merging will auto-close
-5. **Fetch CI status** - call `get_pr_status_checks` to see whether the head commit is green
+1. **Fetch metadata** - call `github_get_pr_content` for title, description, author, state and timestamps
+2. **Fetch the diff** - call `github_get_pr_diff` for the raw unified diff of every changed file
+3. **Read the surrounding code** - call `github_get_repository_file` on a file whose hunk does not say enough on its own
+4. **Fetch linked issues** - call `github_get_pr_linked_issues` to see what merging will auto-close
+5. **Fetch CI status** - call `github_get_pr_status_checks` to see whether the head commit is green
 6. **Synthesise** - combine what you have into a structured analysis
 
 Steps 4 and 5 do not depend on steps 1 and 2, so issue them together.
 
 ## Tool Parameters
 
-`get_pr_content`, `get_pr_diff`, `get_pr_linked_issues` and
-`get_pr_status_checks` take the same three arguments.
+`github_get_pr_content`, `github_get_pr_diff`, `github_get_pr_linked_issues` and
+`github_get_pr_status_checks` take the same three arguments.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -38,7 +38,7 @@ Steps 4 and 5 do not depend on steps 1 and 2, so issue them together.
 | `repo_name` | str | Repository name |
 | `pr_number` | int | Pull request number |
 
-### `get_pr_content`
+### `github_get_pr_content`
 
 Returns `PRContent` with exactly these fields:
 
@@ -60,18 +60,18 @@ Nothing else is returned. Draft status, labels and `mergeable` are **not**
 available from this tool. `state` is `closed` for both merged and abandoned PRs
 and does not distinguish the two.
 
-`head_sha` is what `update_pr_branch` takes as `expected_head_sha`.
+`head_sha` is what `github_update_pr_branch` takes as `expected_head_sha`.
 
 GitHub empties `requested_reviewers` once that reviewer answers, so an empty
 list with no reviews means nobody was asked. Read the verdicts themselves with
-`list_pr_reviews`.
+`github_list_pr_reviews`.
 
-To learn whether a PR is a draft, call `list_open_issues_prs` with
+To learn whether a PR is a draft, call `github_list_open_issues_prs` with
 `filtering="repo"` and read `is_draft` on the matching entry. That tool returns
-open PRs only, so read a closed or merged one through `search_issues_prs`, which
+open PRs only, so read a closed or merged one through `github_search_issues_prs`, which
 returns the same shape.
 
-### `get_pr_diff`
+### `github_get_pr_diff`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -98,7 +98,7 @@ across it is dropped, so the tail of a truncated patch can end mid-line.
 
 The default is set by `GITHUB_DIFF_MAX_BYTES`.
 
-### `get_repository_file`
+### `github_get_repository_file`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -129,10 +129,10 @@ Pass `next_offset` back as `offset` to walk a long file. A cut lands on a byte
 boundary and any character split across it is dropped, so a window can end
 mid-line. A binary file returns no content rather than mangled text.
 
-A directory is an error naming `list_repository_tree`. The default is set by
+A directory is an error naming `github_list_repository_tree`. The default is set by
 `GITHUB_FILE_MAX_BYTES`.
 
-### `list_repository_tree`
+### `github_list_repository_tree`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -149,7 +149,7 @@ for a directory and `commit` for a submodule.
 `truncated` is `True` where the tree exceeded GitHub's cap of 100,000 entries or
 7 MB. Paging does not widen it, so list a subdirectory at a time instead.
 
-### `get_pr_linked_issues`
+### `github_get_pr_linked_issues`
 
 Returns `LinkedIssuesResult`:
 
@@ -162,7 +162,7 @@ Only issues GitHub will auto-close on merge are returned, meaning those written
 into the PR body with a closing keyword such as `Fixes #42`. An issue merely
 mentioned as `#42` is not included.
 
-### `get_pr_status_checks`
+### `github_get_pr_status_checks`
 
 Returns `StatusChecksResult`:
 
@@ -198,10 +198,10 @@ Cover:
 
 ## Best Practices
 
-- Call `get_pr_content` before `get_pr_diff`, since the metadata gives context for reading the diff
-- On a PR that looks large, call `get_pr_diff` with `max_bytes=0` first and decide from `bytes_total`
+- Call `github_get_pr_content` before `github_get_pr_diff`, since the metadata gives context for reading the diff
+- On a PR that looks large, call `github_get_pr_diff` with `max_bytes=0` first and decide from `bytes_total`
 - Re-read a `truncated=True` patch with a higher `max_bytes` rather than analysing half of it
 - For diffs over 500 lines, analyse the high-risk files first: auth, config, dependency manifests
 - Report `overall="unknown"` as unverified rather than treating it as a pass
-- Use `get_pr_linked_issues` to check a PR actually closes what it claims to
-- Do not assert draft or mergeable status from `get_pr_content`, which carries neither field
+- Use `github_get_pr_linked_issues` to check a PR actually closes what it claims to
+- Do not assert draft or mergeable status from `github_get_pr_content`, which carries neither field

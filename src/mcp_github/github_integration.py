@@ -245,7 +245,7 @@ def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 def _pr_content(data: dict[str, Any]) -> PRContent:
     """Trim a GitHub pull request payload to the PRContent contract. head_sha is
-    what update_pr_branch takes as expected_head_sha, which had no source before.
+    what github_update_pr_branch takes as expected_head_sha, which had no source before.
     See #411."""
     head = data.get("head") or {}
     return {
@@ -765,7 +765,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self,
         repo_owner: str,
         repo_name: str,
-        comment_id: Annotated[int, "The comment's own id, as returned by list_pr_comments, not the PR number"],
+        comment_id: Annotated[int, "The comment's own id, as returned by github_list_pr_comments, not the PR number"],
         body: str,
         kind: Literal["conversation", "inline"] = "conversation",
     ) -> CommentData:
@@ -914,7 +914,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
     ) -> dict[str, Any]:
         """Lists open pull requests or issues. The search is fixed to is:open, so
-        closed and merged items are out of reach here. Call search_issues_prs for
+        closed and merged items are out of reach here. Call github_search_issues_prs for
         those, and for any qualifier this tool does not expose."""
         if filtering == "repo":
             if not repo_name:
@@ -940,7 +940,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: int = 1,
     ) -> dict[str, Any]:
         """Searches issues and pull requests by text and qualifiers. Unlike
-        list_open_issues_prs the query is the caller's, so closed and merged
+        github_list_open_issues_prs the query is the caller's, so closed and merged
         items are reachable and any qualifier GitHub search accepts works."""
         if not query.strip():
             raise GitHubValidationError("Supply a search query.")
@@ -1072,7 +1072,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Opens a milestone. A title the repository already uses fails, since
         titles are unique per repository. Edit the existing one with
-        update_milestone."""
+        github_update_milestone."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
         payload: dict[str, Any] = {"title": title, "state": state, "description": description}
         if due_on:
@@ -1117,7 +1117,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> IssueData:
         """Files an issue under a milestone, or takes it off one. Takes the title
         rather than the number GitHub wants, and looks it up, which is the work
-        update_issue is kept clear of. Omit the title to clear the milestone."""
+        github_update_issue is kept clear of. Omit the title to clear the milestone."""
         number = await self._milestone_number(repo_owner, repo_name, milestone) if milestone else None
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         data = (
@@ -1135,7 +1135,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         # GitHub serves pull requests from this path too, and _issue_result would
         # report one as an issue.
         if "pull_request" in data:
-            raise GitHubValidationError(f"#{issue_number} is a pull request. Use get_pr_content instead.")
+            raise GitHubValidationError(f"#{issue_number} is a pull request. Use github_get_pr_content instead.")
         return _issue_result(data)
 
     @_write
@@ -1185,11 +1185,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_name: str,
         pr_number: int,
         expected_head_sha: Annotated[
-            str | None, "Refuse unless the head still matches this SHA, as get_pr_content reports it"
+            str | None, "Refuse unless the head still matches this SHA, as github_get_pr_content reports it"
         ] = None,
     ) -> dict[str, Any]:
         """Updates the pull request branch with the latest upstream changes. Read
-        head_sha from get_pr_content and pass it as expected_head_sha to be refused
+        head_sha from github_get_pr_content and pass it as expected_head_sha to be refused
         rather than to overwrite a push that landed since."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
         payload: dict[str, Any] = {}
@@ -1238,9 +1238,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
     ) -> dict[str, Any]:
         """Lists the reviews submitted on a pull request, oldest first, each with
-        its author and verdict. A review is not a comment: list_pr_comments returns
+        its author and verdict. A review is not a comment: github_list_pr_comments returns
         what was said on lines and in the thread, not whether anyone approved.
-        Read requested_reviewers from get_pr_content to tell nobody has reviewed
+        Read requested_reviewers from github_get_pr_content to tell nobody has reviewed
         from nobody having been asked. See #408."""
         url = (
             f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
@@ -1306,7 +1306,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Reads one file from a repository at ref, windowed to limit bytes from
         offset. bytes_total is the whole file either way and next_offset says where
         to carry on, so a partial read never passes for the lot. A directory
-        belongs to list_repository_tree. See #409."""
+        belongs to github_list_repository_tree. See #409."""
         if offset < 0 or limit < 0:
             raise GitHubValidationError("offset and limit cannot be negative.")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{quote(path.lstrip('/'))}"
@@ -1319,7 +1319,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "GET", url, context=where, headers={"Accept": "application/vnd.github.raw"}
         )
         if response.headers.get("content-type", "").startswith("application/json"):
-            raise GitHubValidationError(f"{path} is a directory. Call list_repository_tree to list it.")
+            raise GitHubValidationError(f"{path} is a directory. Call github_list_repository_tree to list it.")
         content = response.content
         window = content[offset : offset + limit]
         end = offset + len(window)
@@ -1476,7 +1476,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             if if_exists == "fail":
                 raise GitHubValidationError(
                     f"A release already exists for tag '{tag_name}' in {repo_owner}/{repo_name}. "
-                    "Edit it with update_release, or pass if_exists='update' to overwrite its title and notes."
+                    "Edit it with github_update_release, or pass if_exists='update' to overwrite its title and notes."
                 )
             logger.info(f"Release for {tag_name} already exists, updating it instead")
             updated = await self.update_release(
@@ -1549,7 +1549,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Changes a published release in place. Only the fields supplied are sent,
         so correcting a title does not wipe the notes. make_latest is settable on
-        create_release alone, and only on the call that first publishes the tag,
+        github_create_release alone, and only on the call that first publishes the tag,
         since publishing again falls through to here and this tool does not send
         it. Move the latest badge by deleting the release and publishing it again,
         or in the GitHub UI."""
@@ -1668,7 +1668,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         project_number: Annotated[int, "Project number, as it appears in the board's URL"],
     ) -> dict[str, Any]:
         """Lists a project's fields and the options each single-select one accepts,
-        which is what set_project_field expects to be named."""
+        which is what github_set_project_field expects to be named."""
         project = await self._project(project_owner, project_number)
         nodes = (project.get("fields") or {}).get("nodes") or []
         return {

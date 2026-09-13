@@ -25,22 +25,22 @@ holding issues from several repositories is the common case, so read
 
 ### Filing an issue and placing it
 
-1. Call `create_issue` as usual
-2. Call `get_project_fields` to see which fields the board has and what each
+1. Call `github_create_issue` as usual
+2. Call `github_get_project_fields` to see which fields the board has and what each
    single-select one accepts
-3. Call `set_project_field` with the field and option names. It puts the issue
-   on the board first if it is not already there, so `add_to_project` is only
+3. Call `github_set_project_field` with the field and option names. It puts the issue
+   on the board first if it is not already there, so `github_add_to_project` is only
    needed when no field is being set
 
 ### Triaging a backlog
 
-1. Call `list_project_items` to read every card with its field values
+1. Call `github_list_project_items` to read every card with its field values
 2. Group by the `fields` map, for example by `Status`, to see what is where
-3. Call `set_project_field` per issue to move it
+3. Call `github_set_project_field` per issue to move it
 
 ### Taking something off
 
-1. Call `remove_from_project`
+1. Call `github_remove_from_project`
 2. The issue stays open and untouched. Only the card goes, and the field values
    it held go with it
 3. **Ask the user in chat before removing a card, since the field values cannot
@@ -48,7 +48,7 @@ holding issues from several repositories is the common case, so read
 
 ## Tool Parameters
 
-### `get_project_fields`
+### `github_get_project_fields`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -57,12 +57,12 @@ holding issues from several repositories is the common case, so read
 
 Returns `project_number`, `title`, `url` and `fields`. Each field carries its
 `id`, `name`, `data_type` and `options`. `options` is empty for anything that is
-not a single select, which is what tells you `set_project_field` will refuse it.
+not a single select, which is what tells you `github_set_project_field` will refuse it.
 
-Call this before `set_project_field` rather than guessing an option name. Boards
+Call this before `github_set_project_field` rather than guessing an option name. Boards
 rename `Status` options freely, and `Todo`, `To do` and `Backlog` are all in use.
 
-### `list_project_items`
+### `github_list_project_items`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -87,7 +87,7 @@ takes `after` where the REST list tools take `page`.
 Draft issues on the board have a `title` but no `number`, `url` or `repository`,
 because they are notes on the board rather than issues in a repository.
 
-### `add_to_project`
+### `github_add_to_project`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -104,7 +104,7 @@ Works on a pull request as well as an issue, without being told which it is.
 Adding something already on the board returns the card it already has rather
 than making a second one, so this is safe to retry.
 
-### `set_project_field`
+### `github_set_project_field`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -127,7 +127,7 @@ with a message naming the type, because an option name means nothing to them.
 An issue not yet on the board is added first, since a field value has nowhere to
 live otherwise.
 
-### `remove_from_project`
+### `github_remove_from_project`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -154,17 +154,17 @@ removed. An item on a different board does not count.
 | `The token is missing a scope this query needs` | The token reaches the repository but not Projects. Grant `read:project` or `project` |
 | `No field named 'X' on this project` | The message lists the fields that are there. Pick one of those |
 | `No option named 'X' on field 'Y'` | The message lists the options that field accepts |
-| `Field 'X' is a TEXT field` | Not a single select. `set_project_field` cannot set it |
-| `#N in owner/repo is not on project #M` | Call `add_to_project` first, or check the project number |
+| `Field 'X' is a TEXT field` | Not a single select. `github_set_project_field` cannot set it |
+| `#N in owner/repo is not on project #M` | Call `github_add_to_project` first, or check the project number |
 
 ## Best Practices
 
-- Read the board with `get_project_fields` before writing to it, so the option
+- Read the board with `github_get_project_fields` before writing to it, so the option
   names come from the board rather than from a guess
 - Take `project_owner` from the board URL, not from the repository
-- Use `set_project_field` alone to file and place an issue in one step, since it
+- Use `github_set_project_field` alone to file and place an issue in one step, since it
   adds the card itself
-- Confirm with the user in chat before `remove_from_project`, since the field
+- Confirm with the user in chat before `github_remove_from_project`, since the field
   values go with the card
 - Read a card count from `total` rather than from the length of `items`, and
   page to the end before reporting on the cards themselves

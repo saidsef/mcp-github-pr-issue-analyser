@@ -70,7 +70,7 @@ class SkillsMixin:
     @_read_only
     async def list_skills(self) -> dict[str, Any]:
         """Lists the workflow guidance bundled with this server, each with the name
-        get_skill takes and the skill:// URI the same content is served under. Read
+        github_get_skill takes and the skill:// URI the same content is served under. Read
         the one covering the task before starting it. See #414."""
         skills = [
             {
@@ -85,7 +85,7 @@ class SkillsMixin:
     @_read_only
     async def get_skill(
         self,
-        name: Annotated[str, "Skill name as list_skills reports it, e.g. pr-review"],
+        name: Annotated[str, "Skill name as github_list_skills reports it, e.g. pr-review"],
     ) -> SkillContent:
         """Reads one skill in full. The same content is served as a skill://
         resource, so a client that reads resources needs neither tool."""

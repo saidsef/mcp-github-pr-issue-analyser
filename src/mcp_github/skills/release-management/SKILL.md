@@ -17,25 +17,25 @@ then read, correct or withdraw what has already been published.
 
 ### Publishing
 
-1. **Check the target** - call `get_latest_sha` to see which commit will be tagged
-2. **Check what is already out** - call `get_release` with no tag for the current latest, or `list_releases` for the history
-3. **Create the tag** - call `create_tag` with a semantic version string
-4. **Publish the release** - call `create_release` against that tag
+1. **Check the target** - call `github_get_latest_sha` to see which commit will be tagged
+2. **Check what is already out** - call `github_get_release` with no tag for the current latest, or `github_list_releases` for the history
+3. **Create the tag** - call `github_create_tag` with a semantic version string
+4. **Publish the release** - call `github_create_release` against that tag
 
 ### Correcting a release
 
-1. Call `update_release` with only the fields that are wrong
+1. Call `github_update_release` with only the fields that are wrong
 2. Publishing again over the same tag fails unless you pass `if_exists="update"`, which overwrites the title and notes and cannot change `make_latest` or `generate_release_notes`
 
 ### Withdrawing a release
 
-1. Call `delete_release`, which leaves the tag in place
+1. Call `github_delete_release`, which leaves the tag in place
 2. Pass `delete_tag=True` only when the tag itself was a mistake
 3. **Deleting a published release breaks any link to it. Ask the user in chat and get an explicit yes first**
 
 ## Tool Parameters
 
-### `get_latest_sha`
+### `github_get_latest_sha`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -49,7 +49,7 @@ no commits. A ref GitHub cannot resolve is an error rather than `None`.
 The answer is a reading rather than a pin. A push landing afterwards moves it,
 so re-read it if time has passed.
 
-### `create_tag`
+### `github_create_tag`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -65,12 +65,12 @@ reading it and tagging it.
 
 With a `message` you get an annotated tag, which is a real object holding the
 message and the tagger. Without one you get a lightweight ref straight to the
-commit. The release prose still belongs in the `body` of `create_release`,
+commit. The release prose still belongs in the `body` of `github_create_release`,
 since that is what readers see on the releases page.
 
 Fails with a not-found error if the repository has no commits.
 
-### `create_release`
+### `github_create_release`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -98,9 +98,9 @@ That update path sends the title, notes, `draft` and `prerelease` alone.
 `make_latest` and `generate_release_notes` are dropped, so the generated
 changelog from the first publish is replaced by `body` on its own, and a
 prerelease is promoted to a full release unless you pass `prerelease=True`
-again. Reach for `update_release` when you only mean to correct something.
+again. Reach for `github_update_release` when you only mean to correct something.
 
-### `list_releases`
+### `github_list_releases`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -110,9 +110,9 @@ again. Reach for `update_release` when you only mean to correct something.
 | `page` | int | `1` | Page number |
 
 Returns `count`, `has_more` and `releases`, newest first, each trimmed to the same fields
-`create_release` returns. Drafts appear only for a token that can see them.
+`github_create_release` returns. Drafts appear only for a token that can see them.
 
-### `get_release`
+### `github_get_release`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -123,7 +123,7 @@ Returns `count`, `has_more` and `releases`, newest first, each trimmed to the sa
 The latest release is the newest non-draft, non-prerelease one, which is not
 always the highest version number. Pass `tag_name` when you mean a specific one.
 
-### `update_release`
+### `github_update_release`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -139,12 +139,12 @@ Only the fields you pass are sent, so correcting a title leaves the notes alone.
 The notes replace rather than append, so read the release first if you are
 adding to them. A call supplying nothing to change is rejected.
 
-`make_latest` is settable on `create_release` only, and only on the call that
+`make_latest` is settable on `github_create_release` only, and only on the call that
 first publishes the tag. Publishing again over the same tag falls through to
 this tool, which does not send it. Changing which release is latest means
 deleting the release and publishing it again, or setting it in the GitHub UI.
 
-### `list_tags`
+### `github_list_tags`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -156,7 +156,7 @@ deleting the release and publishing it again, or setting it in the GitHub UI.
 Returns `count`, `has_more` and `tags`, each a `name` and the `sha` it points at.
 `count` is the tags on this page. Page on while `has_more` is true.
 
-### `delete_release`
+### `github_delete_release`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -170,12 +170,12 @@ Returns `status`, `tag_name`, `release_id` and `tag_deleted`.
 Destructive and not reversible. The tag survives by default, so the commit stays
 reachable and the release can be published again.
 
-`delete_tag=True` removes the ref that the `delete_tag` tool refuses to touch
+`delete_tag=True` removes the ref that the `github_delete_tag` tool refuses to touch
 while a release names it, and asks for no `force` in exchange. The release is
 deleted first, so the dangling release that guard exists to prevent cannot be
 what is left behind.
 
-### `delete_tag`
+### `github_delete_tag`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -189,7 +189,7 @@ Returns `status`, `tag_name` and `release_still_published`, the last being
 
 Destructive and not reversible. A tag a release points at is refused unless
 `force=True`, because removing it leaves the release naming code nobody can
-fetch. Delete the release first instead, or call `delete_release` with
+fetch. Delete the release first instead, or call `github_delete_release` with
 `delete_tag=True` to do both in the right order.
 
 The check reads published releases, so a draft naming the tag is invisible to it
@@ -247,10 +247,10 @@ Rules:
 
 ## Best Practices
 
-- Follow semver, and treat a published tag as permanent. Correct the release with `update_release` rather than deleting and re-cutting it
-- Confirm with the user in chat before `delete_release` or `delete_tag`, since neither can be undone
+- Follow semver, and treat a published tag as permanent. Correct the release with `github_update_release` rather than deleting and re-cutting it
+- Confirm with the user in chat before `github_delete_release` or `github_delete_tag`, since neither can be undone
 - Confirm every intended PR is merged before tagging, since the tag follows the default branch HEAD
 - Publish with `draft=True` first to preview, then flip it once the notes read correctly
 - Set `prerelease=True` for alpha, beta and rc versions, which also keeps them off the latest-release badge
-- Put the release prose in `create_release`'s `body`, because the `create_tag` message does not survive
+- Put the release prose in `github_create_release`'s `body`, because the `github_create_tag` message does not survive
 - Pick one source for the commit list: either `generate_release_notes=True` or a hand-written `What Changed`, not both

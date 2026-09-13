@@ -15,20 +15,20 @@ Post targeted inline comments on specific lines, then submit a review decision o
 ## Workflow
 
 1. **Analyse the PR** - follow the `pr-analysis` skill to read the diff, metadata and CI status
-2. **Read what is already there** - call `list_pr_reviews` for the verdicts already given, and `list_pr_comments` with `kind="inline"` so a second review does not repeat the first
-3. **Post inline comments** - call `add_inline_pr_comment` once per line needing feedback
-4. **Post a general comment** - optionally call `add_pr_comments` for remarks not tied to a line
-5. **Submit the decision** - call `update_reviews` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`, leaving `body` unset on an approval
+2. **Read what is already there** - call `github_list_pr_reviews` for the verdicts already given, and `github_list_pr_comments` with `kind="inline"` so a second review does not repeat the first
+3. **Post inline comments** - call `github_add_inline_pr_comment` once per line needing feedback
+4. **Post a general comment** - optionally call `github_add_pr_comments` for remarks not tied to a line
+5. **Submit the decision** - call `github_submit_review` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`, leaving `body` unset on an approval
 
 ### Correcting a comment
 
-1. Call `list_pr_comments` to find the comment and its `id`
-2. Call `update_pr_comment` with that `id` and the same `kind` the listing used
-3. Reply on a thread with `reply_to_review_comment` rather than opening a new one
+1. Call `github_list_pr_comments` to find the comment and its `id`
+2. Call `github_update_pr_comment` with that `id` and the same `kind` the listing used
+3. Reply on a thread with `github_reply_to_review_comment` rather than opening a new one
 
 ## Tool Parameters
 
-### `add_inline_pr_comment`
+### `github_add_inline_pr_comment`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -56,7 +56,7 @@ Pass `start_line` to cover a block in one comment rather than picking a line out
 of it. `start_line` must come before `line`, which is checked before the call is
 sent.
 
-### `list_pr_reviews`
+### `github_list_pr_reviews`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -70,16 +70,16 @@ Returns `count`, `has_more` and `reviews`, oldest first. Each review carries
 `id`, `author`, `state`, `body`, `html_url`, `submitted_at` and `commit_id`.
 
 `state` is `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED` or
-`PENDING`. A review is not a comment: `list_pr_comments` returns what was said
+`PENDING`. A review is not a comment: `github_list_pr_comments` returns what was said
 on lines and in the thread, and says nothing about whether anyone approved.
 
 `submitted_at` is `None` on a `PENDING` review, which is one written but never
 sent.
 
 An empty list means nobody has reviewed. To tell that from nobody having been
-asked, read `requested_reviewers` on `get_pr_content`.
+asked, read `requested_reviewers` on `github_get_pr_content`.
 
-### `add_pr_comments`
+### `github_add_pr_comments`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -91,7 +91,7 @@ asked, read `requested_reviewers` on `get_pr_content`.
 Returns `CommentData`. This posts to the issue-comment thread, so it is a
 standalone comment rather than part of a review.
 
-### `list_pr_comments`
+### `github_list_pr_comments`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -107,13 +107,13 @@ Returns `count`, `has_more`, `kind` and `comments`. Inline comments carry `path`
 `CommentData` fields, which is what lets a review tell whether it has already
 spoken about a line or a range.
 
-### `update_pr_comment`
+### `github_update_pr_comment`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
-| `comment_id` | int | - | The comment's own id, from `list_pr_comments`, not the PR number |
+| `comment_id` | int | - | The comment's own id, from `github_list_pr_comments`, not the PR number |
 | `body` | str | - | Replacement Markdown text |
 | `kind` | str | `conversation` | Which id space the `comment_id` came from |
 
@@ -121,7 +121,7 @@ Conversation and review comments are numbered separately, so a `kind` that does
 not match where the id came from either fails or edits the wrong comment. Take
 both from the same listing.
 
-### `reply_to_review_comment`
+### `github_reply_to_review_comment`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -132,9 +132,9 @@ both from the same listing.
 | `body` | str | Markdown reply text |
 
 Only review comments have threads. A reply to a conversation comment is just
-another `add_pr_comments` call.
+another `github_add_pr_comments` call.
 
-### `update_reviews`
+### `github_submit_review`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -168,12 +168,12 @@ author cannot act on either decision without knowing what prompted it.
 
 ## Best Practices
 
-- Call `list_pr_reviews` before approving, since a standing `REQUEST_CHANGES` from someone else still blocks the merge
+- Call `github_list_pr_reviews` before approving, since a standing `REQUEST_CHANGES` from someone else still blocks the merge
 - List the existing inline comments before reviewing again, otherwise the same remarks land twice
-- Post every inline comment before calling `update_reviews`
-- Use `add_inline_pr_comment` for line-specific feedback and `add_pr_comments` for high-level remarks
-- Fix a wrong comment with `update_pr_comment` rather than posting a correction underneath it
+- Post every inline comment before calling `github_submit_review`
+- Use `github_add_inline_pr_comment` for line-specific feedback and `github_add_pr_comments` for high-level remarks
+- Fix a wrong comment with `github_update_pr_comment` rather than posting a correction underneath it
 - Approve with no `body`, and write one only where the user asks for it or the decision is `REQUEST_CHANGES` or `COMMENT`
-- Check `is_draft` via `list_open_issues_prs` before approving, and never approve a draft
+- Check `is_draft` via `github_list_open_issues_prs` before approving, and never approve a draft
 - `REQUEST_CHANGES` blocks the merge on a repo with required reviews until it is dismissed, so reserve it for genuinely blocking problems
 - Reference issue numbers where relevant, e.g. `Fixes #42`

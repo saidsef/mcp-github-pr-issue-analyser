@@ -86,6 +86,17 @@ def _env_enabled(name: str) -> bool:
 
 MCP_ENABLE_REMOTE = _env_enabled("MCP_ENABLE_REMOTE")
 
+TOOL_PREFIX = "github_"
+
+# Where the Python name and the tool name should differ, because the method name
+# describes the call worse than the tool name can. See #406.
+_TOOL_NAMES = {"update_reviews": "submit_review", "update_assignees": "set_assignees"}
+
+
+def _tool_name(method_name: str) -> str:
+    """The name a Python method is registered under."""
+    return f"{TOOL_PREFIX}{_TOOL_NAMES.get(method_name, method_name)}"
+
 try:
     # CPU, memory and runtime metrics alongside the tool counters below
     ProcessCollector(registry=REGISTRY)
@@ -144,22 +155,22 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Best Practices
 - Use all tools available for a comprehensive understanding of the PR and issue landscape.
-- Use get_skill to read the guidance covering a task before starting it, since it carries constraints the tool schemas do not
-- Use list_repos when you do not already know the repository name, rather than guessing at one
-- Use get_pr_diff (preferred) and get_pr_content for detailed PR analysis
-- Use get_repository_file to read the code a hunk sits in, since a few lines of context rarely settle whether a change is right
+- Use github_get_skill to read the guidance covering a task before starting it, since it carries constraints the tool schemas do not
+- Use github_list_repos when you do not already know the repository name, rather than guessing at one
+- Use github_get_pr_diff (preferred) and github_get_pr_content for detailed PR analysis
+- Use github_get_repository_file to read the code a hunk sits in, since a few lines of context rarely settle whether a change is right
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
-- Use update_pr to change a PR's title, body, state, base branch or labels, leaving out whatever is not changing
-- Use create_issue and update_issue for issue management
-- Use the labels parameter on create_pr and update_pr to label a pull request, since GitHub keeps PR labels on the issues endpoint
-- Use set_issue_milestone to file an issue under a milestone after it exists, since update_issue cannot clear one
-- Use create_tag and create_release for release management
-- Use get_project_fields before set_project_field, since option names differ per board
+- Use github_update_pr to change a PR's title, body, state, base branch or labels, leaving out whatever is not changing
+- Use github_create_issue and github_update_issue for issue management
+- Use the labels parameter on github_create_pr and github_update_pr to label a pull request, since GitHub keeps PR labels on the issues endpoint
+- Use github_set_issue_milestone to file an issue under a milestone after it exists, since github_update_issue cannot clear one
+- Use github_create_tag and github_create_release for release management
+- Use github_get_project_fields before github_set_project_field, since option names differ per board
 - Always maintain a professional, clear and concise tone
 
 ## Skills
-Workflow guidance ships with the server. Call list_skills for the set and get_skill
-to read one, which needs nothing but tool support. The same content is served as MCP
+Workflow guidance ships with the server. Call github_list_skills for the set and
+github_get_skill to read one, which needs nothing but tool support. The same content is served as MCP
 resources under the skill:// URI scheme, for a client that reads resources:
 - skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
 - skill://pr-review/SKILL.md -- post inline comments and submit review decisions
@@ -197,7 +208,12 @@ class PRIssueAnalyser:
             lifespan=self._lifespan,
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
-        self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
+        self.mcp.add_provider(
+            GenerativeUI(
+                tool_name="github_pr_issue_analyser_ui",
+                components_tool_name="github_search_prefab_components",
+            )
+        )
         self.mcp.add_middleware(MetricsMiddleware())
         # A tool carries the scopes it needs as its tags, so one check per scope gates
         # every tool that declares it. The middleware names the shortfall on a refused
@@ -246,7 +262,11 @@ class PRIssueAnalyser:
                 if annotations is not None:
                     task = getattr(method, "_mcp_task", False)
                     scopes: set[str] = set(getattr(method, "_mcp_scopes", ()))
-                    self.mcp.tool(annotations=annotations, task=task, tags=scopes or None)(method)
+                    # The service prefix goes on the tool name rather than the Python
+                    # one, so a session holding this server and a GitLab one does not
+                    # offer an agent three tools called create_issue. See #406.
+                    registered = _tool_name(name)
+                    self.mcp.tool(registered, annotations=annotations, task=task, tags=scopes or None)(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def run(self) -> None:

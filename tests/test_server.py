@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from importlib.metadata import PackageNotFoundError
@@ -25,7 +26,13 @@ from mcp_github.auth import (
     UnconfiguredCredentials,
     get_oauth_verifier,
 )
-from mcp_github.issues_pr_analyser import VERSION, PRIssueAnalyser, _package_version
+from mcp_github.issues_pr_analyser import (
+    TOOL_PREFIX,
+    VERSION,
+    PRIssueAnalyser,
+    _package_version,
+    _tool_name,
+)
 from mcp_github.skills_access import SKILLS_DIR
 from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 
@@ -161,7 +168,7 @@ class TestScopeGate:
             scopes = getattr(getattr(analyser.gi, name), "_mcp_scopes", None)
             if scopes is None:
                 continue
-            assert tools[name].tags == set(scopes), name
+            assert tools[_tool_name(name)].tags == set(scopes), name
 
     @pytest.mark.anyio
     async def test_a_read_only_grant_sees_only_the_read_only_tools(self):
@@ -190,8 +197,8 @@ class TestScopeGate:
         with _grant(list(WRITE_SCOPES)):
             listed = {tool.name for tool in await analyser.mcp.list_tools()}
 
-        assert "create_issue" in listed
-        assert listed.isdisjoint({"add_to_project", "set_project_field", "remove_from_project"})
+        assert "github_create_issue" in listed
+        assert listed.isdisjoint({"github_add_to_project", "github_set_project_field", "github_remove_from_project"})
 
     @pytest.mark.anyio
     async def test_the_gate_holds_a_check_for_every_scope_a_tool_declares(self):
@@ -205,10 +212,10 @@ class TestScopeGate:
         analyser = _analyser()
         arguments = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
         with _grant(["read:org"]), pytest.raises(InsufficientScopeError) as refusal:
-            await analyser.mcp.call_tool("delete_release", arguments)
+            await analyser.mcp.call_tool("github_delete_release", arguments)
 
         assert refusal.value.required_scopes == list(WRITE_SCOPES)
-        assert "delete_release" in str(refusal.value)
+        assert "github_delete_release" in str(refusal.value)
         for scope in WRITE_SCOPES:
             assert scope in str(refusal.value)
 
@@ -265,16 +272,16 @@ class TestScopeGateOverHTTP:
         with _remote_client(GITHUB_SCOPES) as client:
             listed = {tool["name"] for tool in _rpc(client, "tools/list")["result"]["tools"]}
 
-        assert {"get_pr_diff", "create_issue", "add_to_project"} <= listed
+        assert {"github_get_pr_diff", "github_create_issue", "github_add_to_project"} <= listed
 
     def test_a_floor_only_grant_is_admitted_and_filtered(self):
         """The transport lets the request through, and the gate answers it."""
         with _remote_client(REQUIRED_SCOPES) as client:
             listed = {tool["name"] for tool in _rpc(client, "tools/list")["result"]["tools"]}
-            refused = _rpc(client, "tools/call", {"name": "delete_release", "arguments": _A_RELEASE})
+            refused = _rpc(client, "tools/call", {"name": "github_delete_release", "arguments": _A_RELEASE})
 
-        assert "get_pr_diff" in listed
-        assert listed.isdisjoint({"create_issue", "add_to_project"})
+        assert "github_get_pr_diff" in listed
+        assert listed.isdisjoint({"github_create_issue", "github_add_to_project"})
         assert refused["result"]["isError"] is True
         assert "insufficient scope (required: repo)" in refused["result"]["content"][0]["text"]
 
@@ -413,7 +420,7 @@ class TestCombinedCredentials:
         tools that write as well as the ones that read. See #388."""
         listed = {tool["name"] for tool in _payload(self._post(_STATIC_TOKEN))["result"]["tools"]}
 
-        assert {"get_pr_diff", "create_issue", "add_to_project"} <= listed
+        assert {"github_get_pr_diff", "github_create_issue", "github_add_to_project"} <= listed
 
     def test_a_token_matching_neither_is_refused(self):
         assert self._post("neither-credential").status_code == 401
@@ -438,7 +445,7 @@ class TestSkillsAreReachable:
         analyser = _analyser()
         names = {tool.name for tool in await analyser.mcp.list_tools(run_middleware=False)}
 
-        assert {"list_skills", "get_skill"} <= names
+        assert {"github_list_skills", "github_get_skill"} <= names
 
     @pytest.mark.anyio
     async def test_the_skill_tools_need_no_scope(self):
@@ -446,8 +453,8 @@ class TestSkillsAreReachable:
         analyser = _analyser()
         tools = {tool.name: tool for tool in await analyser.mcp.list_tools(run_middleware=False)}
 
-        assert not tools["list_skills"].tags
-        assert not tools["get_skill"].tags
+        assert not tools["github_list_skills"].tags
+        assert not tools["github_get_skill"].tags
 
     @pytest.mark.anyio
     async def test_both_paths_carry_the_same_set(self):
@@ -470,8 +477,8 @@ class TestSkillsAreReachable:
         client cannot act on."""
         instructions = _analyser().mcp.instructions or ""
 
-        assert "list_skills" in instructions
-        assert "get_skill" in instructions
+        assert "github_list_skills" in instructions
+        assert "github_get_skill" in instructions
 
 
 class TestListOpenIssuesPrsSchema:
@@ -481,7 +488,7 @@ class TestListOpenIssuesPrsSchema:
     @staticmethod
     async def _schema() -> Any:
         tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
-        return tools["list_open_issues_prs"]
+        return tools["github_list_open_issues_prs"]
 
     @pytest.mark.anyio
     async def test_repo_owner_carries_the_per_mode_meaning(self):
@@ -520,18 +527,18 @@ class TestRemovedTools:
     async def test_update_pr_description_is_gone(self):
         names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
 
-        assert "update_pr_description" not in names
-        assert "update_pr" in names
+        assert "github_update_pr_description" not in names
+        assert "github_update_pr" in names
 
     @pytest.mark.anyio
     async def test_the_instructions_do_not_name_it(self):
-        assert "update_pr_description" not in (_analyser().mcp.instructions or "")
+        assert "github_update_pr_description" not in (_analyser().mcp.instructions or "")
 
     def test_no_skill_still_points_at_it(self):
         stale = [
             path.parent.name
             for path in SKILLS_DIR.glob("*/SKILL.md")
-            if "update_pr_description" in path.read_text(encoding="utf-8")
+            if "github_update_pr_description" in path.read_text(encoding="utf-8")
         ]
 
         assert stale == []
@@ -544,7 +551,7 @@ class TestToolRationales:
     @staticmethod
     async def _described(name: str) -> str:
         tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
-        return tools[name].description or ""
+        return tools[f"github_{name}"].description or ""
 
     @pytest.mark.anyio
     async def test_update_release_says_how_to_move_the_latest_badge(self):
@@ -581,7 +588,7 @@ class TestAnnotationCoverage:
 
     # The Choice and GenerativeUI providers register these, so their annotations
     # are FastMCP's to set rather than this repo's.
-    _PROVIDED = {"choose", "github_pr_issue_analyser_ui", "search_prefab_components"}
+    _PROVIDED = {"choose", "github_pr_issue_analyser_ui", "github_search_prefab_components"}
 
     async def _own_tools(self) -> list[Any]:
         tools = await _analyser().mcp.list_tools(run_middleware=False)
@@ -621,3 +628,57 @@ class TestAnnotationCoverage:
 
         assert writers
         assert all(tool.annotations.read_only_hint is False for tool in writers)
+
+
+class TestToolNaming:
+    """Tool names carry a service prefix, so a session holding this server and a
+    GitLab one does not offer an agent three tools called create_issue. See #406."""
+
+    # FastMCP's Choice provider hardcodes this one and exposes no way to rename it.
+    _NOT_OURS = {"choose"}
+
+    @pytest.mark.anyio
+    async def test_every_tool_this_repo_registers_is_prefixed(self):
+        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        bare = {name for name in names - self._NOT_OURS if not name.startswith(TOOL_PREFIX)}
+
+        assert bare == set()
+
+    @pytest.mark.anyio
+    async def test_the_two_misnamed_tools_say_what_they_do(self):
+        """update_reviews submits a new review rather than updating one, and
+        update_assignees replaces the set rather than adding to it."""
+        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+
+        assert {"github_submit_review", "github_set_assignees"} <= names
+        assert names.isdisjoint({"github_update_reviews", "github_update_assignees"})
+
+    @pytest.mark.anyio
+    async def test_the_python_names_are_untouched(self):
+        """Only the registered name moves, so callers of the class keep working."""
+        gi = _analyser().gi
+
+        assert callable(gi.update_reviews)
+        assert callable(gi.update_assignees)
+
+    @pytest.mark.anyio
+    async def test_no_description_points_at_a_name_that_is_not_registered(self):
+        """A description naming a bare tool sends a client after something it
+        cannot call."""
+        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        stale = {
+            name: sorted(named - set(tools))
+            for name, tool in tools.items()
+            if (named := set(re.findall(r"github_[a-z_]+", tool.description or ""))) - set(tools)
+        }
+
+        assert stale == {}
+
+    @pytest.mark.anyio
+    async def test_the_skill_resources_keep_their_uris(self):
+        """The prefix goes on tools alone. Rewriting skill:// would break the
+        URIs the instructions publish and the ones github_get_skill builds."""
+        uris = {str(resource.uri) for resource in await _analyser().mcp.list_resources()}
+
+        assert "skill://pr-review/SKILL.md" in uris
+        assert not any(uri.startswith("skill://github/") for uri in uris)

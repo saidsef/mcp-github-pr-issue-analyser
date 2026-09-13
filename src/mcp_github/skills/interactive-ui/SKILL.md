@@ -8,7 +8,7 @@ Two ways to put something in front of the user: a set of buttons to choose from,
 
 ## Prerequisites
 
-- A client that renders MCP UI. Text-only clients will not show `choose` or `github_pr_issue_analyser_ui`, though `search_prefab_components` returns plain text and works anywhere
+- A client that renders MCP UI. Text-only clients will not show `choose` or `github_pr_issue_analyser_ui`, though `github_search_prefab_components` returns plain text and works anywhere
 - No GitHub token, since none of the three tools here calls GitHub
 
 ## Choosing Between Them
@@ -33,7 +33,7 @@ user's next turn and carry on from it.
 
 This is the right way to get confirmation before anything irreversible. The
 merge step in the pr-management skill requires an explicit yes from the user,
-and `merge_pr` does not prompt on its own, so ask here first:
+and `github_merge_pr` does not prompt on its own, so ask here first:
 
 ```
 choose(
@@ -79,7 +79,7 @@ Good uses here are the shapes that read badly as prose: a PR review summary
 with per-file findings, a status-check breakdown, a user's contribution
 activity over a quarter, or a table of repos ranked by new stars.
 
-## `search_prefab_components`
+## `github_search_prefab_components`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -96,9 +96,9 @@ API lives in this tool, so call it rather than guessing at argument names.
 
 ## Best Practices
 
-- Ask with `choose` before calling `merge_pr`, and before anything else that cannot be undone
+- Ask with `choose` before calling `github_merge_pr`, and before anything else that cannot be undone
 - Treat a `choose` click as the user's answer, since the tool returns nothing to you
-- Call `search_prefab_components` before writing Prefab code rather than guessing component arguments
+- Call `github_search_prefab_components` before writing Prefab code rather than guessing component arguments
 - Keep `PrefabApp` as the outermost context manager so the panel streams
 - Fall back to plain text when the client does not render UI
 - Do not render a panel for a single fact

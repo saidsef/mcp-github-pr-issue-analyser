@@ -16,33 +16,33 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Opening a PR
 
-1. Call `list_repo_labels` to see the label names the repository defines
-2. Call `create_pr` with title, body, head branch, base branch and labels
+1. Call `github_list_repo_labels` to see the label names the repository defines
+2. Call `github_create_pr` with title, body, head branch, base branch and labels
 3. Pass `draft=True` while the work is still in progress
 4. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Updating a PR
 
-1. Call `update_pr` to change any subset of the title, body, state, base branch and labels. This is the one to reach for, since it leaves the fields you omit alone
-2. Call `set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
-3. Call `update_assignees` to set the assignees
-4. Call `update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
+1. Call `github_update_pr` to change any subset of the title, body, state, base branch and labels. This is the one to reach for, since it leaves the fields you omit alone
+2. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
+3. Call `github_set_assignees` to set the assignees
+4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
 
 ### Closing a PR
 
-1. Call `update_pr` with `state="closed"`. Reopen with `state="open"`
+1. Call `github_update_pr` with `state="closed"`. Reopen with `state="open"`
 2. Closing is not merging. A closed PR keeps its branch and its comments
 
 ### Merging a PR
 
-1. Call `get_pr_status_checks` and require `overall == "passing"`, per the `pr-analysis` skill
+1. Call `github_get_pr_status_checks` and require `overall == "passing"`, per the `pr-analysis` skill
 2. Confirm the review decision is an approval
-3. **Ask the user in chat and get an explicit yes before calling `merge_pr`. The tool does not prompt and the merge cannot be undone**
-4. Call `merge_pr` with an explicit `commit_title`
+3. **Ask the user in chat and get an explicit yes before calling `github_merge_pr`. The tool does not prompt and the merge cannot be undone**
+4. Call `github_merge_pr` with an explicit `commit_title`
 
 ## Tool Parameters
 
-### `create_pr`
+### `github_create_pr`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -60,10 +60,10 @@ label set was passed.
 
 The create endpoint takes no labels, so a set passed here is applied in a second
 call against the issues endpoint, and `mcp` is appended as it is for
-`create_issue`. Read the returned `labels` back, since writing them needs push
+`github_create_issue`. Read the returned `labels` back, since writing them needs push
 access on the repository.
 
-### `update_pr`
+### `github_update_pr`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -81,14 +81,14 @@ without restating the body. A call supplying none of them is rejected before it
 reaches GitHub.
 
 `labels` replaces the whole set, so `[]` strips every label including `mcp`.
-Unlike `create_pr`, this tool does not re-add `mcp`. Labels go to the issues
+Unlike `github_create_pr`, this tool does not re-add `mcp`. Labels go to the issues
 endpoint in a second call, and `PRContent` carries none of them, so read them
-back with `get_issue` if they matter.
+back with `github_get_issue` if they matter.
 
 Retargeting `base` recomputes the diff against the new branch, so the file list
 and the review comments' line anchors can both move.
 
-### `set_pr_draft`
+### `github_set_pr_draft`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -101,7 +101,7 @@ Returns `pr_number`, `is_draft` and `url`. REST accepts `draft` only when the PR
 is created, so this runs a GraphQL mutation and needs a token that can write to
 the repository.
 
-### `update_assignees`
+### `github_set_assignees`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -110,7 +110,7 @@ the repository.
 | `issue_number` | int | PR or issue number, PRs are issues for this endpoint |
 | `assignees` | list[str] | GitHub usernames to assign |
 
-### `update_pr_branch`
+### `github_update_pr_branch`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -120,12 +120,12 @@ the repository.
 | `expected_head_sha` | str \| None | `None` | Fail unless the head still matches this SHA |
 
 Merges the base branch into the head branch, adding a merge commit to the PR
-branch. Read `head_sha` from `get_pr_content` and pass it as
+branch. Read `head_sha` from `github_get_pr_content` and pass it as
 `expected_head_sha` to avoid racing a push from someone else.
 This does not resolve conflicts, and a conflicting update fails and the branch must
 be fixed locally.
 
-### `merge_pr`
+### `github_merge_pr`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -150,8 +150,8 @@ PR titles and commit subjects share one shape with issue titles:
 | `<scope>` | Lowercase area touched: `auth`, `tools`, `deps`, `cache`, `skills`, `readme`, `k8s`. Use `/` for a compound scope such as `docker/k8s` |
 | Summary | Prose, not a slug. Lowercase start, imperative mood, no trailing full stop, roughly 72 characters or fewer |
 
-This governs `title` in `create_pr`, `title` in `update_pr` and
-`commit_title` in `merge_pr`. Always set `commit_title` explicitly when
+This governs `title` in `github_create_pr`, `title` in `github_update_pr` and
+`commit_title` in `github_merge_pr`. Always set `commit_title` explicitly when
 squashing, otherwise the subject landing on the default branch inherits a
 branch commit. Append the PR reference, e.g.
 `feat(auth): support GitHub App tokens (#123)`.
@@ -180,8 +180,8 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Title every PR as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Pass `commit_title` in the same form when merging so the branch history stays parseable
 - Write PR bodies in Markdown with a summary, the motivation, and how it was tested
-- Gate the merge on `get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
-- Use `draft=True` for work in progress, since a draft cannot be merged, and `set_pr_draft` to flip it once the work is ready
-- Call `list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
-- Label a PR through `create_pr` or `update_pr` rather than a shell, since both write the same labels the issue tools do
+- Gate the merge on `github_get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
+- Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
+- Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
+- Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
 - Delete the head branch after merging

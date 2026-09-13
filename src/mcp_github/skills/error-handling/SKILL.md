@@ -43,14 +43,14 @@ step that failed, such as `fetch user activities` or `fetch status checks`.
 
 Two codes survive that labelling and arrive as themselves. `AUTH_FAILED` is
 one. The other is `NOT_FOUND` where the tool raised it against its own result,
-as `search_user` does for a name nobody holds:
+as `github_search_user` does for a name nobody holds:
 
 ```
 Error calling tool 'search_user': [NOT_FOUND] HTTP 404: User 'nobody' not found
 ```
 
 A failure the step met on a REST call is labelled like any other, and the
-original code stays in the text. `get_repo_stars_since` on a name nobody holds
+original code stays in the text. `github_get_repo_stars_since` on a name nobody holds
 reports the same missing account under a different code:
 
 ```
@@ -81,7 +81,7 @@ and the message text. It reads `Refused.` where GitHub named a cause, and
 which is the one case the token is the likeliest suspect.
 
 A refused 403 has several causes and each needs a different fix, so the code and
-the status settle nothing on their own. `merge_pr` meets all of them.
+the status settle nothing on their own. `github_merge_pr` meets all of them.
 
 | GitHub said | Cause | Do |
 |---|---|---|
@@ -126,7 +126,7 @@ limit on an authenticated request, which is every request this server makes.
 So a rate limit means real distinct reads rather than a loop re-reading one
 thing.
 
-Cost matters most in `get_repo_stars_since`, which makes one request per repo
+Cost matters most in `github_get_repo_stars_since`, which makes one request per repo
 inspected and then walks the stargazer pages of each. On an account with
 popular repos this is the fastest way to reach the limit, so lower `max_repos`
 before retrying it rather than repeating the same call.
