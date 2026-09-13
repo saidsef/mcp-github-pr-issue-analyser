@@ -133,6 +133,8 @@ fixable = ["I", "UP"]
 [tool.ruff.lint.per-file-ignores]
 "src/mcp_github/__init__.py" = ["D100"]
 "tests/**" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202"]
+# Runnable as a script to regenerate the tool-name snapshot, so it reports what it wrote.
+"tests/test_tool_registry.py" = ["ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "T201"]
 
 [tool.bandit]
 exclude_dirs = ["tests", ".venv"]
