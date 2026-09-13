@@ -126,9 +126,10 @@ limit on an authenticated request, which is every request this server makes.
 So a rate limit means real distinct reads rather than a loop re-reading one
 thing.
 
-Cost matters most in `github_get_repo_stars_since`, which makes one request per repo
-inspected and then walks the stargazer pages of each. On an account with
-popular repos this is the fastest way to reach the limit, so lower `max_repos`
+Cost matters most in `github_get_repo_stars_since`, which reads the repo listing
+and then the weekly star history of each repo it inspects. One page of history
+covers 30 weeks, so the bill follows `max_repos` and the length of the window
+rather than how popular the repos are. Lower `max_repos`, or shorten the window,
 before retrying it rather than repeating the same call.
 
 ## OAuth Mode

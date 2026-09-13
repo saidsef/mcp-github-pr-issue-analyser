@@ -21,7 +21,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from collections.abc import Iterator
 from contextlib import AbstractAsyncContextManager
 from datetime import UTC, datetime, timedelta
@@ -120,6 +119,18 @@ ACTIVITY_SECTIONS: tuple[_Section, ...] = (
 # Sections plus the trailing repo-stars stage.
 ACTIVITY_STAGES = len(ACTIVITY_SECTIONS) + 1
 MAX_REPO_PAGES = 5  # 100 repos per page × 5 = 500 repo ceiling
+MAX_HISTORY_PAGES = 12  # 30 weeks per page × 12 ≈ 7 years of star history
+
+
+def _stars_in_week(week: dict[str, Any], cutoff_day: datetime) -> tuple[int, bool]:
+    """Count the stars in one star-history week that fall at or after cutoff_day,
+    and report whether the walk should carry on into older weeks. A week starting
+    at or after the cutoff contributes its whole total."""
+    week_start = datetime.fromtimestamp(week["week"], UTC)
+    if week_start >= cutoff_day:
+        return week.get("total", 0), True
+    days = week.get("days", [])
+    return sum(count for i, count in enumerate(days) if week_start + timedelta(days=i) >= cutoff_day), False
 
 
 def _normalise_since(value: str) -> str:
@@ -251,7 +262,7 @@ class ActivityMixin:
         max_results: int = 50,
         ctx: Context | None = None,
     ) -> UserActivityResult:
-        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ). Note: repo_stars returns current cumulative star counts, not stars gained within the requested period — GitHub does not expose per-period star deltas."""
+        """Get user activities with optional filtering by org, repo, and date range using GraphQL API. since/until accept YYYY-MM-DD or full ISO 8601 (YYYY-MM-DDTHH:MM:SSZ). Note: repo_stars is each repository's current cumulative star count, not stars gained within the requested period. Use github_get_repo_stars_since for per-period deltas."""
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
         async with self._guard("fetch user activities"):
             variables = self._activity_variables(username, since, until)
@@ -288,31 +299,30 @@ class ActivityMixin:
             )
             return activity_result
 
-    async def _count_new_stars(self, owner: str, repo_name: str, total_stars: int, cutoff: str) -> int:
-        """Count stars added since cutoff by walking the stargazer pages backwards,
-        stopping at the first page that contains a star older than the cutoff."""
+    async def _count_new_stars(self, owner: str, repo_name: str, cutoff: str) -> tuple[int, bool]:
+        """Count stars added since cutoff from the weekly star history, walking pages
+        newest first and stopping once the walk passes the cutoff. The endpoint
+        reports whole UTC days, so the cutoff is floored to its day and the count
+        is accurate to a day rather than to a timestamp. The second element is True
+        when the page cap ended the walk early, leaving the count short. See #398."""
+        cutoff_day = datetime.fromisoformat(cutoff).astimezone(UTC).replace(hour=0, minute=0, second=0, microsecond=0)
         new_stars = 0
-        for page in range(max(1, math.ceil(total_stars / 100)), 0, -1):
+        for page in range(1, MAX_HISTORY_PAGES + 1):
             resp = await self._request(
                 "GET",
-                f"https://api.github.com/repos/{owner}/{repo_name}/stargazers",
-                context=f"stargazers {owner}/{repo_name} p{page}",
-                headers={"Accept": "application/vnd.github.star+json"},
-                params={"per_page": 100, "page": page},
+                f"https://api.github.com/repos/{owner}/{repo_name}/stargazers/history",
+                context=f"star history {owner}/{repo_name} p{page}",
+                params={"page": page},
             )
-            stargazers = resp.json()
-            if not stargazers:
-                break
-            all_newer = True
-            for sg in reversed(stargazers):
-                if sg["starred_at"] >= cutoff:
-                    new_stars += 1
-                else:
-                    all_newer = False
-                    break
-            if not all_newer:
-                break
-        return new_stars
+            weeks = resp.json()
+            if not weeks:
+                return new_stars, False
+            for week in weeks:
+                count, older_weeks_matter = _stars_in_week(week, cutoff_day)
+                new_stars += count
+                if not older_weeks_matter:
+                    return new_stars, False
+        return new_stars, True
 
     async def _star_candidates(self, username: str, max_repos: int) -> tuple[list[dict[str, Any]], bool]:
         """The user's starred public repos, most-starred first, capped at max_repos.
@@ -353,7 +363,7 @@ class ActivityMixin:
         max_repos: int = 20,
         ctx: Context | None = None,
     ) -> RepoStarsSinceResult:
-        """Return the repos owned by username that received the most new stars since a given date. since accepts YYYY-MM-DD or ISO 8601; defaults to 30 days ago. Answers prompts like 'which repos gained the most stars in the last 30 days'. One REST call is made per repo checked — set max_repos conservatively. truncated is True when the account has more public repos than the listing could read, so the answer may miss some."""
+        """Return the repos owned by username that received the most new stars since a given date. since accepts YYYY-MM-DD or ISO 8601, defaulting to 30 days ago. Answers prompts like 'which repos gained the most stars in the last 30 days'. Counts come from the weekly star history, so they resolve to whole UTC days rather than to exact star timestamps. Cost is one request for each page of the repo listing, then roughly one request per repo for every 30 weeks of the window, which makes a 30-day window a single request per repo however popular that repo is. truncated is True when the account has more public repos than the listing could read, or when a repo's history ran longer than the walk could read, so the answer may miss some."""
         if since:
             cutoff = _normalise_since(since)
         else:
@@ -367,7 +377,8 @@ class ActivityMixin:
                 await ctx.report_progress(progress=0, total=len(candidates))
             results: list[dict[str, Any]] = []
             for i, repo in enumerate(candidates):
-                new_stars = await self._count_new_stars(username, repo["name"], repo["stargazers_count"], cutoff)
+                new_stars, capped = await self._count_new_stars(username, repo["name"], cutoff)
+                truncated = truncated or capped
                 if new_stars > 0:
                     results.append(
                         {

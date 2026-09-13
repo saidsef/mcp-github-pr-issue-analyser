@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import time
+from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_REPO_PAGES
+from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_HISTORY_PAGES, MAX_REPO_PAGES
 from mcp_github.auth import MISSING_CREDENTIALS
 from mcp_github.exceptions import (
     GitHubAPIError,
@@ -54,6 +55,26 @@ def _mock_response(
     r.content = json.dumps(json_data).encode() if json_data is not None else text.encode()
     r.request = None
     return r
+
+
+def _week(sunday: str, days: list[int]) -> dict:
+    """One entry of a stargazers/history page. `sunday` is the UTC Sunday the week
+    opens on, and `days` holds that week's star counts from the Sunday onwards."""
+    return {
+        "week": int(datetime.fromisoformat(sunday + "T00:00:00+00:00").timestamp()),
+        "total": sum(days),
+        "days": days,
+    }
+
+
+def _weeks_back(newest_sunday: str, count: int, per_day: int) -> list[dict]:
+    """A run of consecutive history weeks, newest first, as GitHub returns them."""
+    newest = datetime.fromisoformat(newest_sunday + "T00:00:00+00:00")
+    return [_week((newest - timedelta(weeks=i)).strftime("%Y-%m-%d"), [per_day] * 7) for i in range(count)]
+
+
+# Older than every cutoff the star tests use, so it ends the walk.
+_OLD_WEEK = _week("2000-01-02", [0] * 7)
 
 
 def _mock_ctx() -> AsyncMock:
@@ -783,9 +804,9 @@ class TestGetRepoStarsSince:
         # most-starred sits on the second page where a single call would miss it.
         page1 = [{"name": f"r{i}", "stargazers_count": 1, "html_url": "u", "description": None} for i in range(100)]
         page2 = [{"name": "popular", "stargazers_count": 999, "html_url": "u", "description": None}]
-        sg = [{"starred_at": "2099-01-01T00:00:00Z", "user": {}}]
+        history = [_week("2090-01-01", [1, 0, 0, 0, 0, 0, 0]), _OLD_WEEK]
         responses = iter([_mock_response(json_data=page1), _mock_response(json_data=page2)] + [
-            _mock_response(json_data=sg) for _ in range(30)
+            _mock_response(json_data=history) for _ in range(30)
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         result = await gi.get_repo_stars_since("u", since="2090-01-01", max_repos=1)
@@ -806,15 +827,19 @@ class TestGetRepoStarsSince:
             {"name": "repo-a", "stargazers_count": 10, "html_url": "https://github.com/u/repo-a", "description": None},
             {"name": "repo-b", "stargazers_count": 5, "html_url": "https://github.com/u/repo-b", "description": "B"},
         ]
-        # GitHub returns stargazers oldest-first; reversed() gives newest-first
-        # repo-a: 2 new stars (both after cutoff); repo-b: 1 new star (one before, one after)
-        sg_a = [{"starred_at": "2099-01-01T00:00:00Z", "user": {}}, {"starred_at": "2099-01-02T00:00:00Z", "user": {}}]
-        sg_b = [{"starred_at": "2000-01-01T00:00:00Z", "user": {}}, {"starred_at": "2099-01-01T00:00:00Z", "user": {}}]
+        # repo-a: 2 new stars in the cutoff week; repo-b: 1 new, plus one the week
+        # before the cutoff that must not count.
+        history_a = [_week("2090-01-01", [1, 1, 0, 0, 0, 0, 0]), _OLD_WEEK]
+        history_b = [
+            _week("2090-01-01", [1, 0, 0, 0, 0, 0, 0]),
+            _week("2089-12-25", [1, 0, 0, 0, 0, 0, 0]),
+            _OLD_WEEK,
+        ]
 
         responses = iter([
             _mock_response(json_data=repos_payload),
-            _mock_response(json_data=sg_a),
-            _mock_response(json_data=sg_b),
+            _mock_response(json_data=history_a),
+            _mock_response(json_data=history_b),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
 
@@ -829,60 +854,135 @@ class TestGetRepoStarsSince:
         assert result["repos"][1]["new_stars"] == 1
 
     @pytest.mark.anyio
-    async def test_star_exactly_on_the_cutoff_counts(self, gi: GitHubIntegration):
-        """The cutoff is inclusive, so a star stamped exactly at it is new."""
+    async def test_day_exactly_on_the_cutoff_counts(self, gi: GitHubIntegration):
+        """The cutoff is inclusive, so the day it names is new."""
         repos_payload = [
             {"name": "edge", "stargazers_count": 2, "html_url": "https://github.com/u/edge", "description": None},
         ]
-        sg = [
-            {"starred_at": "2089-12-31T23:59:59Z", "user": {}},  # before
-            {"starred_at": "2090-01-01T00:00:00Z", "user": {}},  # exactly on the cutoff
-        ]
-        responses = iter([_mock_response(json_data=repos_payload), _mock_response(json_data=sg)])
+        # Sunday and Monday sit before the cutoff, Tuesday lands exactly on it.
+        history = [_week("2090-01-01", [0, 0, 1, 0, 0, 0, 0]), _OLD_WEEK]
+        responses = iter([_mock_response(json_data=repos_payload), _mock_response(json_data=history)])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
 
-        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+        result = await gi.get_repo_stars_since("u", since="2090-01-03")
 
         assert result["repos"][0]["new_stars"] == 1
 
     @pytest.mark.anyio
-    async def test_walks_stargazer_pages_newest_first(self, gi: GitHubIntegration):
-        """The walk starts at the last page and stops at the first page holding a
-        star older than the cutoff, so early pages are never fetched."""
+    async def test_week_straddling_the_cutoff_counts_only_later_days(self, gi: GitHubIntegration):
+        """The week holding the cutoff contributes its days from the cutoff onwards,
+        never its whole total. See #398."""
+        repos_payload = [
+            {"name": "straddle", "stargazers_count": 20, "html_url": "https://github.com/u/s", "description": None},
+        ]
+        # Ten stars fall on the Sunday and Monday before the cutoff, six on or after.
+        history = [_week("2090-01-01", [5, 5, 1, 2, 3, 0, 0]), _OLD_WEEK]
+        responses = iter([_mock_response(json_data=repos_payload), _mock_response(json_data=history)])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+        result = await gi.get_repo_stars_since("u", since="2090-01-03")
+
+        assert result["repos"][0]["new_stars"] == 6
+
+    @pytest.mark.anyio
+    async def test_stops_before_reading_older_history_pages(self, gi: GitHubIntegration):
+        """The walk ends at the first week wholly older than the cutoff, so a repo
+        with years of history still costs one request for a recent window."""
         repos_payload = [
             {"name": "big", "stargazers_count": 250, "html_url": "https://github.com/u/big", "description": None},
         ]
+        page1 = [_week("2090-01-01", [3] * 7), _week("2089-12-25", [4] * 7)]
+        requested: list[int] = []
+
+        async def fake_request(method, url, **kw):
+            if url.endswith("/repos"):
+                return _mock_response(json_data=repos_payload)
+            requested.append(kw["params"]["page"])
+            return _mock_response(json_data=page1 if kw["params"]["page"] == 1 else [])
+
+        gi._http.request = AsyncMock(side_effect=fake_request)
+
+        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+
+        assert requested == [1]  # page 2 never fetched
+        assert result["repos"][0]["new_stars"] == 21
+
+    @pytest.mark.anyio
+    async def test_counts_across_more_than_one_history_page(self, gi: GitHubIntegration):
+        """A window longer than the 30 weeks one page holds carries on into the next
+        page, so the count covers the whole window rather than the first page."""
+        repos_payload = [
+            {"name": "long", "stargazers_count": 400, "html_url": "https://github.com/u/long", "description": None},
+        ]
         pages = {
-            3: [{"starred_at": "2099-01-01T00:00:00Z", "user": {}}] * 50,
-            2: [{"starred_at": "2000-01-01T00:00:00Z", "user": {}}] * 99
-            + [{"starred_at": "2099-01-01T00:00:00Z", "user": {}}],
+            1: _weeks_back("2090-01-01", 30, 1),
+            2: _weeks_back("2089-06-05", 30, 1),
         }
         requested: list[int] = []
 
         async def fake_request(method, url, **kw):
             if url.endswith("/repos"):
                 return _mock_response(json_data=repos_payload)
-            page = kw["params"]["page"]
-            requested.append(page)
-            return _mock_response(json_data=pages.get(page, []))
+            requested.append(kw["params"]["page"])
+            return _mock_response(json_data=pages.get(kw["params"]["page"], []))
 
         gi._http.request = AsyncMock(side_effect=fake_request)
 
-        result = await gi.get_repo_stars_since("u", since="2090-01-01")
+        result = await gi.get_repo_stars_since("u", since="2089-06-05")
 
-        assert requested == [3, 2]  # page 1 never fetched
-        assert result["repos"][0]["new_stars"] == 51
+        assert requested == [1, 2]
+        # 30 whole weeks on page 1, then the single cutoff week on page 2.
+        assert result["repos"][0]["new_stars"] == 217
+        assert result["truncated"] is False
+
+    @pytest.mark.anyio
+    async def test_history_page_cap_marks_the_result_truncated(self, gi: GitHubIntegration):
+        """Every page comes back newer than the cutoff, so the walk runs out of pages
+        before it finishes and has to report the count as short."""
+        repos_payload = [
+            {"name": "ancient", "stargazers_count": 9000, "html_url": "https://github.com/u/a", "description": None},
+        ]
+        page = _weeks_back("2090-01-01", 30, 1)
+        requested: list[int] = []
+
+        async def fake_request(method, url, **kw):
+            if url.endswith("/repos"):
+                return _mock_response(json_data=repos_payload)
+            requested.append(kw["params"]["page"])
+            return _mock_response(json_data=page)
+
+        gi._http.request = AsyncMock(side_effect=fake_request)
+
+        result = await gi.get_repo_stars_since("u", since="2000-01-01")
+
+        assert requested == list(range(1, MAX_HISTORY_PAGES + 1))
+        assert result["truncated"] is True
+
+    @pytest.mark.anyio
+    async def test_reads_the_star_history_endpoint(self, gi: GitHubIntegration):
+        """The plain stargazers endpoint answers 404 on any repo the token neither
+        admins nor collaborates on, so the URL is part of the contract. See #398."""
+        repos_payload = [
+            {"name": "r", "stargazers_count": 4, "html_url": "https://github.com/u/r", "description": None},
+        ]
+        history = [_week("2090-01-01", [1, 0, 0, 0, 0, 0, 0]), _OLD_WEEK]
+        responses = iter([_mock_response(json_data=repos_payload), _mock_response(json_data=history)])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+        await gi.get_repo_stars_since("u", since="2090-01-01")
+
+        assert gi._http.request.call_args.args[1] == "https://api.github.com/repos/u/r/stargazers/history"
 
     @pytest.mark.anyio
     async def test_excludes_repos_with_no_new_stars(self, gi: GitHubIntegration):
         repos_payload = [
             {"name": "old-repo", "stargazers_count": 3, "html_url": "https://github.com/u/old-repo", "description": None},
         ]
-        sg_old = [{"starred_at": "2000-01-01T00:00:00Z", "user": {}}]  # before cutoff → no new stars
+        history_old = [_OLD_WEEK]  # every week before the cutoff → no new stars
 
         responses = iter([
             _mock_response(json_data=repos_payload),
-            _mock_response(json_data=sg_old),
+            _mock_response(json_data=history_old),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
 
@@ -896,15 +996,10 @@ class TestGetRepoStarsSince:
             {"name": f"repo-{i}", "stargazers_count": 1, "html_url": f"https://github.com/u/repo-{i}", "description": None}
             for i in range(5)
         ]
-        sg_new = [{"starred_at": "2099-06-01T00:00:00Z", "user": {}}]
-
-        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: _mock_response(
-            json_data=repos_payload if "repos" in str(a) or not kw.get("params") else sg_new
-        ))
-        # Simpler: just alternate — first call returns repos, rest return sg_new
+        history_new = [_week("2090-01-01", [1, 0, 0, 0, 0, 0, 0]), _OLD_WEEK]
         calls = iter(
             [_mock_response(json_data=repos_payload)]
-            + [_mock_response(json_data=sg_new)] * 5
+            + [_mock_response(json_data=history_new)] * 5
         )
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(calls))
 

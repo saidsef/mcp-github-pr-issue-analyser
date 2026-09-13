@@ -87,7 +87,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 | `github_list_repos` | read | Repositories for a user, an organisation, or the caller, private ones included |
 | `github_search_user` | read, task | Fetch a user's profile via GraphQL |
 | `github_get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
-| `github_get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing was cut short |
+| `github_get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing or a repo's star history was cut short |
 
 ## Interactive UI
 
