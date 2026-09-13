@@ -442,7 +442,58 @@ class TestUpdatePrDescription:
             "created_at": "2026-07-01T00:00:00Z",
             "updated_at": "2026-07-02T00:00:00Z",
             "state": "open",
+            "head_sha": None,
+            "head_ref": None,
+            "base_ref": None,
         }
+
+
+# ---------------------------------------------------------------------------
+# get_pr_content head SHA — the source update_pr_branch needs. See #411.
+# ---------------------------------------------------------------------------
+
+
+class TestPRHeadSha:
+    @pytest.mark.anyio
+    async def test_get_pr_content_reports_the_head_sha_and_refs(self, gi: GitHubIntegration):
+        payload = {
+            "title": "A change",
+            "body": "Details",
+            "user": _NOISE_USER,
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-02T00:00:00Z",
+            "state": "open",
+            "head": {"sha": "9341d65", "ref": "feature/x"},
+            "base": {"ref": "main"},
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.get_pr_content("o", "r", 5)
+        assert result["head_sha"] == "9341d65"
+        assert result["head_ref"] == "feature/x"
+        assert result["base_ref"] == "main"
+
+    @pytest.mark.anyio
+    async def test_the_head_sha_reaches_update_pr_branch(self, gi: GitHubIntegration):
+        """The guard pr-management recommends had no source until get_pr_content
+        carried the head SHA."""
+        pr = {
+            "title": "A change",
+            "body": "Details",
+            "user": _NOISE_USER,
+            "created_at": "2026-07-01T00:00:00Z",
+            "updated_at": "2026-07-02T00:00:00Z",
+            "state": "open",
+            "head": {"sha": "9341d65", "ref": "feature/x"},
+            "base": {"ref": "main"},
+        }
+        responses = iter([
+            _mock_response(json_data=pr),
+            _mock_response(json_data={"message": "Updating pull request branch."}),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        content = await gi.get_pr_content("o", "r", 5)
+        await gi.update_pr_branch("o", "r", 5, expected_head_sha=content["head_sha"])
+        assert gi._http.request.call_args.kwargs["json"] == {"expected_head_sha": "9341d65"}
 
 
 # ---------------------------------------------------------------------------
@@ -934,9 +985,51 @@ class TestGetLatestShaAndCreateTag:
 
     @pytest.mark.anyio
     async def test_get_latest_sha_empty_repo_returns_none(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        """GitHub answers an empty repository with 409, not an empty list, so the
+        documented no-commits contract only holds by reading that status. See #411."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=409, json_data={"message": "Git Repository is empty."})
+        )
         result = await gi.get_latest_sha("owner", "empty-repo")
         assert result is None
+
+    @pytest.mark.anyio
+    async def test_get_latest_sha_reads_the_default_branch_when_no_ref_is_given(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "abc123"}]))
+        await gi.get_latest_sha("owner", "repo")
+        assert "sha=" not in gi._http.request.call_args.args[1]
+
+    @pytest.mark.anyio
+    async def test_get_latest_sha_reads_a_named_branch(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "branchsha"}]))
+        assert await gi.get_latest_sha("owner", "repo", ref="feature/x") == "branchsha"
+        assert "sha=feature%2Fx" in gi._http.request.call_args.args[1]
+
+    @pytest.mark.anyio
+    async def test_get_latest_sha_reads_a_tag(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "tagsha"}]))
+        assert await gi.get_latest_sha("owner", "repo", ref="v1.2.3") == "tagsha"
+        assert "sha=v1.2.3" in gi._http.request.call_args.args[1]
+
+    @pytest.mark.anyio
+    async def test_get_latest_sha_rejects_an_unknown_ref(self, gi: GitHubIntegration):
+        """A ref GitHub cannot resolve is a 404, which is a failure rather than
+        the no-commits answer."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=404, json_data={"message": "No commit found for SHA: nope"})
+        )
+        with pytest.raises(ToolError, match="nope"):
+            await gi.get_latest_sha("owner", "repo", ref="nope")
+
+    @pytest.mark.anyio
+    async def test_create_tag_refuses_an_empty_repository(self, gi: GitHubIntegration):
+        """The guard was unreachable while an empty repository raised instead of
+        answering None."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=409, json_data={"message": "Git Repository is empty."})
+        )
+        with pytest.raises(GitHubNotFoundError, match="No commits found"):
+            await gi.create_tag("owner", "empty-repo", "v1")
 
     @pytest.mark.anyio
     async def test_get_latest_sha_returns_sha_when_commits_exist(self, gi: GitHubIntegration):
@@ -1825,6 +1918,9 @@ class TestUpdatePR:
             "created_at": "2026-07-01T00:00:00Z",
             "updated_at": "2026-07-02T00:00:00Z",
             "state": "closed",
+            "head_sha": None,
+            "head_ref": None,
+            "base_ref": None,
         }
 
     @pytest.mark.anyio

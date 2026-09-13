@@ -136,7 +136,8 @@ one of the two is changing.
 | `expected_head_sha` | str \| None | `None` | Fail unless the head still matches this SHA |
 
 Merges the base branch into the head branch, adding a merge commit to the PR
-branch. Pass `expected_head_sha` to avoid racing a push from someone else.
+branch. Read `head_sha` from `get_pr_content` and pass it as
+`expected_head_sha` to avoid racing a push from someone else.
 This does not resolve conflicts, and a conflicting update fails and the branch must
 be fixed locally.
 

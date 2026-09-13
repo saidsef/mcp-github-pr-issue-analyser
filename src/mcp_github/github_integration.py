@@ -23,7 +23,7 @@ import time
 from contextlib import asynccontextmanager
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
-from urllib.parse import quote_plus
+from urllib.parse import quote, quote_plus
 
 import httpx
 from fastmcp import Context
@@ -69,6 +69,9 @@ class PRContent(TypedDict):
     created_at: str
     updated_at: str
     state: str
+    head_sha: str | None
+    head_ref: str | None
+    base_ref: str | None
 
 
 class CommentData(TypedDict):
@@ -189,7 +192,10 @@ def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 
 def _pr_content(data: dict[str, Any]) -> PRContent:
-    """Trim a GitHub pull request payload to the PRContent contract."""
+    """Trim a GitHub pull request payload to the PRContent contract. head_sha is
+    what update_pr_branch takes as expected_head_sha, which had no source before.
+    See #411."""
+    head = data.get("head") or {}
     return {
         "title": data["title"],
         "description": data["body"],
@@ -197,6 +203,9 @@ def _pr_content(data: dict[str, Any]) -> PRContent:
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
         "state": data["state"],
+        "head_sha": head.get("sha"),
+        "head_ref": head.get("ref"),
+        "base_ref": (data.get("base") or {}).get("ref"),
     }
 
 
@@ -1097,9 +1106,13 @@ class GitHubIntegration(ActivityMixin):
         repo_owner: str,
         repo_name: str,
         pr_number: int,
-        expected_head_sha: str | None = None,
+        expected_head_sha: Annotated[
+            str | None, "Refuse unless the head still matches this SHA, as get_pr_content reports it"
+        ] = None,
     ) -> dict[str, Any]:
-        """Updates the pull request branch with the latest upstream changes."""
+        """Updates the pull request branch with the latest upstream changes. Read
+        head_sha from get_pr_content and pass it as expected_head_sha to be refused
+        rather than to overwrite a push that landed since."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
         payload: dict[str, Any] = {}
         if expected_head_sha is not None:
@@ -1181,12 +1194,29 @@ class GitHubIntegration(ActivityMixin):
         return result
 
     @_read_only
-    async def get_latest_sha(self, repo_owner: str, repo_name: str) -> str | None:
-        """Fetches the SHA of the latest commit."""
+    async def get_latest_sha(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        ref: Annotated[
+            str | None, "Branch, tag or SHA to read the newest commit of. Omit for the default branch"
+        ] = None,
+    ) -> str | None:
+        """Fetches the SHA of the newest commit on ref, or on the default branch when
+        ref is omitted. Returns None if the repository has no commits. The answer is
+        a reading rather than a pin, so a push landing afterwards moves it."""
         # per_page=1 because only the newest SHA is read. The default of 30
         # returns every field of 30 commits to answer with 40 characters.
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits?per_page=1"
-        data = (await self._request("GET", url, context=f"commits for {repo_owner}/{repo_name}")).json()
+        if ref:
+            url += f"&sha={quote(ref, safe='')}"
+        where = f"{ref or 'default branch'} of {repo_owner}/{repo_name}"
+        # An empty repository answers 409 rather than with an empty list, so the
+        # no-commits contract only holds by reading that status. See #411.
+        response = await self._request("GET", url, context=f"commits for {where}", allow_status=(409,))
+        if response.status_code == 409:
+            return None
+        data = response.json()
         if data:
             return data[0]["sha"]
         return None
