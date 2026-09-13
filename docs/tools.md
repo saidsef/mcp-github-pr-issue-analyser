@@ -2,6 +2,20 @@
 
 The server registers every public method on the GitHub integration that carries an MCP annotation. Read tools make no changes, write tools do, and destructive tools remove something that cannot be brought back. A few long-running read tools are registered as tasks, so the client can poll rather than block.
 
+## Confirming a removal
+
+The three destructive tools ask the caller to confirm before they act. Each one fetches what it is about to remove and names it in the question, so the answer is given against the release, tag or card rather than against the identifier the tool was passed.
+
+The question is an MCP elicitation, which the client puts to the user. A connection carrying a back-channel is asked during the call. A 2026-07-28 connection has no back-channel, so the tool returns the question as its result and the client calls again with the answer attached.
+
+| Answer | Result |
+|--------|--------|
+| Yes | The removal goes ahead |
+| No, or the prompt is dismissed | `status` comes back as `cancelled`, and nothing is removed |
+| The client cannot answer | The call fails and nothing is removed |
+
+A client that supports no elicitation therefore cannot reach these three tools. Nothing else changes for it, since the other 45 tools ask for nothing.
+
 ## Pull requests
 
 | Tool | Kind | Description |
@@ -50,8 +64,8 @@ The server registers every public method on the GitHub integration that carries 
 | `get_release` | read | One release, by tag or the latest published |
 | `update_release` | write | Change a published release's title, notes, draft or prerelease state |
 | `list_tags` | read | A repository's tags and the commit each points at |
-| `delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise |
-| `delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
+| `delete_release` | destructive | Remove a release the caller has confirmed by name, keeping its tag unless asked otherwise |
+| `delete_tag` | destructive | Remove a tag the caller has confirmed by name and sha, refused while a release points at it unless forced |
 
 ## Project boards
 
@@ -63,7 +77,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 | `list_project_items` | read | What is on a board, each card with its field values |
 | `add_to_project` | write | Put an issue or pull request on a board |
 | `set_project_field` | write | Set a single-select field such as Status, by field and option name |
-| `remove_from_project` | destructive | Take a card off a board, leaving the issue open |
+| `remove_from_project` | destructive | Take a card the caller has confirmed off a board, leaving the issue open |
 
 ## Users and activity
 

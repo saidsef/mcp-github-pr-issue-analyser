@@ -95,6 +95,17 @@ class TestLandingRoute:
             assert client.head("/").status_code == 200
 
 
+class TestToolRegistration:
+    """What the registered tools ask the caller for."""
+
+    @pytest.mark.anyio
+    async def test_no_tool_asks_the_caller_for_a_context(self):
+        """The confirmation context is injected, so it stays out of every input
+        schema and the tools that take one look unchanged to a client. See #390."""
+        tools = await _analyser().mcp.list_tools()
+        assert [t.name for t in tools if "ctx" in (t.parameters.get("properties") or {})] == []
+
+
 class TestPackageVersion:
     """Where the reported version comes from."""
 

@@ -4,11 +4,15 @@ from __future__ import annotations
 
 import json
 import time
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
 from fastmcp.exceptions import ToolError
+from fastmcp.server.elicitation import AcceptedElicitation, CancelledElicitation, DeclinedElicitation
+from mcp_types import ElicitResult, InputRequiredResult
+from mcp_types.version import LATEST_HANDSHAKE_VERSION, LATEST_MODERN_VERSION
 
 from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_REPO_PAGES
 from mcp_github.auth import MISSING_CREDENTIALS
@@ -49,11 +53,24 @@ def _mock_response(
     return r
 
 
-def _mock_ctx() -> AsyncMock:
+def _mock_ctx(confirm: bool = True) -> AsyncMock:
+    """A context on a handshake-era connection, which carries the back-channel
+    ctx.elicit asks on. Its confirmation answers `confirm`."""
     ctx = AsyncMock()
     ctx.info = AsyncMock()
     ctx.report_progress = AsyncMock()
-    ctx.elicit = AsyncMock()
+    ctx.input_responses = None
+    ctx.request_context = MagicMock(protocol_version=LATEST_HANDSHAKE_VERSION)
+    ctx.elicit = AsyncMock(return_value=AcceptedElicitation[bool](data=confirm))
+    return ctx
+
+
+def _modern_ctx(answer: dict[str, Any] | None = None) -> AsyncMock:
+    """A context on a 2026-07-28 connection, where the ask goes back as the
+    result and the answer arrives on the round that follows."""
+    ctx = _mock_ctx()
+    ctx.request_context = MagicMock(protocol_version=LATEST_MODERN_VERSION)
+    ctx.input_responses = answer
     return ctx
 
 
@@ -1573,6 +1590,11 @@ def _release_payload(**overrides) -> dict:
     return payload
 
 
+def _tag_ref_payload(sha: str = "abc1234def5678") -> dict:
+    """What GET /git/ref/tags/<tag> answers with."""
+    return {"ref": "refs/tags/v1.0.0", "object": {"sha": sha, "type": "tag"}}
+
+
 class TestReleasesAndTags:
     @pytest.mark.anyio
     async def test_get_release_by_tag(self, gi: GitHubIntegration):
@@ -1678,7 +1700,7 @@ class TestReleasesAndTags:
             _mock_response(status_code=204),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.delete_release("o", "r", "v1.0.0")
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=_mock_ctx())
         assert gi._http.request.call_count == 2
         assert gi._http.request.call_args.args[1].endswith("/releases/55")
         assert result["tag_deleted"] is False
@@ -1691,7 +1713,7 @@ class TestReleasesAndTags:
             _mock_response(status_code=204),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.delete_release("o", "r", "v1.0.0", delete_tag=True)
+        result = await gi.delete_release("o", "r", "v1.0.0", delete_tag=True, ctx=_mock_ctx())
         assert gi._http.request.call_args.args[1].endswith("/git/refs/tags/v1.0.0")
         assert result["tag_deleted"] is True
 
@@ -1707,10 +1729,11 @@ class TestReleasesAndTags:
     async def test_delete_tag_proceeds_when_forced(self, gi: GitHubIntegration):
         responses = iter([
             _mock_response(json_data=_release_payload()),
+            _mock_response(json_data=_tag_ref_payload()),
             _mock_response(status_code=204),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.delete_tag("o", "r", "v1.0.0", force=True)
+        result = await gi.delete_tag("o", "r", "v1.0.0", force=True, ctx=_mock_ctx())
         assert gi._http.request.call_args.args[0] == "DELETE"
         assert result["release_still_published"] is True
 
@@ -1718,10 +1741,11 @@ class TestReleasesAndTags:
     async def test_delete_tag_without_a_release_needs_no_force(self, gi: GitHubIntegration):
         responses = iter([
             _mock_response(status_code=404, json_data={}),
+            _mock_response(json_data=_tag_ref_payload()),
             _mock_response(status_code=204),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.delete_tag("o", "r", "v0.1.0")
+        result = await gi.delete_tag("o", "r", "v0.1.0", ctx=_mock_ctx())
         assert result == {"status": "deleted", "tag_name": "v0.1.0", "release_still_published": False}
 
     def test_delete_tools_report_themselves_destructive(self, gi: GitHubIntegration):
@@ -2247,7 +2271,7 @@ class TestRemoveFromProject:
         gi._execute_graphql = AsyncMock(
             side_effect=[_owner(), _issue_node(on_board), {"deleteProjectV2Item": {"deletedItemId": "PVTI_9"}}]
         )
-        result = await gi.remove_from_project("o", 4, "o", "r", 12)
+        result = await gi.remove_from_project("o", 4, "o", "r", 12, ctx=_mock_ctx())
         assert gi._execute_graphql.call_args.args[1] == {"projectId": "PVT_1", "itemId": "PVTI_9"}
         assert result == {"status": "removed", "item_id": "PVTI_9", "project_number": 4, "issue_number": 12}
 
@@ -2357,6 +2381,236 @@ class TestGraphQLScopeErrors:
         with pytest.raises(GitHubAuthError):  # noqa: PT012 - the guard is what is under test
             async with gi._guard("do a thing"):
                 raise GitHubAuthError("Missing scope.")
+
+
+# ---------------------------------------------------------------------------
+# Confirming a destructive tool (#390)
+# ---------------------------------------------------------------------------
+
+
+def _asked(ctx: AsyncMock) -> str:
+    """The question the tool put to the client."""
+    return ctx.elicit.await_args.args[0]
+
+
+class TestDeleteReleaseConfirmation:
+    @staticmethod
+    def _responses(gi: GitHubIntegration) -> None:
+        responses = iter([
+            _mock_response(json_data=_release_payload(name="Autumn release")),
+            _mock_response(status_code=204),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+    @pytest.mark.anyio
+    async def test_the_question_names_the_release(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _mock_ctx()
+        await gi.delete_release("o", "r", "v1.0.0", ctx=ctx)
+        assert _asked(ctx) == "Remove release 'Autumn release' (tag v1.0.0) from o/r? This cannot be undone."
+
+    @pytest.mark.anyio
+    async def test_the_question_says_when_the_tag_goes_too(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _mock_ctx()
+        await gi.delete_release("o", "r", "v1.0.0", delete_tag=True, ctx=ctx)
+        assert "and the tag with it" in _asked(ctx)
+
+    @pytest.mark.anyio
+    async def test_declining_leaves_the_release_published(self, gi: GitHubIntegration):
+        self._responses(gi)
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=_mock_ctx(confirm=False))
+        # The lookup happened, the delete did not.
+        assert gi._http.request.call_count == 1
+        assert result == {"status": "cancelled", "tag_name": "v1.0.0", "release_id": 55, "tag_deleted": False}
+
+    @pytest.mark.anyio
+    async def test_a_declined_ask_counts_as_a_no(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _mock_ctx()
+        ctx.elicit = AsyncMock(return_value=DeclinedElicitation())
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=ctx)
+        assert result["status"] == "cancelled"
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_a_cancelled_ask_counts_as_a_no(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _mock_ctx()
+        ctx.elicit = AsyncMock(return_value=CancelledElicitation())
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=ctx)
+        assert result["status"] == "cancelled"
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_a_client_that_cannot_be_asked_gets_a_refusal(self, gi: GitHubIntegration):
+        self._responses(gi)
+        with pytest.raises(ToolError, match="cannot answer a confirmation request"):
+            await gi.delete_release("o", "r", "v1.0.0")
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_a_failed_ask_gets_a_refusal(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _mock_ctx()
+        ctx.elicit = AsyncMock(side_effect=ToolError("elicitation is unavailable on this connection"))
+        with pytest.raises(ToolError, match="elicitation is unavailable"):
+            await gi.delete_release("o", "r", "v1.0.0", ctx=ctx)
+        assert gi._http.request.call_count == 1
+
+
+class TestDeleteTagConfirmation:
+    @staticmethod
+    def _responses(gi: GitHubIntegration, release: dict | None = None) -> None:
+        responses = iter([
+            _mock_response(json_data=release or {}, status_code=200 if release else 404),
+            _mock_response(json_data=_tag_ref_payload()),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+    @pytest.mark.anyio
+    async def test_the_question_names_the_tag_and_its_sha(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _mock_ctx()
+        await gi.delete_tag("o", "r", "v0.1.0", ctx=ctx)
+        assert _asked(ctx) == "Remove tag 'v0.1.0' (abc1234) from o/r? This cannot be undone."
+
+    @pytest.mark.anyio
+    async def test_the_question_names_the_release_a_forced_tag_carries(self, gi: GitHubIntegration):
+        self._responses(gi, _release_payload(name="Autumn release"))
+        ctx = _mock_ctx()
+        await gi.delete_tag("o", "r", "v1.0.0", force=True, ctx=ctx)
+        assert "which release 'Autumn release' is published from" in _asked(ctx)
+
+    @pytest.mark.anyio
+    async def test_declining_leaves_the_tag_in_place(self, gi: GitHubIntegration):
+        self._responses(gi)
+        result = await gi.delete_tag("o", "r", "v0.1.0", ctx=_mock_ctx(confirm=False))
+        # The release lookup and the ref lookup happened, the delete did not.
+        assert gi._http.request.call_count == 2
+        assert result == {"status": "cancelled", "tag_name": "v0.1.0", "release_still_published": False}
+
+    @pytest.mark.anyio
+    async def test_a_client_that_cannot_be_asked_gets_a_refusal(self, gi: GitHubIntegration):
+        self._responses(gi)
+        with pytest.raises(ToolError, match="cannot answer a confirmation request"):
+            await gi.delete_tag("o", "r", "v0.1.0")
+        assert gi._http.request.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_a_tag_that_is_not_there_is_refused_before_anyone_is_asked(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(status_code=404, json_data={}),
+            _mock_response(status_code=404, json_data={"message": "Not Found"}, reason_phrase="Not Found"),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        ctx = _mock_ctx()
+        with pytest.raises(ToolError, match="NOT_FOUND"):
+            await gi.delete_tag("o", "r", "v9.9.9", ctx=ctx)
+        ctx.elicit.assert_not_awaited()
+
+
+class TestRemoveFromProjectConfirmation:
+    @staticmethod
+    def _graphql(gi: GitHubIntegration) -> None:
+        on_board = [{"id": "PVTI_9", "project": {"id": "PVT_1", "number": 4}}]
+        gi._execute_graphql = AsyncMock(
+            side_effect=[_owner(), _issue_node(on_board), {"deleteProjectV2Item": {"deletedItemId": "PVTI_9"}}]
+        )
+
+    @pytest.mark.anyio
+    async def test_the_question_names_the_card_and_the_board(self, gi: GitHubIntegration):
+        self._graphql(gi)
+        ctx = _mock_ctx()
+        await gi.remove_from_project("o", 4, "o", "r", 12, ctx=ctx)
+        assert _asked(ctx) == "Remove card #12 'A bug' from project #4 'Backlog'? This cannot be undone."
+
+    @pytest.mark.anyio
+    async def test_declining_leaves_the_card_on_the_board(self, gi: GitHubIntegration):
+        self._graphql(gi)
+        result = await gi.remove_from_project("o", 4, "o", "r", 12, ctx=_mock_ctx(confirm=False))
+        # The board and the issue were read, the mutation was not sent.
+        assert gi._execute_graphql.await_count == 2
+        assert result == {
+            "status": "cancelled",
+            "item_id": "PVTI_9",
+            "project_number": 4,
+            "issue_number": 12,
+        }
+
+    @pytest.mark.anyio
+    async def test_a_client_that_cannot_be_asked_gets_a_refusal(self, gi: GitHubIntegration):
+        self._graphql(gi)
+        with pytest.raises(ToolError, match="cannot answer a confirmation request"):
+            await gi.remove_from_project("o", 4, "o", "r", 12)
+        assert gi._execute_graphql.await_count == 2
+
+
+class TestConfirmationWithoutABackChannel:
+    """A 2026-07-28 connection answers on the round that follows. See #390."""
+
+    @staticmethod
+    def _responses(gi: GitHubIntegration) -> None:
+        responses = iter([
+            _mock_response(json_data=_release_payload(name="Autumn release")),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+    @staticmethod
+    def _answered(accept: bool) -> dict[str, ElicitResult]:
+        action = "accept" if accept else "decline"
+        return {"confirm_removal": ElicitResult(action=action, content={"value": accept} if accept else None)}
+
+    @pytest.mark.anyio
+    async def test_the_first_round_returns_the_question(self, gi: GitHubIntegration):
+        self._responses(gi)
+        ctx = _modern_ctx()
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=ctx)
+        assert isinstance(result, InputRequiredResult)
+        ask = (result.input_requests or {})["confirm_removal"]
+        assert ask.params.message == "Remove release 'Autumn release' (tag v1.0.0) from o/r? This cannot be undone."
+        # The release was read to name it, and nothing was deleted.
+        assert gi._http.request.call_count == 1
+        ctx.elicit.assert_not_awaited()
+
+    @pytest.mark.anyio
+    async def test_the_answered_round_deletes(self, gi: GitHubIntegration):
+        self._responses(gi)
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=_modern_ctx(self._answered(accept=True)))
+        assert result == {"status": "deleted", "tag_name": "v1.0.0", "release_id": 55, "tag_deleted": False}
+        assert gi._http.request.call_args.args[0] == "DELETE"
+
+    @pytest.mark.anyio
+    async def test_a_declined_round_leaves_the_release_published(self, gi: GitHubIntegration):
+        self._responses(gi)
+        result = await gi.delete_release("o", "r", "v1.0.0", ctx=_modern_ctx(self._answered(accept=False)))
+        assert result["status"] == "cancelled"
+        assert gi._http.request.call_count == 1
+
+
+class TestOnlyDestructiveToolsConfirm:
+    def test_three_tools_are_destructive(self, gi: GitHubIntegration):
+        destructive = {
+            name
+            for name in dir(gi)
+            if not name.startswith("_")
+            and getattr(getattr(gi, name), "_mcp_annotations", None) is not None
+            and getattr(gi, name)._mcp_annotations.destructive_hint
+        }
+        assert destructive == {"delete_release", "delete_tag", "remove_from_project"}
+
+    @pytest.mark.anyio
+    async def test_a_write_tool_still_acts_without_a_context(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(json_data=_release_payload(body="corrected")),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.update_release("o", "r", "v1.0.0", body="corrected")
+        assert result["body"] == "corrected"
 
 
 # ---------------------------------------------------------------------------
