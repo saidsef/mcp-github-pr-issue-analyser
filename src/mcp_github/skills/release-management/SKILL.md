@@ -31,7 +31,8 @@ then read, correct or withdraw what has already been published.
 
 1. Call `delete_release`, which leaves the tag in place
 2. Pass `delete_tag=True` only when the tag itself was a mistake
-3. **Deleting a published release breaks any link to it. Ask the user in chat and get an explicit yes first**
+3. Answer the confirmation the tool asks for. It names the release it is about to remove, and nothing is deleted until the answer comes back yes
+4. **Deleting a published release breaks any link to it. Ask the user in chat and get an explicit yes first**
 
 ## Tool Parameters
 
@@ -161,6 +162,12 @@ Returns `status`, `tag_name`, `release_id` and `tag_deleted`.
 Destructive and not reversible. The tag survives by default, so the commit stays
 reachable and the release can be published again.
 
+The release is read first and named in a confirmation the client puts to the
+user. `status` is `deleted` where the answer was yes and `cancelled` where it
+was no, and a `cancelled` result means the release is still published. A client
+that cannot answer the confirmation gets an error instead, so the tool is
+unreachable without elicitation support.
+
 ### `delete_tag`
 
 | Parameter | Type | Default | Description |
@@ -176,6 +183,13 @@ Returns `status`, `tag_name` and `release_still_published`, the last being
 Destructive and not reversible. A tag a release points at is refused unless
 `force=True`, because removing it leaves the release naming code nobody can
 fetch. Delete the release first instead.
+
+The tag ref is read first and named, with the sha it points at, in a
+confirmation the client puts to the user. `status` is `deleted` where the answer
+was yes and `cancelled` where it was no, and a `cancelled` result means the tag
+is still there. A tag that does not exist fails at the read, before anything is
+asked. A client that cannot answer the confirmation gets an error instead, so
+the tool is unreachable without elicitation support.
 
 ## Semantic Versioning Guide
 
@@ -230,7 +244,8 @@ Rules:
 ## Best Practices
 
 - Follow semver, and treat a published tag as permanent. Correct the release with `update_release` rather than deleting and re-cutting it
-- Confirm with the user in chat before `delete_release` or `delete_tag`, since neither can be undone
+- Confirm with the user in chat before `delete_release` or `delete_tag`, since neither can be undone. Both ask for a confirmation of their own on top of that, and a `cancelled` result means the user said no
+- Report a `cancelled` result as it stands rather than calling the tool again, since a second call asks the same question
 - Confirm every intended PR is merged before tagging, since the tag follows the default branch HEAD
 - Publish with `draft=True` first to preview, then flip it once the notes read correctly
 - Set `prerelease=True` for alpha, beta and rc versions, which also keeps them off the latest-release badge

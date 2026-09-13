@@ -28,6 +28,7 @@ from urllib.parse import quote_plus
 import httpx
 from fastmcp import Context
 from fastmcp.exceptions import ToolError
+from mcp_types import InputRequiredResult
 
 from .activity import ActivityMixin
 from .auth import (
@@ -61,7 +62,7 @@ from .graphql_queries import (
     SEARCH_USER_QUERY,
     SET_PROJECT_FIELD_MUTATION,
 )
-from .tool_annotations import _destructive, _read_only, _write
+from .tool_annotations import _confirm_removal, _destructive, _read_only, _write
 
 
 class PRContent(TypedDict):
@@ -1341,10 +1342,25 @@ class GitHubIntegration(ActivityMixin):
         repo_name: str,
         tag_name: str,
         delete_tag: Annotated[bool, "Also remove the tag the release was published from"] = False,
-    ) -> dict[str, Any]:
-        """Deletes a release. The tag it was published from survives unless
-        delete_tag asks for it, since the commit history usually should not move."""
+        ctx: Context | None = None,
+    ) -> dict[str, Any] | InputRequiredResult:
+        """Deletes a release once the caller has confirmed it by name. The tag it
+        was published from survives unless delete_tag asks for it, since the commit
+        history usually should not move."""
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
+        target = f"release '{release.get('name') or tag_name}' (tag {tag_name}) from {repo_owner}/{repo_name}"
+        if delete_tag:
+            target = f"{target}, and the tag with it"
+        confirmed = await _confirm_removal(ctx, target)
+        if isinstance(confirmed, InputRequiredResult):
+            return confirmed
+        if not confirmed:
+            return {
+                "status": "cancelled",
+                "tag_name": tag_name,
+                "release_id": release["id"],
+                "tag_deleted": False,
+            }
         base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
         await self._request("DELETE", f"{base}/releases/{release['id']}", context=f"delete release {tag_name}")
         if delete_tag:
@@ -1375,6 +1391,16 @@ class GitHubIntegration(ActivityMixin):
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs/tags/{tag_name}"
         await self._request("DELETE", url, context=f"delete tag {tag_name}")
 
+    async def _tag_object_sha(self, repo_owner: str, repo_name: str, tag_name: str) -> str:
+        """The sha the tag ref points at, which also proves the tag is there
+        before anyone is asked to confirm removing it. See #390."""
+        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/ref/tags/{tag_name}"
+        data = (await self._request("GET", url, context=f"tag {tag_name}")).json()
+        sha = (data.get("object") or {}).get("sha")
+        if not sha:
+            raise GitHubAPIError(f"The ref for tag '{tag_name}' names no object")
+        return sha
+
     @_destructive
     async def delete_tag(
         self,
@@ -1382,15 +1408,26 @@ class GitHubIntegration(ActivityMixin):
         repo_name: str,
         tag_name: str,
         force: Annotated[bool, "Delete the tag even though a release was published from it"] = False,
-    ) -> dict[str, Any]:
-        """Deletes a tag. A tag a release points at is refused unless force is set,
-        because removing it leaves the release without the code it names."""
+        ctx: Context | None = None,
+    ) -> dict[str, Any] | InputRequiredResult:
+        """Deletes a tag once the caller has confirmed it by name and commit. A tag
+        a release points at is refused unless force is set, because removing it
+        leaves the release without the code it names."""
         release = await self._release_by_tag(repo_owner, repo_name, tag_name)
         if release and not force:
             raise GitHubValidationError(
                 f"Tag '{tag_name}' is used by release '{release.get('name') or tag_name}'. "
                 "Delete the release first, or pass force=True."
             )
+        sha = await self._tag_object_sha(repo_owner, repo_name, tag_name)
+        target = f"tag '{tag_name}' ({sha[:7]}) from {repo_owner}/{repo_name}"
+        if release:
+            target = f"{target}, which release '{release.get('name') or tag_name}' is published from"
+        confirmed = await _confirm_removal(ctx, target)
+        if isinstance(confirmed, InputRequiredResult):
+            return confirmed
+        if not confirmed:
+            return {"status": "cancelled", "tag_name": tag_name, "release_still_published": bool(release)}
         await self._delete_tag_ref(repo_owner, repo_name, tag_name)
         return {"status": "deleted", "tag_name": tag_name, "release_still_published": bool(release)}
 
@@ -1528,9 +1565,11 @@ class GitHubIntegration(ActivityMixin):
         repo_owner: str,
         repo_name: str,
         issue_number: int,
-    ) -> dict[str, Any]:
-        """Takes an issue or pull request off a project board. The issue itself is
-        untouched and stays open, but the field values its card held go with it."""
+        ctx: Context | None = None,
+    ) -> dict[str, Any] | InputRequiredResult:
+        """Takes an issue or pull request off a project board once the caller has
+        confirmed the card by name. The issue itself is untouched and stays open,
+        but the field values its card held go with it."""
         project = await self._project(project_owner, project_number)
         node = await self._issue_node(repo_owner, repo_name, issue_number)
         item_id = _item_on_project(node, project["id"])
@@ -1538,6 +1577,20 @@ class GitHubIntegration(ActivityMixin):
             raise GitHubNotFoundError(
                 f"#{issue_number} in {repo_owner}/{repo_name} is not on project #{project_number}"
             )
+        target = (
+            f"card #{issue_number} '{node.get('title') or 'untitled'}' "
+            f"from project #{project_number} '{project.get('title') or 'untitled'}'"
+        )
+        confirmed = await _confirm_removal(ctx, target)
+        if isinstance(confirmed, InputRequiredResult):
+            return confirmed
+        if not confirmed:
+            return {
+                "status": "cancelled",
+                "item_id": item_id,
+                "project_number": project_number,
+                "issue_number": issue_number,
+            }
         async with self._guard("remove from project"):
             result = await self._execute_graphql(
                 DELETE_PROJECT_ITEM_MUTATION, {"projectId": project["id"], "itemId": item_id}

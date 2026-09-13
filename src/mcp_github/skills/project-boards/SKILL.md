@@ -41,9 +41,11 @@ holding issues from several repositories is the common case, so read
 ### Taking something off
 
 1. Call `remove_from_project`
-2. The issue stays open and untouched. Only the card goes, and the field values
+2. Answer the confirmation the tool asks for. It names the card and the board it
+   is about to take it off, and nothing goes until the answer comes back yes
+3. The issue stays open and untouched. Only the card goes, and the field values
    it held go with it
-3. **Ask the user in chat before removing a card, since the field values cannot
+4. **Ask the user in chat before removing a card, since the field values cannot
    be recovered**
 
 ## Tool Parameters
@@ -143,6 +145,12 @@ fresh card with no values set.
 An issue that is not on this board is refused rather than added so it can be
 removed. An item on a different board does not count.
 
+The card and the board are read first and named in a confirmation the client
+puts to the user. `status` is `removed` where the answer was yes and `cancelled`
+where it was no, and a `cancelled` result means the card is still on the board.
+A client that cannot answer the confirmation gets an error instead, so the tool
+is unreachable without elicitation support.
+
 ## Errors
 
 | Message | Means |
@@ -153,6 +161,7 @@ removed. An item on a different board does not count.
 | `No option named 'X' on field 'Y'` | The message lists the options that field accepts |
 | `Field 'X' is a TEXT field` | Not a single select. `set_project_field` cannot set it |
 | `#N in owner/repo is not on project #M` | Call `add_to_project` first, or check the project number |
+| `this client cannot answer a confirmation request` | The client supports no elicitation, so `remove_from_project` has no way to ask. The card is still on the board |
 
 ## Best Practices
 
@@ -162,6 +171,9 @@ removed. An item on a different board does not count.
 - Use `set_project_field` alone to file and place an issue in one step, since it
   adds the card itself
 - Confirm with the user in chat before `remove_from_project`, since the field
-  values go with the card
+  values go with the card. The tool asks for a confirmation of its own on top of
+  that, and a `cancelled` result means the user said no
+- Report a `cancelled` result as it stands rather than calling the tool again,
+  since a second call asks the same question
 - Read a card count from `total` rather than from the length of `items`, and
   page to the end before reporting on the cards themselves
