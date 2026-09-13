@@ -35,6 +35,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
 | `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
+| `MCP_ACCEPT_LEGACY_TOOL_NAMES` | No, default on | Whether a tool name from before a rename still reaches the tool it was renamed to. Set to `false`, `0`, `no` or `off` to close the window |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
@@ -121,6 +122,24 @@ metadata:
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/mcp-github
 ```
+
+## Tool renames
+
+A client fetches the tool list when it connects and caches it, so renaming a tool
+breaks the sessions already open as well as the ones that follow. The connector
+reports a name it cannot resolve as `not found or not authorized`, which reads as
+a credential problem rather than a rename.
+
+The server therefore accepts a tool's previous name and dispatches it to the one
+it now answers to. The previous name is never listed, so it costs nothing in the
+schema a client pays for on connect, and the tool count stays as it is.
+
+`mcp_legacy_tool_name_total` counts each call that arrived under a previous name,
+labelled by the name asked for. When that counter stops moving, nothing is
+relying on the window and `MCP_ACCEPT_LEGACY_TOOL_NAMES=false` closes it.
+
+A tool that was removed rather than renamed has nothing to forward to, so it stays
+gone.
 
 ## Skills
 
