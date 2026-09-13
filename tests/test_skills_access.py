@@ -77,3 +77,49 @@ class TestFrontMatter:
 
     def test_a_colon_in_the_description_survives(self):
         assert _description("---\ndescription: Read this: carefully\n---\n") == "Read this: carefully"
+
+
+class TestAuthoringConventions:
+    """The skills that open issues and PRs carry the body templates, so an agent
+    reading only the skill writes the same shape a person would."""
+
+    _ISSUE = ("Problem Statement", "Proposed Solution", "Affected Resources",
+              "Resource Links", "Acceptance Criteria")
+    _PR = ("Summary", "Related Issues", "Changes Made", "Testing", "Checklist")
+
+    @staticmethod
+    def _skill(name: str) -> str:
+        return (SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
+
+    def test_issue_management_carries_the_issue_template(self):
+        body = self._skill("issue-management")
+
+        assert "## Issue Body" in body
+        for heading in self._ISSUE:
+            assert f"## {heading}" in body, heading
+
+    def test_pr_management_carries_the_pr_template(self):
+        body = self._skill("pr-management")
+
+        assert "## PR Body" in body
+        for heading in self._PR:
+            assert f"## {heading}" in body, heading
+
+    def test_the_templates_are_in_order(self):
+        """The order is part of the template, not a preference."""
+        for name, headings in (("issue-management", self._ISSUE), ("pr-management", self._PR)):
+            body = self._skill(name)
+            found = [body.index(f"## {heading}") for heading in headings]
+            assert found == sorted(found), name
+
+    def test_both_skills_title_the_same_way(self):
+        """Issue titles, PR titles and commit subjects share one shape."""
+        for name in ("issue-management", "pr-management"):
+            body = self._skill(name)
+            assert "## Title Convention" in body, name
+            assert "<type>(<scope>): <short prose summary>" in body, name
+
+    def test_neither_skill_still_gives_the_vague_body_advice(self):
+        """The templates replaced it. Leaving both would have them disagree."""
+        assert "steps to reproduce for a bug" not in self._skill("issue-management")
+        assert "the motivation, and how it was tested" not in self._skill("pr-management")
