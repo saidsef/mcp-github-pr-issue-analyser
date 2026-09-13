@@ -20,7 +20,6 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
 | `update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
-| `update_pr_description` | write | Change the title and body of a PR together |
 | `set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
 | `update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `merge_pr` | write | Merge using the merge, squash or rebase method |

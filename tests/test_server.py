@@ -512,6 +512,31 @@ class TestListOpenIssuesPrsSchema:
         assert "search_issues_prs" in description
 
 
+class TestRemovedTools:
+    """A name the server no longer answers to must not survive in the prose a
+    client reads, or it advertises a tool nobody can call. See #399."""
+
+    @pytest.mark.anyio
+    async def test_update_pr_description_is_gone(self):
+        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+
+        assert "update_pr_description" not in names
+        assert "update_pr" in names
+
+    @pytest.mark.anyio
+    async def test_the_instructions_do_not_name_it(self):
+        assert "update_pr_description" not in (_analyser().mcp.instructions or "")
+
+    def test_no_skill_still_points_at_it(self):
+        stale = [
+            path.parent.name
+            for path in SKILLS_DIR.glob("*/SKILL.md")
+            if "update_pr_description" in path.read_text(encoding="utf-8")
+        ]
+
+        assert stale == []
+
+
 class TestToolRationales:
     """A tool description that explains itself has to be right, since a tool-only
     client cannot cross-check it against the skill. See #400."""

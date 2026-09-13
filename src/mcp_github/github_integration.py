@@ -764,24 +764,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         data = (await self._request("POST", url, context=f"reply to comment {comment_id}", json={"body": body})).json()
         return _review_comment_result(data)
 
-    @_write(idempotent=True)
-    async def update_pr_description(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        new_title: str,
-        new_description: str,
-    ) -> PRContent:
-        """Updates the title and description of a specific pull request."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        data = (
-            await self._request(
-                "PATCH", url, context=f"PR #{pr_number}", json={"title": new_title, "body": new_description}
-            )
-        ).json()
-        return _pr_content(data)
-
     async def _replace_labels(
         self, repo_owner: str, repo_name: str, number: int, labels: list[str]
     ) -> dict[str, Any]:
