@@ -40,6 +40,22 @@ pytest -v
 pytest tests/test_specific.py
 ```
 
+### Renaming or removing a tool
+
+`tests/registered_tools.txt` records every tool name the server registers. A name
+that disappears fails the build, because a client caches the tool list when it
+connects and keeps calling a name that has gone.
+
+When the change is intended, regenerate the snapshot and check the diff says what
+you meant:
+
+```shell
+uv run python tests/test_tool_registry.py
+```
+
+A renamed tool also needs its previous name to keep reaching it, which
+`MCP_ACCEPT_LEGACY_TOOL_NAMES` covers. See `docs/configuration.md`.
+
 ### Code Style and Linting
 
 This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting:
