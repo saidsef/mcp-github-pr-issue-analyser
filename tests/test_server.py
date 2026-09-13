@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from importlib.metadata import PackageNotFoundError
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastmcp.exceptions import InsufficientScopeError
-from fastmcp.server.auth import AccessToken
+from fastmcp.server.auth import AccessToken, MultiAuth
+from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.context import reset_transport, set_transport
 from starlette.middleware import Middleware as ASGIMiddleware
 from starlette.testclient import TestClient
@@ -28,23 +29,39 @@ from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 _MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
-_AUTH_HEADERS = _MCP_HEADERS | {"Authorization": "Bearer test-token"}
+_STATIC_TOKEN = "test-token"
+_AUTH_HEADERS = _MCP_HEADERS | {"Authorization": f"Bearer {_STATIC_TOKEN}"}
 _A_RELEASE = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
+_OAUTH_SETTINGS = {
+    "GITHUB_OAUTH_CLIENT_ID": "Ov23liExample",
+    "GITHUB_OAUTH_CLIENT_SECRET": "oauth-client-secret",
+    "GITHUB_OAUTH_BASE_URL": "https://mcp.example.com",
+}
+
+
+@contextmanager
+def _deployment(*, token: str | None, oauth: bool, remote: bool = False) -> Iterator[None]:
+    """The settings an analyser reads while it is being built. The OAuth trio is read
+    from auth, the static token from github_integration, and the transport flag from
+    the server module. The token store stays in memory whatever the environment holds."""
+    with ExitStack() as stack:
+        stack.enter_context(patch("mcp_github.github_integration.GITHUB_TOKEN", token))
+        for name, value in _OAUTH_SETTINGS.items():
+            stack.enter_context(patch(f"mcp_github.auth.{name}", value if oauth else None))
+        stack.enter_context(patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", remote))
+        stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
+        stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
+        yield
 
 
 def _analyser() -> PRIssueAnalyser:
-    with patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"):
+    with _deployment(token=_STATIC_TOKEN, oauth=False):
         return PRIssueAnalyser()
 
 
 def _unconfigured() -> PRIssueAnalyser:
     """An analyser holding neither the OAuth trio nor a static token."""
-    with (
-        patch("mcp_github.github_integration.GITHUB_TOKEN", None),
-        patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_ID", None),
-        patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_SECRET", None),
-        patch("mcp_github.github_integration.GITHUB_OAUTH_BASE_URL", None),
-    ):
+    with _deployment(token=None, oauth=False):
         return PRIssueAnalyser()
 
 
@@ -58,19 +75,6 @@ def _grant(scopes: list[str]) -> Iterator[None]:
             yield
     finally:
         reset_transport(transport)
-
-
-@contextmanager
-def _oauth_env() -> Iterator[None]:
-    """The OAuth trio set, with the token store left in memory."""
-    with (
-        patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_ID", "client-id"),
-        patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", "client-secret-long-enough"),
-        patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", "https://mcp.example.test"),
-        patch("mcp_github.auth.REDIS_HOST_PORT", None),
-        patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
-    ):
-        yield
 
 
 def _app(analyser: PRIssueAnalyser):
@@ -224,13 +228,16 @@ class TestScopeGate:
 def _remote_client(granted: tuple[str, ...]) -> Iterator[TestClient]:
     """The app the remote deployment runs, answering a bearer token whose grant holds
     these scopes."""
-    with (
-        patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", True),
-        patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"),
-    ):
+    with _deployment(token=_STATIC_TOKEN, oauth=False, remote=True):
         analyser = PRIssueAnalyser()
     with patch("mcp_github.auth.GITHUB_SCOPES", granted), TestClient(_app(analyser)) as client:
         yield client
+
+
+def _payload(response) -> dict:
+    """The JSON body of a streamable HTTP response, which arrives as an SSE event."""
+    body = response.text
+    return json.loads(body.split("data: ", 1)[1] if body.startswith("event:") else body)
 
 
 def _rpc(client: TestClient, method: str, params: dict | None = None) -> dict:
@@ -239,8 +246,7 @@ def _rpc(client: TestClient, method: str, params: dict | None = None) -> dict:
         "/mcp", headers=_AUTH_HEADERS, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
     )
     assert response.status_code == 200, response.text
-    body = response.text
-    return json.loads(body.split("data: ", 1)[1] if body.startswith("event:") else body)
+    return _payload(response)
 
 
 class TestScopeGateOverHTTP:
@@ -275,7 +281,7 @@ class TestScopeFloor:
         assert set(REQUIRED_SCOPES).isdisjoint(GATED_SCOPES)
 
     def test_the_provider_requires_only_the_floor(self):
-        with _oauth_env():
+        with _deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
         # The transport reads the first and the GitHub token check the second, and
@@ -286,7 +292,7 @@ class TestScopeFloor:
     def test_the_provider_still_offers_every_scope_the_tools_need(self):
         """Requiring less must not ask GitHub for less, or no grant would ever hold
         the scopes the gated tools want."""
-        with _oauth_env():
+        with _deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
         assert provider.scopes_supported == list(GITHUB_SCOPES)
@@ -340,3 +346,75 @@ class TestStartsWithoutCredentials:
 
         assert response.status_code != 401
         assert MISSING_CREDENTIALS not in response.text
+
+
+class TestAuthSelection:
+    """Which transport authentication a deployment's credentials select. See #389."""
+
+    def _auth(self, *, token: str | None, oauth: bool, remote: bool = True):
+        with _deployment(token=token, oauth=oauth, remote=remote):
+            return PRIssueAnalyser().mcp.auth
+
+    def test_both_credentials_compose(self):
+        auth = self._auth(token=_STATIC_TOKEN, oauth=True)
+
+        assert isinstance(auth, MultiAuth)
+        assert isinstance(auth.server, GitHubProvider)
+        assert [type(verifier) for verifier in auth.verifiers] == [APIKeyVerifier]
+
+    def test_the_composed_floor_comes_from_the_oauth_provider(self):
+        """The static token is verified against the floor too, so its grant has to clear
+        it. What a tool needs beyond the floor is left to the scope gate. See #388."""
+        auth = self._auth(token=_STATIC_TOKEN, oauth=True)
+
+        assert auth.required_scopes == list(REQUIRED_SCOPES)
+        assert set(REQUIRED_SCOPES) <= set(GITHUB_SCOPES)
+
+    def test_the_oauth_trio_alone_stays_the_oauth_provider(self):
+        assert isinstance(self._auth(token=None, oauth=True), GitHubProvider)
+
+    def test_the_static_token_alone_stays_the_key_verifier(self):
+        assert isinstance(self._auth(token=_STATIC_TOKEN, oauth=False), APIKeyVerifier)
+
+    def test_neither_credential_leaves_the_transport_unauthenticated(self):
+        assert self._auth(token=None, oauth=False) is None
+
+    def test_stdio_takes_no_transport_authentication(self):
+        assert self._auth(token=_STATIC_TOKEN, oauth=True, remote=False) is None
+
+
+class TestCombinedCredentials:
+    """A deployment holding the OAuth trio and a static token accepts either. See #389."""
+
+    def _client(self) -> TestClient:
+        with _deployment(token=_STATIC_TOKEN, oauth=True, remote=True):
+            return TestClient(_app(PRIssueAnalyser()))
+
+    def _post(self, bearer: str):
+        with self._client() as client:
+            return client.post(
+                "/mcp/", json=_TOOLS_LIST, headers={**_MCP_HEADERS, "Authorization": f"Bearer {bearer}"}
+            )
+
+    def test_the_static_token_reaches_the_tools(self):
+        """An OAuth deployment used to refuse this, which is what forced a second one."""
+        assert self._post(_STATIC_TOKEN).status_code == 200
+
+    def test_the_static_token_reaches_the_gated_tools(self):
+        """Its grant reports every scope the flow asks GitHub for, so the gate lists the
+        tools that write as well as the ones that read. See #388."""
+        listed = {tool["name"] for tool in _payload(self._post(_STATIC_TOKEN))["result"]["tools"]}
+
+        assert {"get_pr_diff", "create_issue", "add_to_project"} <= listed
+
+    def test_a_token_matching_neither_is_refused(self):
+        assert self._post("neither-credential").status_code == 401
+
+    def test_the_refusal_names_no_credential(self):
+        """The WWW-Authenticate header still carries the RFC 9728 metadata URL, which
+        points at discovery rather than at whichever credential the token failed."""
+        body = self._post("neither-credential").json()
+
+        assert body["error"] == "invalid_token"
+        assert "GITHUB_TOKEN" not in body["error_description"]
+        assert "OAuth" not in body["error_description"]

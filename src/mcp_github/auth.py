@@ -65,8 +65,10 @@ DYNAMODB_SETUP_RETRY_SECONDS = 5.0
 MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
 # The scopes the flow asks GitHub for, advertises to clients and mints for a static
-# token. project is separate from repo, so the board tools need it named, and an
-# authorisation granted before it was asked for stays without it. See #351.
+# token. Both credentials report the same set, so composing them does not refuse the
+# static one for insufficient scope. project is separate from repo, so the board tools
+# need it named, and an authorisation granted before it was asked for stays without it.
+# See #351 and #389.
 GITHUB_SCOPES: tuple[str, ...] = ("repo", "read:org", "user", "project")
 
 # The floor every request clears, which names none of the scopes the tool gate checks.
@@ -284,9 +286,14 @@ def _derive_jwt_signing_key() -> bytes:
     return derive_jwt_key(high_entropy_material=GITHUB_OAUTH_CLIENT_SECRET, salt="fastmcp-jwt-signing-key")  # type: ignore[arg-type]
 
 
+def oauth_configured() -> bool:
+    """True when the deployment holds the whole OAuth trio."""
+    return all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL))
+
+
 def get_oauth_verifier() -> GitHubProvider:
     """Return a GitHubProvider instance for OAuth2 authentication."""
-    if not all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL)):
+    if not oauth_configured():
         raise ValueError(
             "GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_BASE_URL must all be set"
         )
@@ -306,11 +313,13 @@ def get_oauth_verifier() -> GitHubProvider:
 
 
 def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
-    """Return the token for the current request."""
-    if oauth_mode:
-        access_token = get_access_token()
-        if access_token is not None:
-            return access_token.token
-        if not github_token:
-            raise RuntimeError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")
+    """Return the token the current request arrived with, or the static one.
+
+    A deployment may hold both credentials, so the request decides which token a
+    tool acts with rather than the configuration deciding for it. See #389."""
+    access_token = get_access_token()
+    if access_token is not None:
+        return access_token.token
+    if oauth_mode and not github_token:
+        raise RuntimeError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")
     return github_token or ""
