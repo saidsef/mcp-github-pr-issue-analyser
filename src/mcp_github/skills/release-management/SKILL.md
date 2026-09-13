@@ -105,7 +105,7 @@ change either of them.
 | `per_page` | int | `30` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `total` and `releases`, newest first, each trimmed to the same fields
+Returns `count`, `has_more` and `releases`, newest first, each trimmed to the same fields
 `create_release` returns. Drafts appear only for a token that can see them.
 
 ### `get_release`
@@ -149,7 +149,8 @@ deleting the release and publishing it again, or setting it in the GitHub UI.
 | `per_page` | int | `30` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `total` and `tags`, each a `name` and the `sha` it points at.
+Returns `count`, `has_more` and `tags`, each a `name` and the `sha` it points at.
+`count` is the tags on this page. Page on while `has_more` is true.
 
 ### `delete_release`
 

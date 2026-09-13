@@ -211,6 +211,20 @@ def _timeout() -> httpx.Timeout:
     return httpx.Timeout(TIMEOUT, connect=CONNECT_TIMEOUT)
 
 
+def _has_more(response: httpx.Response) -> bool:
+    """GitHub names the next page in the Link header and omits it on the last one,
+    so paging can stop on a fact rather than on a speculative extra call. A full
+    page is not the signal: a set that divides exactly by per_page would loop
+    forever on that guess. See #405."""
+    return 'rel="next"' in response.headers.get("Link", "")
+
+
+def _page(response: httpx.Response, items: list[Any]) -> dict[str, Any]:
+    """The paging half of a list reply. count is what came back this call, which
+    is not the size of the result set, and has_more says whether to ask again."""
+    return {"count": len(items), "has_more": _has_more(response)}
+
+
 def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
     """Trim a GitHub API payload to the given keys (absent keys become None)."""
     return {k: data.get(k) for k in keys}
@@ -441,7 +455,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
         self._http = httpx.AsyncClient(timeout=_timeout())
-        self._etags: dict[str, tuple[str, bytes]] = {}
+        self._etags: dict[str, tuple[str, bytes, str]] = {}
 
         logger.info("GitHub Integration Initialised")
 
@@ -587,13 +601,15 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             response = await self._http.request(method, url, headers=sent, **kwargs)
             if response.status_code == 304 and cached:
                 logger.info(f"Not modified {ctx}")
-                return httpx.Response(200, content=cached[1], request=response.request)
+                # Link rides along, or a replayed page would forget it has a successor.
+                headers = {"Link": cached[2]} if cached[2] else None
+                return httpx.Response(200, content=cached[1], headers=headers, request=response.request)
             if response.status_code in allow_status:
                 logger.info(f"Expected {response.status_code} {ctx}")
                 return response
             self._raise_for_status(response, context)
             if key and (etag := response.headers.get("ETag")):
-                self._remember_etag(key, etag, response.content)
+                self._remember_etag(key, etag, response.content, response.headers.get("Link", ""))
             logger.info(f"Success {method.upper()} {ctx}")
             return response
         except GitHubAuthError:
@@ -601,13 +617,13 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         except Exception as e:
             raise ToolError(str(e)) from e
 
-    def _remember_etag(self, key: str, etag: str, content: bytes) -> None:
+    def _remember_etag(self, key: str, etag: str, content: bytes, link: str = "") -> None:
         """Oldest out first once the cache is full, so a long-running server
         does not grow a body per URL it has ever read."""
         self._etags.pop(key, None)
         while len(self._etags) >= ETAG_CACHE_ENTRIES:
             self._etags.pop(next(iter(self._etags)))
-        self._etags[key] = (etag, content)
+        self._etags[key] = (etag, content, link)
 
     @_read_only
     async def get_pr_diff(
@@ -710,10 +726,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             f"https://api.github.com/repos/{repo_owner}/{repo_name}/{segment}/{pr_number}/comments"
             f"?per_page={per_page}&page={page}"
         )
-        data = (await self._request("GET", url, context=f"{kind} comments on PR #{pr_number}")).json()
+        response = await self._request("GET", url, context=f"{kind} comments on PR #{pr_number}")
         trim = _review_comment_result if kind == "inline" else _comment_result
-        comments = [trim(comment) for comment in data]
-        return {"total": len(comments), "kind": kind, "comments": comments}
+        comments = [trim(comment) for comment in response.json()]
+        return {**_page(response, comments), "kind": kind, "comments": comments}
 
     @_write(idempotent=True)
     async def update_pr_comment(
@@ -896,10 +912,13 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         else:
             search_target = repo_owner
         url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{search_target}&per_page={per_page}&page={page}"
-        data = (await self._request("GET", url, context=f"list open {issue}s for {search_target}")).json()
+        response = await self._request("GET", url, context=f"list open {issue}s for {search_target}")
+        data = response.json()
+        items = [_search_item(item) for item in data["items"]]
         return {
             "total": data["total_count"],
-            f"open_{issue}s": [_search_item(item) for item in data["items"]],
+            **_page(response, items),
+            f"open_{issue}s": items,
         }
 
     @_read_only
@@ -919,11 +938,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "https://api.github.com/search/issues"
             f"?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
         )
-        data = (await self._request("GET", url, context=f"search issues and PRs for {query!r}")).json()
+        response = await self._request("GET", url, context=f"search issues and PRs for {query!r}")
+        data = response.json()
+        items = [_search_item(item) for item in data["items"]]
         return {
             "total": data["total_count"],
             "incomplete_results": data.get("incomplete_results", False),
-            "items": [_search_item(item) for item in data["items"]],
+            **_page(response, items),
+            "items": items,
         }
 
     @_read_only
@@ -936,9 +958,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Lists the labels defined in a repository."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/labels?per_page={per_page}&page={page}"
-        data = (await self._request("GET", url, context=f"labels for {repo_owner}/{repo_name}")).json()
-        labels = [_pick(label, "name", "description", "color") for label in data]
-        return {"total": len(labels), "labels": labels}
+        response = await self._request("GET", url, context=f"labels for {repo_owner}/{repo_name}")
+        labels = [_pick(label, "name", "description", "color") for label in response.json()]
+        return {**_page(response, labels), "labels": labels}
 
     async def _milestone_by_title(self, repo_owner: str, repo_name: str, title: str) -> dict[str, Any] | None:
         """The milestone with this title, open or closed, or None. GitHub addresses
@@ -985,7 +1007,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             str, "User or organisation. Omit for the caller's own, which is the only way to see private ones"
         ] = "",
         sort: _RepoSort = "updated",
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 30,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists repositories for a user, an organisation, or the caller. The
@@ -998,15 +1020,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             path = f"orgs/{owner}/repos"
         else:
             path = f"users/{owner}/repos"
-        data = (
-            await self._request(
-                "GET",
-                f"https://api.github.com/{path}",
-                context=f"repos for {owner or 'the authenticated user'}",
-                params={"sort": sort, "per_page": per_page, "page": page},
-            )
-        ).json()
-        return {"total": len(data), "repos": [_repo_result(repo) for repo in data]}
+        response = await self._request(
+            "GET",
+            f"https://api.github.com/{path}",
+            context=f"repos for {owner or 'the authenticated user'}",
+            params={"sort": sort, "per_page": per_page, "page": page},
+        )
+        repos = [_repo_result(repo) for repo in response.json()]
+        return {**_page(response, repos), "repos": repos}
 
     @_read_only
     async def list_milestones(
@@ -1019,16 +1040,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Lists a repository's milestones with the count of issues in each."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
-        data = (
-            await self._request(
-                "GET",
-                url,
-                context=f"{state} milestones for {repo_owner}/{repo_name}",
-                params={"state": state, "per_page": per_page, "page": page},
-            )
-        ).json()
-        milestones = [_pick(milestone, *_MILESTONE_FIELDS) for milestone in data]
-        return {"total": len(milestones), "state": state, "milestones": milestones}
+        response = await self._request(
+            "GET",
+            url,
+            context=f"{state} milestones for {repo_owner}/{repo_name}",
+            params={"state": state, "per_page": per_page, "page": page},
+        )
+        milestones = [_pick(milestone, *_MILESTONE_FIELDS) for milestone in response.json()]
+        return {**_page(response, milestones), "state": state, "milestones": milestones}
 
     @_write
     async def create_milestone(
@@ -1442,14 +1461,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self,
         repo_owner: str,
         repo_name: str,
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 30,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists a repository's releases, newest first."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases?per_page={per_page}&page={page}"
-        data = (await self._request("GET", url, context=f"releases for {repo_owner}/{repo_name}")).json()
-        releases = [_pick(release, *_RELEASE_FIELDS) for release in data]
-        return {"total": len(releases), "releases": releases}
+        response = await self._request("GET", url, context=f"releases for {repo_owner}/{repo_name}")
+        releases = [_pick(release, *_RELEASE_FIELDS) for release in response.json()]
+        return {**_page(response, releases), "releases": releases}
 
     @_read_only
     async def get_release(
@@ -1515,14 +1534,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self,
         repo_owner: str,
         repo_name: str,
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 30,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists a repository's tags and the commit each points at."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/tags?per_page={per_page}&page={page}"
-        data = (await self._request("GET", url, context=f"tags for {repo_owner}/{repo_name}")).json()
-        tags = [{"name": tag["name"], "sha": (tag.get("commit") or {}).get("sha")} for tag in data]
-        return {"total": len(tags), "tags": tags}
+        response = await self._request("GET", url, context=f"tags for {repo_owner}/{repo_name}")
+        tags = [{"name": tag["name"], "sha": (tag.get("commit") or {}).get("sha")} for tag in response.json()]
+        return {**_page(response, tags), "tags": tags}
 
     async def _delete_tag_ref(self, repo_owner: str, repo_name: str, tag_name: str) -> None:
         """Removes the tag ref itself."""
@@ -1604,7 +1623,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         after: Annotated[str | None, "next_cursor from a previous call, to read the following page"] = None,
     ) -> dict[str, Any]:
         """Lists what is on a project board with each card's field values, so a
-        backlog can be read by Status rather than one issue at a time."""
+        backlog can be read by Status rather than one issue at a time. A board is
+        a GraphQL connection, which pages by cursor rather than page number, so
+        pass next_cursor back as after until has_more comes back false."""
         async with self._guard("list project items"):
             result = await self._execute_graphql(
                 PROJECT_ITEMS_QUERY,
@@ -1613,11 +1634,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         project = _require_project(result, project_owner, project_number)
         items = project.get("items") or {}
         page = items.get("pageInfo") or {}
+        cards = [_project_item_summary(node) for node in items.get("nodes") or []]
         return {
             "project_number": project_number,
             "title": project.get("title"),
             "total": items.get("totalCount"),
-            "items": [_project_item_summary(node) for node in items.get("nodes") or []],
+            "count": len(cards),
+            "has_more": bool(page.get("hasNextPage")),
+            "items": cards,
             "next_cursor": page.get("endCursor") if page.get("hasNextPage") else None,
         }
 

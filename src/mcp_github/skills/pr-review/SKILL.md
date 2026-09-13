@@ -79,7 +79,7 @@ standalone comment rather than part of a review.
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `total`, `kind` and `comments`. Inline comments carry `path`, `line`,
+Returns `count`, `has_more`, `kind` and `comments`. Inline comments carry `path`, `line`,
 `side`, `start_line`, `start_side` and `in_reply_to_id` on top of the usual
 `CommentData` fields, which is what lets a review tell whether it has already
 spoken about a line or a range.
