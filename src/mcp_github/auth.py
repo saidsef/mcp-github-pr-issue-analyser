@@ -309,6 +309,12 @@ def get_oauth_verifier() -> GitHubProvider:
     # The floor is all the provider would otherwise offer, so registration, discovery
     # and the consent screen are put back to every scope the tools need.
     provider.update_default_scopes(list(GITHUB_SCOPES))
+    # The authorisation request falls back to required_scopes when a client names no
+    # scopes of its own, and that floor is deliberately just user, so GitHub was asked
+    # for user alone and no grant ever carried repo. The floor and the fallback are one
+    # list on the provider, so the request carries the full set instead. See #441.
+    provider._extra_authorize_params = {**getattr(provider, "_extra_authorize_params", {}),
+                                        "scope": " ".join(GITHUB_SCOPES)}
     return provider
 
 

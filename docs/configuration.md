@@ -47,6 +47,16 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 
 `GITHUB_OAUTH_BASE_URL` must be the URL clients reach, not the internal bind address. A mismatch makes GitHub reject the redirect.
 
+The consent screen asks for `repo`, `read:org`, `user` and `project`, whatever a
+client requests for itself. `repo` covers the write and destructive tools,
+`project` the board tools on top of it, and `read:org` the org membership the
+activity queries read. A grant carrying only `user` clears the floor and is
+admitted, and the scope gate then hides the 24 tools it cannot reach.
+
+An authorisation is not widened by re-authorising. GitHub offers only what the
+request asks for, so a grant made before a scope was added keeps its original
+set until the authorisation is revoked and made again.
+
 ## Shared token store
 
 OAuth client registrations and token state live in process by default. They are lost on restart and are not shared between replicas, so more than one replica needs a shared store.

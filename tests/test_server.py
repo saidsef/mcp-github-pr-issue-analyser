@@ -9,6 +9,7 @@ from contextlib import ExitStack, contextmanager
 from importlib.metadata import PackageNotFoundError
 from typing import Any
 from unittest.mock import AsyncMock, patch
+from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastmcp.exceptions import InsufficientScopeError
@@ -313,6 +314,41 @@ class TestScopeFloor:
         assert provider.scopes_supported == list(GITHUB_SCOPES)
         assert provider.client_registration_options.default_scopes == list(GITHUB_SCOPES)
         assert set(GATED_SCOPES) <= set(GITHUB_SCOPES)
+
+    @staticmethod
+    def _authorize_scope(provider, transaction: dict) -> list[str]:
+        """The scope GitHub is actually asked for, read off the request itself."""
+        url = provider._build_upstream_authorize_url("a-transaction", transaction)
+        return parse_qs(urlparse(url).query).get("scope", [""])[0].split()
+
+    def test_the_authorisation_request_asks_for_every_gated_scope(self):
+        """Advertising a scope is not asking for one. The metadata above carried the
+        full set while the request carried the floor, so no grant held repo and the
+        24 gated tools were unreachable however often a user re-authorised. See #441."""
+        with _deployment(token=None, oauth=True):
+            provider = get_oauth_verifier()
+
+        asked = self._authorize_scope(provider, {})
+
+        assert set(GATED_SCOPES) <= set(asked)
+        assert set(asked) == set(GITHUB_SCOPES)
+
+    def test_the_request_carries_the_set_whatever_the_client_names(self):
+        """A client that names nothing used to fall back to the floor."""
+        with _deployment(token=None, oauth=True):
+            provider = get_oauth_verifier()
+
+        for transaction in ({}, {"scopes": ["user"]}, {"scopes": list(GITHUB_SCOPES)}):
+            assert set(self._authorize_scope(provider, transaction)) == set(GITHUB_SCOPES), transaction
+
+    def test_asking_for_more_does_not_raise_the_floor(self):
+        """The transport refuses a grant short of the floor before the gate runs, so
+        widening the request must leave the floor alone."""
+        with _deployment(token=None, oauth=True):
+            provider = get_oauth_verifier()
+
+        assert provider.required_scopes == list(REQUIRED_SCOPES)
+        assert provider._token_validator.required_scopes == list(REQUIRED_SCOPES)
 
 
 class TestPackageVersion:
