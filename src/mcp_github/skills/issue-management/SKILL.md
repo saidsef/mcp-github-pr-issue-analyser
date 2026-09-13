@@ -136,10 +136,12 @@ Returns `{"total": int, "open_prs" | "open_issues": [...]}`, where the list key
 follows the `issue` argument. Each entry carries `url`, `title`, `number`,
 `state`, `created_at`, `updated_at`, `author`, `label_names` and `is_draft`.
 
-Only open items are returned, since the search is hardcoded to `is:open`.
+Only open items are returned, since the search is hardcoded to `is:open`. Reach
+for `search_issues_prs` for a closed or merged item.
 
-`is_draft` here is the one place the server exposes draft status, so use this
-tool when a review or merge decision depends on it.
+`is_draft` carries draft status, which `get_pr_content` does not return. This
+tool and `search_issues_prs` share the result shape, so either one answers a
+review or merge decision that turns on it.
 
 ### `search_issues_prs`
 
