@@ -445,6 +445,8 @@ class TestUpdatePrTitleAndBody:
             "head_sha": None,
             "head_ref": None,
             "base_ref": None,
+            "requested_reviewers": [],
+            "requested_teams": [],
         }
 
 
@@ -2231,6 +2233,8 @@ class TestUpdatePR:
             "head_sha": None,
             "head_ref": None,
             "base_ref": None,
+            "requested_reviewers": [],
+            "requested_teams": [],
         }
 
     @pytest.mark.anyio
@@ -3211,6 +3215,111 @@ class TestMissingCredentials:
         assert raised.value.status_code == 401
         assert "[AUTH_FAILED] HTTP 401" in str(raised.value)
         assert MISSING_CREDENTIALS in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# list_pr_reviews — the read counterpart to update_reviews. See #408.
+# ---------------------------------------------------------------------------
+
+
+def _review_payload(**overrides) -> dict:
+    return {
+        "id": 80,
+        "node_id": "PRR_abc",
+        "user": _NOISE_USER,
+        "body": "LGTM",
+        "state": "APPROVED",
+        "html_url": "https://github.com/o/r/pull/5#pullrequestreview-80",
+        "pull_request_url": "https://api.github.com/repos/o/r/pulls/5",
+        "author_association": "OWNER",
+        "_links": {"html": {"href": "https://github.com/x"}},
+        "submitted_at": "2026-07-01T00:00:00Z",
+        "commit_id": "abc123",
+        **overrides,
+    }
+
+
+class TestListPRReviews:
+    @pytest.mark.anyio
+    async def test_an_approval_carries_its_author_and_verdict(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_review_payload()]))
+        result = await gi.list_pr_reviews("o", "r", 5)
+        assert result["reviews"] == [{
+            "id": 80,
+            "author": "octocat",
+            "state": "APPROVED",
+            "body": "LGTM",
+            "html_url": "https://github.com/o/r/pull/5#pullrequestreview-80",
+            "submitted_at": "2026-07-01T00:00:00Z",
+            "commit_id": "abc123",
+        }]
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("state", ["APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED"])
+    async def test_every_verdict_comes_back_as_given(self, gi: GitHubIntegration, state: str):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_review_payload(state=state)]))
+        assert (await gi.list_pr_reviews("o", "r", 5))["reviews"][0]["state"] == state
+
+    @pytest.mark.anyio
+    async def test_an_unreviewed_pr_returns_nothing_rather_than_failing(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        result = await gi.list_pr_reviews("o", "r", 5)
+        assert result["reviews"] == []
+        assert result["count"] == 0
+
+    @pytest.mark.anyio
+    async def test_a_pending_review_is_told_apart_by_a_missing_timestamp(self, gi: GitHubIntegration):
+        """GitHub omits submitted_at on a review that was written but not sent."""
+        payload = _review_payload(state="PENDING")
+        del payload["submitted_at"]
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[payload]))
+        assert (await gi.list_pr_reviews("o", "r", 5))["reviews"][0]["submitted_at"] is None
+
+    @pytest.mark.anyio
+    async def test_the_noise_is_trimmed_away(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_review_payload()]))
+        review = (await gi.list_pr_reviews("o", "r", 5))["reviews"][0]
+        for noise in ("node_id", "_links", "pull_request_url", "author_association", "user"):
+            assert noise not in review
+
+    @pytest.mark.anyio
+    async def test_paging_goes_out_in_the_url(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
+        await gi.list_pr_reviews("o", "r", 5, per_page=100, page=2)
+        url = gi._http.request.call_args.args[1]
+        assert url.endswith("/pulls/5/reviews?per_page=100&page=2")
+
+    def test_is_read_only(self, gi: GitHubIntegration):
+        assert gi.list_pr_reviews._mcp_annotations.read_only_hint is True
+
+
+class TestRequestedReviewers:
+    @pytest.mark.anyio
+    async def test_get_pr_content_reports_who_was_asked(self, gi: GitHubIntegration):
+        """Distinguishes nobody having reviewed from nobody having been asked."""
+        payload = {
+            "title": "A change", "body": "Details", "user": _NOISE_USER,
+            "created_at": "2026-07-01T00:00:00Z", "updated_at": "2026-07-02T00:00:00Z",
+            "state": "open", "head": {"sha": "s", "ref": "f"}, "base": {"ref": "main"},
+            "requested_reviewers": [{"login": "octocat"}, {"login": "hubot"}],
+            "requested_teams": [{"slug": "platform"}],
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.get_pr_content("o", "r", 5)
+        assert result["requested_reviewers"] == ["octocat", "hubot"]
+        assert result["requested_teams"] == ["platform"]
+
+    @pytest.mark.anyio
+    async def test_a_pr_nobody_was_asked_to_review_reports_empty(self, gi: GitHubIntegration):
+        payload = {
+            "title": "A change", "body": "Details", "user": _NOISE_USER,
+            "created_at": "2026-07-01T00:00:00Z", "updated_at": "2026-07-02T00:00:00Z",
+            "state": "open", "head": {}, "base": {},
+        }
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
+        result = await gi.get_pr_content("o", "r", 5)
+        assert result["requested_reviewers"] == []
+        assert result["requested_teams"] == []
 
 
 # ---------------------------------------------------------------------------

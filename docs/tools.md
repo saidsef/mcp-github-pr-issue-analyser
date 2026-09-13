@@ -15,7 +15,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
-| `get_pr_content` | read | PR title, description, author, timestamps, state, head SHA and the branches either side |
+| `get_pr_content` | read | PR title, description, author, timestamps, state, head SHA, the branches either side and who was asked to review |
 | `get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
@@ -28,6 +28,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
 | `update_pr_comment` | write | Rewrite a comment already posted |
 | `reply_to_review_comment` | write | Reply on an existing review thread |
+| `list_pr_reviews` | read | Reviews submitted on a PR, each with its author, verdict and timestamp |
 | `update_reviews` | write | Approve, request changes, or comment as a review |
 | `update_assignees` | write | Assign or update users on a PR or issue |
 

@@ -15,7 +15,7 @@ Post targeted inline comments on specific lines, then submit a review decision o
 ## Workflow
 
 1. **Analyse the PR** - follow the `pr-analysis` skill to read the diff, metadata and CI status
-2. **Read what is already there** - call `list_pr_comments` with `kind="inline"` so a second review does not repeat the first
+2. **Read what is already there** - call `list_pr_reviews` for the verdicts already given, and `list_pr_comments` with `kind="inline"` so a second review does not repeat the first
 3. **Post inline comments** - call `add_inline_pr_comment` once per line needing feedback
 4. **Post a general comment** - optionally call `add_pr_comments` for remarks not tied to a line
 5. **Submit the decision** - call `update_reviews` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`, leaving `body` unset on an approval
@@ -55,6 +55,29 @@ addition and an unchanged context line both sit on `RIGHT`.
 Pass `start_line` to cover a block in one comment rather than picking a line out
 of it. `start_line` must come before `line`, which is checked before the call is
 sent.
+
+### `list_pr_reviews`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `pr_number` | int | - | Pull request number |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
+| `page` | int | `1` | Page number |
+
+Returns `count`, `has_more` and `reviews`, oldest first. Each review carries
+`id`, `author`, `state`, `body`, `html_url`, `submitted_at` and `commit_id`.
+
+`state` is `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED` or
+`PENDING`. A review is not a comment: `list_pr_comments` returns what was said
+on lines and in the thread, and says nothing about whether anyone approved.
+
+`submitted_at` is `None` on a `PENDING` review, which is one written but never
+sent.
+
+An empty list means nobody has reviewed. To tell that from nobody having been
+asked, read `requested_reviewers` on `get_pr_content`.
 
 ### `add_pr_comments`
 
@@ -145,6 +168,7 @@ author cannot act on either decision without knowing what prompted it.
 
 ## Best Practices
 
+- Call `list_pr_reviews` before approving, since a standing `REQUEST_CHANGES` from someone else still blocks the merge
 - List the existing inline comments before reviewing again, otherwise the same remarks land twice
 - Post every inline comment before calling `update_reviews`
 - Use `add_inline_pr_comment` for line-specific feedback and `add_pr_comments` for high-level remarks

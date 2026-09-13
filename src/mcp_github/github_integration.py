@@ -73,6 +73,8 @@ class PRContent(TypedDict):
     head_sha: str | None
     head_ref: str | None
     base_ref: str | None
+    requested_reviewers: list[str]
+    requested_teams: list[str]
 
 
 class CommentData(TypedDict):
@@ -81,6 +83,16 @@ class CommentData(TypedDict):
     author: str
     html_url: str
     created_at: str
+
+
+class ReviewData(TypedDict):
+    id: int
+    author: str
+    state: str
+    body: str | None
+    html_url: str
+    submitted_at: str | None
+    commit_id: str | None
 
 
 class ReviewCommentData(CommentData, total=False):
@@ -246,6 +258,8 @@ def _pr_content(data: dict[str, Any]) -> PRContent:
         "head_sha": head.get("sha"),
         "head_ref": head.get("ref"),
         "base_ref": (data.get("base") or {}).get("ref"),
+        "requested_reviewers": [user["login"] for user in data.get("requested_reviewers") or []],
+        "requested_teams": [team["slug"] for team in data.get("requested_teams") or []],
     }
 
 
@@ -331,6 +345,20 @@ def _search_item(item: dict[str, Any]) -> dict[str, Any]:
         "author": (item.get("user") or {}).get("login", ""),
         "label_names": [label["name"] for label in item.get("labels", [])],
         "is_draft": item.get("draft", False),
+    }
+
+
+def _review_result(data: dict[str, Any]) -> ReviewData:
+    """Trim a GitHub review payload. submitted_at is absent on a PENDING review,
+    which is how a caller tells one that was written from one that was sent."""
+    return {
+        "id": data["id"],
+        "author": (data.get("user") or {}).get("login", ""),
+        "state": data.get("state", ""),
+        "body": data.get("body"),
+        "html_url": data["html_url"],
+        "submitted_at": data.get("submitted_at"),
+        "commit_id": data.get("commit_id"),
     }
 
 
@@ -1199,6 +1227,28 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             )
         ).json()
         return _issue_result(data)
+
+    @_read_only
+    async def list_pr_reviews(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
+    ) -> dict[str, Any]:
+        """Lists the reviews submitted on a pull request, oldest first, each with
+        its author and verdict. A review is not a comment: list_pr_comments returns
+        what was said on lines and in the thread, not whether anyone approved.
+        Read requested_reviewers from get_pr_content to tell nobody has reviewed
+        from nobody having been asked. See #408."""
+        url = (
+            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
+            f"?per_page={per_page}&page={page}"
+        )
+        response = await self._request("GET", url, context=f"reviews on PR #{pr_number}")
+        reviews = [_review_result(review) for review in response.json()]
+        return {**_page(response, reviews), "reviews": reviews}
 
     @_write
     async def update_reviews(
