@@ -125,3 +125,20 @@ metadata:
 ## Personal access token scopes
 
 The PAT needs `repo` for private repositories. Reading org membership in user activity queries also needs `read:org`. The project board tools need `read:project` to read and `project` to write, which `repo` does not cover. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope, plus Projects read and write for the board tools.
+
+## Scopes each tool needs
+
+Every tool declares the scopes its work needs, and the server checks that declaration against the caller's grant.
+
+| Tool class | Scopes required | Examples |
+|------------|-----------------|----------|
+| Read-only | None | `get_pr_diff`, `list_repos`, `search_issues_prs` |
+| Write | `repo` | `create_issue`, `update_pr`, `merge_pr` |
+| Destructive | `repo` | `delete_release`, `delete_tag` |
+| Board write | `repo` and `project` | `add_to_project`, `set_project_field`, `remove_from_project` |
+
+The check runs when the tools are listed as well as when one is called. In OAuth2 mode a grant without `repo` sees only the read-only tools, and a call to any of the others is refused with `insufficient scope (required: repo)`. The refusal names the scope the grant lacks, so a client can re-authorise for it rather than reading a GitHub `403` raised from inside the call.
+
+Only `user` is required of every request. The scopes the gate checks are deliberately absent from that floor, because the transport answers `403` to a grant that falls short of it and the caller would lose the read-only tools along with the rest. The flow still asks GitHub for `repo`, `read:org`, `user` and `project`, and still advertises all four to clients, so a caller who accepts the server's default holds the scopes the gated tools want.
+
+stdio has no grant to check, so every tool stays listed. A static token reports every scope the flow asks for, so it reaches every tool whether it is the only credential or shares the deployment with OAuth2.

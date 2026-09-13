@@ -8,6 +8,7 @@ import pytest
 from mcp_github import auth
 from mcp_github.auth import (
     GITHUB_SCOPES,
+    REQUIRED_SCOPES,
     APIKeyVerifier,
     oauth_configured,
     resolve_token,
@@ -49,12 +50,14 @@ class TestAPIKeyVerifier:
 
     @pytest.mark.anyio
     async def test_it_reports_the_scopes_the_oauth_grant_reports(self):
-        """MultiAuth checks every token against the OAuth provider's required scopes,
-        so a narrower set here refuses the static token with a 403. See #389."""
+        """MultiAuth checks every token against the provider's floor, and the scope gate
+        checks what a tool needs beyond it, so the static grant reports the whole set the
+        flow asks GitHub for. See #388 and #389."""
         verified = await APIKeyVerifier("pat").verify_token("pat")
 
         assert verified is not None
-        assert verified.scopes == GITHUB_SCOPES
+        assert verified.scopes == list(GITHUB_SCOPES)
+        assert set(REQUIRED_SCOPES) <= set(verified.scopes)
 
     @pytest.mark.anyio
     async def test_any_other_token_is_refused(self):

@@ -45,7 +45,7 @@ reaches for a token. See #392.
 
 In OAuth2 mode the server acts as its own authorisation server: it accepts dynamic client registration, proxies GitHub's authorisation code flow, and issues JWTs signed with a key derived from `JWT_SIGNING_KEY` or the OAuth client secret. Audit trails and rate limits then follow the individual user rather than the server.
 
-Under `MultiAuth` the `GitHubProvider` still serves those routes and the protected resource metadata, and `APIKeyVerifier` is tried after it. Both report the same scopes, so the scope check on the composed provider passes for either credential. A bearer token matching neither is refused with `401 invalid_token`, naming neither.
+Under `MultiAuth` the `GitHubProvider` still serves those routes and the protected resource metadata, and `APIKeyVerifier` is tried after it. The composed provider takes its required scopes from the `GitHubProvider`, and a static grant reports every scope the flow asks GitHub for, so either credential clears that floor. What a tool needs beyond it is left to the scope gate. A bearer token matching neither is refused with `401 invalid_token`, naming neither.
 
 ## Token store
 

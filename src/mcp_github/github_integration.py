@@ -59,7 +59,7 @@ from .graphql_queries import (
     SEARCH_USER_QUERY,
     SET_PROJECT_FIELD_MUTATION,
 )
-from .tool_annotations import _destructive, _read_only, _write
+from .tool_annotations import PROJECT_SCOPES, _destructive, _read_only, _write
 
 
 class PRContent(TypedDict):
@@ -1464,7 +1464,7 @@ class GitHubIntegration(ActivityMixin):
             "next_cursor": page.get("endCursor") if page.get("hasNextPage") else None,
         }
 
-    @_write(idempotent=True)
+    @_write(idempotent=True, scopes=PROJECT_SCOPES)
     async def add_to_project(
         self,
         project_owner: str,
@@ -1486,7 +1486,7 @@ class GitHubIntegration(ActivityMixin):
             "url": node.get("url"),
         }
 
-    @_write(idempotent=True)
+    @_write(idempotent=True, scopes=PROJECT_SCOPES)
     async def set_project_field(
         self,
         project_owner: str,
@@ -1517,7 +1517,7 @@ class GitHubIntegration(ActivityMixin):
             "option": option,
         }
 
-    @_destructive
+    @_destructive(scopes=PROJECT_SCOPES)
     async def remove_from_project(
         self,
         project_owner: str,

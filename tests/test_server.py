@@ -2,22 +2,36 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from importlib.metadata import PackageNotFoundError
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastmcp.server.auth import MultiAuth
+from fastmcp.exceptions import InsufficientScopeError
+from fastmcp.server.auth import AccessToken, MultiAuth
 from fastmcp.server.auth.providers.github import GitHubProvider
+from fastmcp.server.context import reset_transport, set_transport
 from starlette.middleware import Middleware as ASGIMiddleware
 from starlette.testclient import TestClient
 
-from mcp_github.auth import GITHUB_SCOPES, MISSING_CREDENTIALS, APIKeyVerifier, UnconfiguredCredentials
+from mcp_github.auth import (
+    GITHUB_SCOPES,
+    MISSING_CREDENTIALS,
+    REQUIRED_SCOPES,
+    APIKeyVerifier,
+    UnconfiguredCredentials,
+    get_oauth_verifier,
+)
 from mcp_github.issues_pr_analyser import VERSION, PRIssueAnalyser, _package_version
+from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 _MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 _STATIC_TOKEN = "test-token"
+_AUTH_HEADERS = _MCP_HEADERS | {"Authorization": f"Bearer {_STATIC_TOKEN}"}
+_A_RELEASE = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
 _OAUTH_SETTINGS = {
     "GITHUB_OAUTH_CLIENT_ID": "Ov23liExample",
     "GITHUB_OAUTH_CLIENT_SECRET": "oauth-client-secret",
@@ -26,15 +40,17 @@ _OAUTH_SETTINGS = {
 
 
 @contextmanager
-def _deployment(*, token: str | None, oauth: bool, remote: bool = False):
+def _deployment(*, token: str | None, oauth: bool, remote: bool = False) -> Iterator[None]:
     """The settings an analyser reads while it is being built. The OAuth trio is read
     from auth, the static token from github_integration, and the transport flag from
-    the server module."""
+    the server module. The token store stays in memory whatever the environment holds."""
     with ExitStack() as stack:
         stack.enter_context(patch("mcp_github.github_integration.GITHUB_TOKEN", token))
         for name, value in _OAUTH_SETTINGS.items():
             stack.enter_context(patch(f"mcp_github.auth.{name}", value if oauth else None))
         stack.enter_context(patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", remote))
+        stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
+        stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
         yield
 
 
@@ -47,6 +63,18 @@ def _unconfigured() -> PRIssueAnalyser:
     """An analyser holding neither the OAuth trio nor a static token."""
     with _deployment(token=None, oauth=False):
         return PRIssueAnalyser()
+
+
+@contextmanager
+def _grant(scopes: list[str]) -> Iterator[None]:
+    """A request over an HTTP transport carrying an OAuth grant with these scopes."""
+    token = AccessToken(token="t", client_id="c", expires_at=None, scopes=scopes, claims={})
+    transport = set_transport("streamable-http")
+    try:
+        with patch("fastmcp.server.middleware.authorization.get_access_token", return_value=token):
+            yield
+    finally:
+        reset_transport(transport)
 
 
 def _app(analyser: PRIssueAnalyser):
@@ -103,13 +131,173 @@ class TestLandingRoute:
         with TestClient(app) as client:
             body = client.get("/").json()
 
-        assert body["tools"] == len(await analyser.mcp.list_tools())
+        assert body["tools"] == len(await analyser.mcp.list_tools(run_middleware=False))
         assert body["tools"] > 0
 
     def test_head_request_succeeds(self):
         app = _analyser().mcp.http_app(transport="http", stateless_http=True)
         with TestClient(app) as client:
             assert client.head("/").status_code == 200
+
+
+class TestScopeGate:
+    """Write and destructive tools are gated on the scopes they need. See #388."""
+
+    @pytest.mark.anyio
+    async def test_a_tool_carries_the_scopes_it_declares_as_tags(self):
+        analyser = _analyser()
+        tools = {tool.name: tool for tool in await analyser.mcp.list_tools(run_middleware=False)}
+        for name in dir(analyser.gi):
+            if name.startswith("_"):
+                continue
+            scopes = getattr(getattr(analyser.gi, name), "_mcp_scopes", None)
+            if scopes is None:
+                continue
+            assert tools[name].tags == set(scopes), name
+
+    @pytest.mark.anyio
+    async def test_a_read_only_grant_sees_only_the_read_only_tools(self):
+        analyser = _analyser()
+        registered = await analyser.mcp.list_tools(run_middleware=False)
+        with _grant(["read:org"]):
+            listed = await analyser.mcp.list_tools()
+
+        assert [tool.name for tool in listed] == [tool.name for tool in registered if not tool.tags]
+        assert len(listed) < len(registered)
+
+    @pytest.mark.anyio
+    async def test_a_grant_holding_the_scopes_sees_every_tool(self):
+        analyser = _analyser()
+        registered = await analyser.mcp.list_tools(run_middleware=False)
+        with _grant(list(GATED_SCOPES)):
+            listed = await analyser.mcp.list_tools()
+
+        assert len(listed) == len(registered)
+
+    @pytest.mark.anyio
+    async def test_a_grant_without_the_project_scope_loses_the_board_tools(self):
+        """A board sits outside the repository it tracks, so repo alone does not
+        reach it. See #351."""
+        analyser = _analyser()
+        with _grant(list(WRITE_SCOPES)):
+            listed = {tool.name for tool in await analyser.mcp.list_tools()}
+
+        assert "create_issue" in listed
+        assert listed.isdisjoint({"add_to_project", "set_project_field", "remove_from_project"})
+
+    @pytest.mark.anyio
+    async def test_the_gate_holds_a_check_for_every_scope_a_tool_declares(self):
+        analyser = _analyser()
+        declared = {scope for tool in await analyser.mcp.list_tools(run_middleware=False) for scope in tool.tags}
+
+        assert declared == set(GATED_SCOPES)
+
+    @pytest.mark.anyio
+    async def test_a_refused_call_names_the_missing_scope(self):
+        analyser = _analyser()
+        arguments = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
+        with _grant(["read:org"]), pytest.raises(InsufficientScopeError) as refusal:
+            await analyser.mcp.call_tool("delete_release", arguments)
+
+        assert refusal.value.required_scopes == list(WRITE_SCOPES)
+        assert "delete_release" in str(refusal.value)
+        for scope in WRITE_SCOPES:
+            assert scope in str(refusal.value)
+
+    @pytest.mark.anyio
+    async def test_the_static_token_grant_holds_the_scopes_the_gate_needs(self):
+        granted = await APIKeyVerifier("test-token").verify_token("test-token")
+
+        assert granted is not None
+        assert set(WRITE_SCOPES) <= set(granted.scopes)
+
+    @pytest.mark.anyio
+    async def test_stdio_keeps_every_tool(self):
+        analyser = _analyser()
+        registered = await analyser.mcp.list_tools(run_middleware=False)
+        transport = set_transport("stdio")
+        try:
+            listed = await analyser.mcp.list_tools()
+        finally:
+            reset_transport(transport)
+
+        assert len(listed) == len(registered)
+
+
+@contextmanager
+def _remote_client(granted: tuple[str, ...]) -> Iterator[TestClient]:
+    """The app the remote deployment runs, answering a bearer token whose grant holds
+    these scopes."""
+    with _deployment(token=_STATIC_TOKEN, oauth=False, remote=True):
+        analyser = PRIssueAnalyser()
+    with patch("mcp_github.auth.GITHUB_SCOPES", granted), TestClient(_app(analyser)) as client:
+        yield client
+
+
+def _payload(response) -> dict:
+    """The JSON body of a streamable HTTP response, which arrives as an SSE event."""
+    body = response.text
+    return json.loads(body.split("data: ", 1)[1] if body.startswith("event:") else body)
+
+
+def _rpc(client: TestClient, method: str, params: dict | None = None) -> dict:
+    """One JSON-RPC call over the streamable HTTP transport."""
+    response = client.post(
+        "/mcp", headers=_AUTH_HEADERS, json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}}
+    )
+    assert response.status_code == 200, response.text
+    return _payload(response)
+
+
+class TestScopeGateOverHTTP:
+    """The gate as a caller meets it, through the transport that enforces the floor
+    before the middleware sees the request. See #388."""
+
+    def test_a_grant_holding_every_scope_reaches_every_tool(self):
+        with _remote_client(GITHUB_SCOPES) as client:
+            listed = {tool["name"] for tool in _rpc(client, "tools/list")["result"]["tools"]}
+
+        assert {"get_pr_diff", "create_issue", "add_to_project"} <= listed
+
+    def test_a_floor_only_grant_is_admitted_and_filtered(self):
+        """The transport lets the request through, and the gate answers it."""
+        with _remote_client(REQUIRED_SCOPES) as client:
+            listed = {tool["name"] for tool in _rpc(client, "tools/list")["result"]["tools"]}
+            refused = _rpc(client, "tools/call", {"name": "delete_release", "arguments": _A_RELEASE})
+
+        assert "get_pr_diff" in listed
+        assert listed.isdisjoint({"create_issue", "add_to_project"})
+        assert refused["result"]["isError"] is True
+        assert "insufficient scope (required: repo)" in refused["result"]["content"][0]["text"]
+
+
+class TestScopeFloor:
+    """What the transport requires of every grant, which is what the gate can filter.
+    See #388."""
+
+    def test_the_floor_names_no_scope_the_gate_checks(self):
+        """The transport refuses a grant short of the floor before the gate runs, so a
+        gated scope in the floor would cost the read-only tools their access too."""
+        assert set(REQUIRED_SCOPES).isdisjoint(GATED_SCOPES)
+
+    def test_the_provider_requires_only_the_floor(self):
+        with _deployment(token=None, oauth=True):
+            provider = get_oauth_verifier()
+
+        # The transport reads the first and the GitHub token check the second, and
+        # both refuse a grant short of them before any tool is reached.
+        assert provider.required_scopes == list(REQUIRED_SCOPES)
+        assert provider._token_validator.required_scopes == list(REQUIRED_SCOPES)
+
+    def test_the_provider_still_offers_every_scope_the_tools_need(self):
+        """Requiring less must not ask GitHub for less, or no grant would ever hold
+        the scopes the gated tools want."""
+        with _deployment(token=None, oauth=True):
+            provider = get_oauth_verifier()
+
+        assert provider.scopes_supported == list(GITHUB_SCOPES)
+        assert provider.client_registration_options.default_scopes == list(GITHUB_SCOPES)
+        assert set(GATED_SCOPES) <= set(GITHUB_SCOPES)
 
 
 class TestPackageVersion:
@@ -174,11 +362,13 @@ class TestAuthSelection:
         assert isinstance(auth.server, GitHubProvider)
         assert [type(verifier) for verifier in auth.verifiers] == [APIKeyVerifier]
 
-    def test_the_composed_scopes_come_from_the_oauth_provider(self):
-        """The static token is verified against these too, so they have to match."""
+    def test_the_composed_floor_comes_from_the_oauth_provider(self):
+        """The static token is verified against the floor too, so its grant has to clear
+        it. What a tool needs beyond the floor is left to the scope gate. See #388."""
         auth = self._auth(token=_STATIC_TOKEN, oauth=True)
 
-        assert auth.required_scopes == GITHUB_SCOPES
+        assert auth.required_scopes == list(REQUIRED_SCOPES)
+        assert set(REQUIRED_SCOPES) <= set(GITHUB_SCOPES)
 
     def test_the_oauth_trio_alone_stays_the_oauth_provider(self):
         assert isinstance(self._auth(token=None, oauth=True), GitHubProvider)
@@ -209,6 +399,13 @@ class TestCombinedCredentials:
     def test_the_static_token_reaches_the_tools(self):
         """An OAuth deployment used to refuse this, which is what forced a second one."""
         assert self._post(_STATIC_TOKEN).status_code == 200
+
+    def test_the_static_token_reaches_the_gated_tools(self):
+        """Its grant reports every scope the flow asks GitHub for, so the gate lists the
+        tools that write as well as the ones that read. See #388."""
+        listed = {tool["name"] for tool in _payload(self._post(_STATIC_TOKEN))["result"]["tools"]}
+
+        assert {"get_pr_diff", "create_issue", "add_to_project"} <= listed
 
     def test_a_token_matching_neither_is_refused(self):
         assert self._post("neither-credential").status_code == 401
