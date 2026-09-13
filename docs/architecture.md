@@ -35,6 +35,12 @@ The three rows in the diagram are mutually exclusive and selected at startup, no
 | `MCP_ENABLE_REMOTE` unset or false | none | Server's `GITHUB_TOKEN` |
 | `MCP_ENABLE_REMOTE` true, no `GITHUB_OAUTH_*` | `APIKeyVerifier` | Server's `GITHUB_TOKEN`, shared by every caller |
 | `MCP_ENABLE_REMOTE` true, all `GITHUB_OAUTH_*` | `GitHubProvider` | Each caller's own GitHub token |
+| Neither `GITHUB_TOKEN` nor `GITHUB_OAUTH_*` | none | None. Every call is refused |
+
+The server starts holding neither credential. Over HTTP the MCP endpoint answers 401 with
+`[AUTH_FAILED]` and the missing configuration named, while `/` and `/metrics` keep answering
+so a readiness probe reports the pod healthy. Over stdio a tool raises the same error when it
+reaches for a token. See #392.
 
 In OAuth2 mode the server acts as its own authorisation server: it accepts dynamic client registration, proxies GitHub's authorisation code flow, and issues JWTs signed with a key derived from `JWT_SIGNING_KEY` or the OAuth client secret. Audit trails and rate limits then follow the individual user rather than the server.
 

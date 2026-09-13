@@ -22,7 +22,10 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastmcp-slim[server,apps,tasks]>=3.4.7",
+    "fastmcp-slim[server,apps]>=4.0.3",
+    # FastMCP 4 moved background tasks out of core into the tasks extension,
+    # which ships as its own package rather than an extra.
+    "fastmcp-tasks>=4.0.3",
     "httpx>=0.28.1",
     "prometheus-client>=0.26.0",
     # auth.py imports the stores directly, so ask for the package by name with
@@ -75,10 +78,10 @@ metadata = false
 
 [dependency-groups]
 dev = [
-    "pyright>=1.1.411",
+    "pyright>=1.1.414",
     "pytest>=9.1.1",
-    "ruff>=0.16.2",
-    "uv>=0.12.3",
+    "ruff>=0.16.7",
+    "uv>=0.12.13",
 ]
 
 [tool.ruff]

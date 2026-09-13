@@ -36,6 +36,7 @@ from fastmcp.apps.generative import GenerativeUI
 from fastmcp.exceptions import NotFoundError
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
+from fastmcp_tasks import TasksExtension
 from prometheus_client import (
     CONTENT_TYPE_LATEST,
     REGISTRY,
@@ -46,6 +47,7 @@ from prometheus_client import (
     ProcessCollector,
     generate_latest,
 )
+from starlette.middleware import Middleware as ASGIMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
@@ -53,6 +55,7 @@ from .auth import (
     GITHUB_OAUTH_BASE_URL,
     GITHUB_OAUTH_CLIENT_ID,
     GITHUB_OAUTH_CLIENT_SECRET,
+    UnconfiguredCredentials,
     aclose_token_store,
     setup_token_store,
 )
@@ -188,6 +191,9 @@ class PRIssueAnalyser:
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
         self.mcp.add_middleware(MetricsMiddleware())
+        # Background tasks are an extension in FastMCP 4, so a tool marked task=True
+        # runs in the request path until the extension is registered.
+        self.mcp.add_extension(TasksExtension())
 
         @self.mcp.custom_route("/metrics", methods=["GET"])
         async def metrics_route(_request: Request) -> Response:
@@ -235,7 +241,15 @@ class PRIssueAnalyser:
         try:
             logger.info("Running MCP Server for GitHub PR Analysis.")
             if MCP_ENABLE_REMOTE:
-                self.mcp.run(transport="http", host=HOST, port=PORT, stateless_http=True)
+                self.mcp.run(
+                    transport="http",
+                    host=HOST,
+                    port=PORT,
+                    stateless_http=True,
+                    middleware=[
+                        ASGIMiddleware(UnconfiguredCredentials, configured=lambda: self.gi.credentials_configured)
+                    ],
+                )
             else:
                 self.mcp.run(transport="stdio")
         except Exception as e:

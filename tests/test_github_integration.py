@@ -11,6 +11,7 @@ import pytest
 from fastmcp.exceptions import ToolError
 
 from mcp_github.activity import ACTIVITY_SECTIONS, ACTIVITY_STAGES, MAX_REPO_PAGES
+from mcp_github.auth import MISSING_CREDENTIALS
 from mcp_github.exceptions import (
     GitHubAPIError,
     GitHubAuthError,
@@ -111,9 +112,9 @@ class TestAnnotations:
 
         _read_only(fn)
         ann = fn._mcp_annotations
-        assert ann.readOnlyHint is True
-        assert ann.destructiveHint is False
-        assert ann.idempotentHint is False
+        assert ann.read_only_hint is True
+        assert ann.destructive_hint is False
+        assert ann.idempotent_hint is False
         assert fn._mcp_task is False
 
     def test_read_only_with_task(self):
@@ -121,7 +122,7 @@ class TestAnnotations:
 
         _read_only(task=True)(fn)
         ann = fn._mcp_annotations
-        assert ann.readOnlyHint is True
+        assert ann.read_only_hint is True
         assert fn._mcp_task is True
 
     def test_write_hints(self):
@@ -129,9 +130,9 @@ class TestAnnotations:
 
         _write(fn)
         ann = fn._mcp_annotations
-        assert ann.readOnlyHint is False
-        assert ann.destructiveHint is False
-        assert ann.idempotentHint is False
+        assert ann.read_only_hint is False
+        assert ann.destructive_hint is False
+        assert ann.idempotent_hint is False
         assert fn._mcp_task is False
 
     def test_write_idempotent(self):
@@ -139,29 +140,29 @@ class TestAnnotations:
 
         _write(idempotent=True)(fn)
         ann = fn._mcp_annotations
-        assert ann.readOnlyHint is False
-        assert ann.destructiveHint is False
-        assert ann.idempotentHint is True
+        assert ann.read_only_hint is False
+        assert ann.destructive_hint is False
+        assert ann.idempotent_hint is True
 
     def test_destructive_hints(self):
         def fn(): ...
 
         _destructive(fn)
         ann = fn._mcp_annotations
-        assert ann.destructiveHint is True
-        assert ann.readOnlyHint is False
+        assert ann.destructive_hint is True
+        assert ann.read_only_hint is False
 
     def test_idempotent_tools_annotated_correctly(self, gi: GitHubIntegration):
         for name in ("update_pr_description", "update_pr_branch", "update_issue", "update_assignees"):
             method = getattr(gi, name)
             ann = method._mcp_annotations
-            assert ann.idempotentHint is True, f"{name} should have idempotentHint=True"
-            assert ann.destructiveHint is False, f"{name} should not be destructive"
+            assert ann.idempotent_hint is True, f"{name} should have idempotent_hint=True"
+            assert ann.destructive_hint is False, f"{name} should not be destructive"
 
     def test_merge_pr_is_write_not_destructive(self, gi: GitHubIntegration):
         ann = gi.merge_pr._mcp_annotations
-        assert ann.destructiveHint is False
-        assert ann.readOnlyHint is False
+        assert ann.destructive_hint is False
+        assert ann.read_only_hint is False
 
 
 # ---------------------------------------------------------------------------
@@ -1427,7 +1428,7 @@ class TestListRepoLabels:
         assert result == {"total": 0, "labels": []}
 
     def test_is_read_only(self, gi: GitHubIntegration):
-        assert gi.list_repo_labels._mcp_annotations.readOnlyHint is True
+        assert gi.list_repo_labels._mcp_annotations.read_only_hint is True
 
 
 # ---------------------------------------------------------------------------
@@ -1547,7 +1548,7 @@ class TestSearchIssuesPRs:
         gi._http.request.assert_not_called()
 
     def test_is_read_only(self, gi: GitHubIntegration):
-        assert gi.search_issues_prs._mcp_annotations.readOnlyHint is True
+        assert gi.search_issues_prs._mcp_annotations.read_only_hint is True
 
 
 # ---------------------------------------------------------------------------
@@ -1725,11 +1726,11 @@ class TestReleasesAndTags:
 
     def test_delete_tools_report_themselves_destructive(self, gi: GitHubIntegration):
         for name in ("delete_release", "delete_tag"):
-            assert getattr(gi, name)._mcp_annotations.destructiveHint is True, name
+            assert getattr(gi, name)._mcp_annotations.destructive_hint is True, name
 
     def test_read_tools_are_read_only(self, gi: GitHubIntegration):
         for name in ("list_releases", "get_release", "list_tags"):
-            assert getattr(gi, name)._mcp_annotations.readOnlyHint is True, name
+            assert getattr(gi, name)._mcp_annotations.read_only_hint is True, name
 
 
 # ---------------------------------------------------------------------------
@@ -1792,8 +1793,8 @@ class TestUpdatePR:
 
     def test_is_idempotent_not_destructive(self, gi: GitHubIntegration):
         ann = gi.update_pr._mcp_annotations
-        assert ann.idempotentHint is True
-        assert ann.destructiveHint is False
+        assert ann.idempotent_hint is True
+        assert ann.destructive_hint is False
 
 
 _CREATED_PR = {"html_url": "https://github.com/o/r/pull/7", "number": 7, "state": "open", "title": "A change"}
@@ -2027,7 +2028,7 @@ class TestPRComments:
         assert gi._http.request.call_args.args[1].endswith("/pulls/comments/22")
 
     def test_listing_is_read_only(self, gi: GitHubIntegration):
-        assert gi.list_pr_comments._mcp_annotations.readOnlyHint is True
+        assert gi.list_pr_comments._mcp_annotations.read_only_hint is True
 
 
 # ---------------------------------------------------------------------------
@@ -2132,7 +2133,7 @@ class TestProjectResolution:
 
     def test_read_tools_are_read_only(self, gi: GitHubIntegration):
         for name in ("get_project_fields", "list_project_items"):
-            assert getattr(gi, name)._mcp_annotations.readOnlyHint is True, name
+            assert getattr(gi, name)._mcp_annotations.read_only_hint is True, name
 
 
 class TestAddToProject:
@@ -2160,8 +2161,8 @@ class TestAddToProject:
 
     def test_is_idempotent_not_destructive(self, gi: GitHubIntegration):
         ann = gi.add_to_project._mcp_annotations
-        assert ann.idempotentHint is True
-        assert ann.destructiveHint is False
+        assert ann.idempotent_hint is True
+        assert ann.destructive_hint is False
 
 
 class TestSetProjectField:
@@ -2258,7 +2259,7 @@ class TestRemoveFromProject:
         assert gi._execute_graphql.call_count == 2
 
     def test_is_destructive(self, gi: GitHubIntegration):
-        assert gi.remove_from_project._mcp_annotations.destructiveHint is True
+        assert gi.remove_from_project._mcp_annotations.destructive_hint is True
 
 
 class TestListProjectItems:
@@ -2510,10 +2511,10 @@ class TestMilestones:
         assert result["milestone"] is None
 
     def test_annotations(self, gi: GitHubIntegration):
-        assert gi.list_milestones._mcp_annotations.readOnlyHint is True
-        assert gi.create_milestone._mcp_annotations.destructiveHint is False
+        assert gi.list_milestones._mcp_annotations.read_only_hint is True
+        assert gi.create_milestone._mcp_annotations.destructive_hint is False
         for name in ("update_milestone", "set_issue_milestone"):
-            assert getattr(gi, name)._mcp_annotations.idempotentHint is True, name
+            assert getattr(gi, name)._mcp_annotations.idempotent_hint is True, name
 
 
 # ---------------------------------------------------------------------------
@@ -2606,7 +2607,7 @@ class TestListRepos:
         assert gi._http.request.call_count == 1
 
     def test_is_read_only(self, gi: GitHubIntegration):
-        assert gi.list_repos._mcp_annotations.readOnlyHint is True
+        assert gi.list_repos._mcp_annotations.read_only_hint is True
 
 
 # ---------------------------------------------------------------------------
@@ -2736,3 +2737,27 @@ class TestErrorDetail:
         response = _mock_response(status_code=422, json_data=body)
         with pytest.raises(GitHubValidationError, match="milestone does not exist"):
             gi._handle_response_error(response, "")
+
+
+class TestMissingCredentials:
+    """What a tool does when the server holds no GitHub credentials. See #386."""
+
+    def _unconfigured(self) -> GitHubIntegration:
+        with (
+            patch("mcp_github.github_integration.GITHUB_TOKEN", None),
+            patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_ID", None),
+            patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_SECRET", None),
+            patch("mcp_github.github_integration.GITHUB_OAUTH_BASE_URL", None),
+        ):
+            return GitHubIntegration()
+
+    def test_building_the_integration_does_not_raise(self):
+        assert self._unconfigured().credentials_configured is False
+
+    def test_a_request_refuses_with_the_documented_code(self):
+        with pytest.raises(GitHubAuthError) as raised:
+            self._unconfigured()._get_headers()
+
+        assert raised.value.status_code == 401
+        assert "[AUTH_FAILED] HTTP 401" in str(raised.value)
+        assert MISSING_CREDENTIALS in str(raised.value)

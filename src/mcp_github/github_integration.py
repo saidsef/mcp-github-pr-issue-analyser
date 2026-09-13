@@ -34,6 +34,7 @@ from .auth import (
     GITHUB_OAUTH_BASE_URL,
     GITHUB_OAUTH_CLIENT_ID,
     GITHUB_OAUTH_CLIENT_SECRET,
+    MISSING_CREDENTIALS,
     APIKeyVerifier,
     get_oauth_verifier,
     resolve_token,
@@ -402,10 +403,6 @@ class GitHubIntegration(ActivityMixin):
         # Detect OAuth2 mode first so the token check can be conditional
         self._oauth_mode = bool(GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL)
 
-        # GITHUB_TOKEN is required only in static-token (non-OAuth2) mode
-        if not self._oauth_mode and not self.github_token:
-            raise ValueError("Missing GitHub GITHUB_TOKEN in environment variables")
-
         # APIKeyVerifier only used in static-token mode
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
@@ -430,6 +427,11 @@ class GitHubIntegration(ActivityMixin):
     def _oauth_verifier(self):
         """Returns a GitHubProvider instance for OAuth2 authentication."""
         return get_oauth_verifier()
+
+    @property
+    def credentials_configured(self) -> bool:
+        """True when the server holds the OAuth trio or a static token."""
+        return bool(self._oauth_mode or self.github_token)
 
     def _resolve_token(self) -> str:
         """Return the token for the current request."""
@@ -515,7 +517,7 @@ class GitHubIntegration(ActivityMixin):
         """Constructs the HTTP headers required for GitHub API requests."""
         token = self._resolve_token()
         if not token:
-            raise ValueError("GitHub token is missing for API requests")
+            raise GitHubAuthError(MISSING_CREDENTIALS)
         headers = {
             "Authorization": f"token {token}",
             "Accept": "application/vnd.github.v3+json",

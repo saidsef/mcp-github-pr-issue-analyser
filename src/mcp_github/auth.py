@@ -23,7 +23,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import hmac
+import json
 import logging
+from collections.abc import Callable
 from os import getenv
 from typing import Any
 from urllib.parse import urlparse
@@ -42,6 +44,7 @@ from key_value.aio.stores.memory import MemoryStore
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from redis.asyncio import Redis as AsyncRedis
+from starlette.types import ASGIApp, Receive, Scope, Send
 
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
@@ -56,6 +59,10 @@ DYNAMODB_TABLE_ARN = getenv("DYNAMODB_TABLE_ARN")
 DYNAMODB_SETUP_RETRY_CODES = frozenset({"ResourceInUseException", "ResourceNotFoundException"})
 DYNAMODB_SETUP_ATTEMPTS = 10
 DYNAMODB_SETUP_RETRY_SECONDS = 5.0
+
+# Reported by the transport and by any tool that reaches GitHub, so a deployment
+# missing its secret gets one answer rather than two wordings.
+MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
 # The settings the ARN replaced. Left set, they now configure nothing.
 DYNAMODB_REPLACED_SETTINGS = ("DYNAMODB_TABLE_NAME", "DYNAMODB_REGION", "DYNAMODB_ENDPOINT_URL")
@@ -87,6 +94,39 @@ class APIKeyVerifier(TokenVerifier):
                 claims={"authenticated": True},
             )
         return None
+
+
+class UnconfiguredCredentials:
+    """Answers 401 on the MCP path while the server holds no GitHub credentials.
+
+    The server used to refuse to start at all, which left a deployment whose secret
+    was missing crash-looping with the reason only in the logs. Starting and refusing
+    each call puts the reason in the response, and leaves the landing and metrics
+    routes answering so a readiness probe still passes.
+    """
+
+    def __init__(self, app: ASGIApp, *, configured: Callable[[], bool], path: str = "/mcp") -> None:
+        self.app = app
+        self.configured = configured
+        self.path = path
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or not scope["path"].startswith(self.path) or self.configured():
+            await self.app(scope, receive, send)
+            return
+        body = json.dumps({"error": {"code": "AUTH_FAILED", "message": MISSING_CREDENTIALS}}).encode()
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 401,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"www-authenticate", b'Bearer error="invalid_request"'),
+                    (b"content-length", str(len(body)).encode()),
+                ],
+            }
+        )
+        await send({"type": "http.response.body", "body": body})
 
 
 def _build_redis_client(host_port: str) -> AsyncRedis:

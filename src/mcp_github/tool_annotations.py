@@ -32,7 +32,9 @@ from mcp.types import ToolAnnotations
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
     def deco(fn: Any = None, *, task: bool = False, idempotent: bool = False) -> Any:
         def apply(f: Any) -> Any:
-            f._mcp_annotations = ToolAnnotations(readOnlyHint=ro, destructiveHint=destructive, idempotentHint=idempotent)
+            f._mcp_annotations = ToolAnnotations(
+                read_only_hint=ro, destructive_hint=destructive, idempotent_hint=idempotent
+            )
             f._mcp_task = task
             return f
 
