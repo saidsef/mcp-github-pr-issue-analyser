@@ -2745,9 +2745,9 @@ class TestMissingCredentials:
     def _unconfigured(self) -> GitHubIntegration:
         with (
             patch("mcp_github.github_integration.GITHUB_TOKEN", None),
-            patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_ID", None),
-            patch("mcp_github.github_integration.GITHUB_OAUTH_CLIENT_SECRET", None),
-            patch("mcp_github.github_integration.GITHUB_OAUTH_BASE_URL", None),
+            patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_ID", None),
+            patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", None),
+            patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
         ):
             return GitHubIntegration()
 
