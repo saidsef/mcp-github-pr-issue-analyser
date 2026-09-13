@@ -12,19 +12,19 @@ Find the repositories an account owns, then retrieve a user's profile, their con
 - The target GitHub `username`, or the owner whose repositories you want
 - GitHub token with `read:user` scope, since most of these tools use the GraphQL API
 
-`search_user`, `get_user_activities` and `get_repo_stars_since` run as
-long-running tasks. `get_user_activities` and `get_repo_stars_since` report
-progress while they work, `search_user` returns in one step and reports none,
-and `list_repos` is a plain read.
+`github_search_user`, `github_get_user_activities` and `github_get_repo_stars_since` run as
+long-running tasks. `github_get_user_activities` and `github_get_repo_stars_since` report
+progress while they work, `github_search_user` returns in one step and reports none,
+and `github_list_repos` is a plain read.
 
 ## Workflow
 
-1. **Find the repository** - call `list_repos` when you do not already know the name
-2. **Look up the profile** - call `search_user` to confirm the user exists and get context
-3. **Retrieve contributions** - call `get_user_activities`, optionally filtered by org, repo or date range
-4. **Measure star growth** - call `get_repo_stars_since` when the question is about stars in a time window
+1. **Find the repository** - call `github_list_repos` when you do not already know the name
+2. **Look up the profile** - call `github_search_user` to confirm the user exists and get context
+3. **Retrieve contributions** - call `github_get_user_activities`, optionally filtered by org, repo or date range
+4. **Measure star growth** - call `github_get_repo_stars_since` when the question is about stars in a time window
 
-## `list_repos`
+## `github_list_repos`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -50,7 +50,7 @@ entitled to see them.
 An owner that is neither a user nor an organisation fails with a not-found
 error naming it.
 
-## `search_user`
+## `github_search_user`
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -63,7 +63,7 @@ Returns `UserSearchResult`: `login`, `name`, `email`, `company`, `location`,
 `recent_repos` is the 10 most recently updated public repositories, not the
 user's pinned ones. Public repositories only.
 
-## `get_user_activities`
+## `github_get_user_activities`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -104,7 +104,7 @@ Four things about this tool are easy to get wrong:
 - Omit both to get the most recent contributions up to `max_results`
 - Filtering applies to commits, PRs, issues and reviews, never to `repo_stars`
 
-## `get_repo_stars_since`
+## `github_get_repo_stars_since`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -140,16 +140,16 @@ large repositories.
 
 ## Star Counts: Which Tool to Use
 
-`repo_stars` in `get_user_activities` is each repo's **current cumulative
+`repo_stars` in `github_get_user_activities` is each repo's **current cumulative
 total** and ignores `since` and `until`. GitHub does not expose per-period
-deltas there. Use `get_repo_stars_since` whenever the question is about a time
-window, and `get_user_activities` only for a snapshot of where a user stands
+deltas there. Use `github_get_repo_stars_since` whenever the question is about a time
+window, and `github_get_user_activities` only for a snapshot of where a user stands
 today.
 
 ## Best Practices
 
-- Call `list_repos` rather than guessing a repository name, and omit `owner` when you want your own private ones
-- Call `search_user` first, since it confirms the user exists and gives context before the heavier calls
+- Call `github_list_repos` rather than guessing a repository name, and omit `owner` when you want your own private ones
+- Call `github_search_user` first, since it confirms the user exists and gives context before the heavier calls
 - Combine `org` and `repo` to scope activity to one project
 - Keep `max_results` at 50 to 100 for wide date ranges, remembering the cap is per section
 - Use date ranges when investigating a specific sprint or quarter, and split anything over a year

@@ -6,59 +6,59 @@ The server registers every public method on the GitHub integration that carries 
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
-| `get_pr_content` | read | PR title, description, author, timestamps, state, head SHA and the branches either side |
-| `get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
-| `get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
-| `create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
-| `update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
-| `update_pr_description` | write | Change the title and body of a PR together |
-| `set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
-| `update_pr_branch` | write | Update the PR branch with the latest base branch |
-| `merge_pr` | write | Merge using the merge, squash or rebase method |
-| `add_pr_comments` | write | Post a general comment on the PR thread |
-| `add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
-| `list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
-| `update_pr_comment` | write | Rewrite a comment already posted |
-| `reply_to_review_comment` | write | Reply on an existing review thread |
-| `update_reviews` | write | Approve, request changes, or comment as a review |
-| `update_assignees` | write | Assign or update users on a PR or issue |
+| `github_get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
+| `github_get_pr_content` | read | PR title, description, author, timestamps, state, head SHA and the branches either side |
+| `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
+| `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
+| `github_create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
+| `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
+| `github_update_pr_description` | write | Change the title and body of a PR together |
+| `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
+| `github_update_pr_branch` | write | Update the PR branch with the latest base branch |
+| `github_merge_pr` | write | Merge using the merge, squash or rebase method |
+| `github_add_pr_comments` | write | Post a general comment on the PR thread |
+| `github_add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
+| `github_list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
+| `github_update_pr_comment` | write | Rewrite a comment already posted |
+| `github_reply_to_review_comment` | write | Reply on an existing review thread |
+| `github_submit_review` | write | Approve, request changes, or comment as a review |
+| `github_set_assignees` | write | Assign or update users on a PR or issue |
 
 ## Issues, labels and milestones
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_issue` | read | One issue by number, with its body, labels, assignees and milestone |
-| `create_issue` | write | Open an issue with title, body, labels and an optional milestone |
-| `update_issue` | write | Update any subset of an existing issue's title, body, labels or state |
-| `list_open_issues_prs` | read | List open PRs or issues for a user or organisation |
-| `search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included |
-| `list_repo_labels` | read | Name, description and colour of every label a repository defines |
-| `list_milestones` | read | Open, closed or all milestones, with the count of issues in each |
-| `create_milestone` | write | Open a milestone with a description and a due date |
-| `update_milestone` | write | Rename a milestone, move its due date, or close it |
-| `set_issue_milestone` | write | File an issue under a milestone, or take it off one |
+| `github_get_issue` | read | One issue by number, with its body, labels, assignees and milestone |
+| `github_create_issue` | write | Open an issue with title, body, labels and an optional milestone |
+| `github_update_issue` | write | Update any subset of an existing issue's title, body, labels or state |
+| `github_list_open_issues_prs` | read | List open PRs or issues for a user or organisation |
+| `github_search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included |
+| `github_list_repo_labels` | read | Name, description and colour of every label a repository defines |
+| `github_list_milestones` | read | Open, closed or all milestones, with the count of issues in each |
+| `github_create_milestone` | write | Open a milestone with a description and a due date |
+| `github_update_milestone` | write | Rename a milestone, move its due date, or close it |
+| `github_set_issue_milestone` | write | File an issue under a milestone, or take it off one |
 
 ## Repository contents
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_repository_file` | read | One file at a branch, tag or SHA, windowed by `offset` and `limit` |
-| `list_repository_tree` | read | Entries of a directory, one level deep or every level |
+| `github_get_repository_file` | read | One file at a branch, tag or SHA, windowed by `offset` and `limit` |
+| `github_list_repository_tree` | read | Entries of a directory, one level deep or every level |
 
 ## Tags and releases
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
-| `create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
-| `create_release` | write | Publish a release with a changelog, updating one that already exists for the tag |
-| `list_releases` | read | A repository's releases, newest first |
-| `get_release` | read | One release, by tag or the latest published |
-| `update_release` | write | Change a published release's title, notes, draft or prerelease state |
-| `list_tags` | read | A repository's tags and the commit each points at |
-| `delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise |
-| `delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
+| `github_get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
+| `github_create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
+| `github_create_release` | write | Publish a release with a changelog, updating one that already exists for the tag |
+| `github_list_releases` | read | A repository's releases, newest first |
+| `github_get_release` | read | One release, by tag or the latest published |
+| `github_update_release` | write | Change a published release's title, notes, draft or prerelease state |
+| `github_list_tags` | read | A repository's tags and the commit each points at |
+| `github_delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise |
+| `github_delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
 
 ## Project boards
 
@@ -66,20 +66,20 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `get_project_fields` | read | A board's fields and the options each single-select one accepts |
-| `list_project_items` | read | What is on a board, each card with its field values |
-| `add_to_project` | write | Put an issue or pull request on a board |
-| `set_project_field` | write | Set a single-select field such as Status, by field and option name |
-| `remove_from_project` | destructive | Take a card off a board, leaving the issue open |
+| `github_get_project_fields` | read | A board's fields and the options each single-select one accepts |
+| `github_list_project_items` | read | What is on a board, each card with its field values |
+| `github_add_to_project` | write | Put an issue or pull request on a board |
+| `github_set_project_field` | write | Set a single-select field such as Status, by field and option name |
+| `github_remove_from_project` | destructive | Take a card off a board, leaving the issue open |
 
 ## Users and activity
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `list_repos` | read | Repositories for a user, an organisation, or the caller, private ones included |
-| `search_user` | read, task | Fetch a user's profile via GraphQL |
-| `get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
-| `get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing was cut short |
+| `github_list_repos` | read | Repositories for a user, an organisation, or the caller, private ones included |
+| `github_search_user` | read, task | Fetch a user's profile via GraphQL |
+| `github_get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
+| `github_get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing was cut short |
 
 ## Interactive UI
 
@@ -87,16 +87,16 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 |------|------|-------------|
 | `choose` | - | Ask the user to pick from a set of options |
 | `github_pr_issue_analyser_ui` | - | Render results as a generated UI panel |
-| `search_prefab_components` | - | Look up the UI components available to that panel |
+| `github_search_prefab_components` | - | Look up the UI components available to that panel |
 
 ## Skills
 
-Workflow guidance ships with the server. `list_skills` and `get_skill` reach it with tool support alone, and the same content is served as MCP resources under the `skill://` URI scheme for clients that read resources. [Configuration](./configuration.md#skills) covers which path a given client gets.
+Workflow guidance ships with the server. `github_list_skills` and `github_get_skill` reach it with tool support alone, and the same content is served as MCP resources under the `skill://` URI scheme for clients that read resources. [Configuration](./configuration.md#skills) covers which path a given client gets.
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `list_skills` | read | Every bundled skill, with its name, description and `skill://` URI |
-| `get_skill` | read | One skill in full, by the name `list_skills` reports |
+| `github_list_skills` | read | Every bundled skill, with its name, description and `skill://` URI |
+| `github_get_skill` | read | One skill in full, by the name `github_list_skills` reports |
 
 | Resource | Covers |
 |----------|--------|

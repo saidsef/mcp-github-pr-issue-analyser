@@ -17,46 +17,46 @@ defines.
 
 ### Creating an Issue
 
-1. Call `list_open_issues_prs` with `issue="issue"` and `filtering="repo"` to check for a duplicate, or `search_issues_prs` to include closed ones
-2. Call `list_repo_labels` to see the label names the repository defines
-3. Call `create_issue` with a title, body and labels, plus a `milestone` title if it belongs to one
+1. Call `github_list_open_issues_prs` with `issue="issue"` and `filtering="repo"` to check for a duplicate, or `github_search_issues_prs` to include closed ones
+2. Call `github_list_repo_labels` to see the label names the repository defines
+3. Call `github_create_issue` with a title, body and labels, plus a `milestone` title if it belongs to one
 4. The `mcp` label is appended automatically, so do not pass it yourself
 
 ### Reading an Issue
 
-1. Call `get_issue` when you have the number and need the body, labels, assignees or milestone
-2. Read it back this way after `create_issue`, `update_issue` or `update_assignees` to confirm what landed. `update_assignees` takes an `issue_number` and a list of logins, and the `pr-management` skill carries its parameters
+1. Call `github_get_issue` when you have the number and need the body, labels, assignees or milestone
+2. Read it back this way after `github_create_issue`, `github_update_issue` or `github_set_assignees` to confirm what landed. `github_set_assignees` takes an `issue_number` and a list of logins, and the `pr-management` skill carries its parameters
 
 ### Updating an Issue
 
-1. Call `update_issue` with only the fields you are changing, the rest keep their current values
+1. Call `github_update_issue` with only the fields you are changing, the rest keep their current values
 2. Pass `state="closed"` on its own to close a resolved issue
 
 ### Listing Issues and PRs
 
-1. Call `list_open_issues_prs`, choosing `filtering` for the scope you want
+1. Call `github_list_open_issues_prs`, choosing `filtering` for the scope you want
 
 ### Finding an Issue or PR
 
-1. Call `search_issues_prs` when you cannot already name the item, or need something closed
+1. Call `github_search_issues_prs` when you cannot already name the item, or need something closed
 2. Narrow with qualifiers in the query itself, e.g. `repo:owner/name is:issue label:bug`
 
 ### Listing Labels
 
-1. Call `list_repo_labels` for the repository
+1. Call `github_list_repo_labels` for the repository
 2. Page through with `page` if the repository defines more than `per_page` labels
 
 ### Running a Milestone
 
-1. Call `list_milestones` to see what the repository already tracks
-2. Call `create_milestone` for a new one, with a due date if the work has a deadline
-3. Pass `milestone` to `create_issue` to file an issue as it is opened
-4. Call `set_issue_milestone` to file or unfile an issue that already exists
-5. Call `update_milestone` with `state="closed"` once the work has shipped
+1. Call `github_list_milestones` to see what the repository already tracks
+2. Call `github_create_milestone` for a new one, with a due date if the work has a deadline
+3. Pass `milestone` to `github_create_issue` to file an issue as it is opened
+4. Call `github_set_issue_milestone` to file or unfile an issue that already exists
+5. Call `github_update_milestone` with `state="closed"` once the work has shipped
 
 ## Tool Parameters
 
-### `create_issue`
+### `github_create_issue`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -77,7 +77,7 @@ appended, so `[]` yields `["mcp"]`. Setting labels needs push access on the
 repository, and GitHub drops them silently rather than erroring when the token
 lacks it, so read the returned `labels` back if they matter.
 
-### `update_issue`
+### `github_update_issue`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -97,12 +97,12 @@ none of the four fields is rejected with a validation error.
 
 Two things still overwrite rather than merge:
 
-- `labels` replaces the whole set, so `[]` strips every label including `mcp`. Unlike `create_issue`, this tool does not re-add `mcp`
+- `labels` replaces the whole set, so `[]` strips every label including `mcp`. Unlike `github_create_issue`, this tool does not re-add `mcp`
 - A `title` or `body` you did not read first overwrites the current text
 
-This tool cannot change the milestone. Use `set_issue_milestone`.
+This tool cannot change the milestone. Use `github_set_issue_milestone`.
 
-### `get_issue`
+### `github_get_issue`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -110,18 +110,18 @@ This tool cannot change the milestone. Use `set_issue_milestone`.
 | `repo_name` | str | - | Repository name |
 | `issue_number` | int | - | Issue number |
 
-Returns `IssueData`, the same shape `create_issue` and `update_issue` return.
+Returns `IssueData`, the same shape `github_create_issue` and `github_update_issue` return.
 
 This is the only read that gives you an issue's body and assignees. The two
 listing tools return a trimmed search shape without either, and they go through
-GitHub's search index, which lags behind a write by up to a minute. `get_issue`
+GitHub's search index, which lags behind a write by up to a minute. `github_get_issue`
 reads the issue itself, so it sees a change straight away.
 
 Open or closed makes no difference. A number belonging to a pull request is
 rejected with a validation error, since GitHub serves both from this path and
-the result would describe a PR as an issue. Use `get_pr_content` for those.
+the result would describe a PR as an issue. Use `github_get_pr_content` for those.
 
-### `list_open_issues_prs`
+### `github_list_open_issues_prs`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -137,13 +137,13 @@ follows the `issue` argument. Each entry carries `url`, `title`, `number`,
 `state`, `created_at`, `updated_at`, `author`, `label_names` and `is_draft`.
 
 Only open items are returned, since the search is hardcoded to `is:open`. Reach
-for `search_issues_prs` for a closed or merged item.
+for `github_search_issues_prs` for a closed or merged item.
 
-`is_draft` carries draft status, which `get_pr_content` does not return. This
-tool and `search_issues_prs` share the result shape, so either one answers a
+`is_draft` carries draft status, which `github_get_pr_content` does not return. This
+tool and `github_search_issues_prs` share the result shape, so either one answers a
 review or merge decision that turns on it.
 
-### `search_issues_prs`
+### `github_search_issues_prs`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -152,7 +152,7 @@ review or merge decision that turns on it.
 | `page` | int | `1` | Page number |
 
 Returns `{"total": int, "incomplete_results": bool, "items": [...]}`, each item
-in the same shape `list_open_issues_prs` returns.
+in the same shape `github_list_open_issues_prs` returns.
 
 The query is yours, so nothing is scoped for you. Without a `repo:` or `org:`
 qualifier the search runs across all of GitHub. `total` counts every match, not
@@ -163,7 +163,7 @@ Useful qualifiers: `repo:owner/name`, `org:name`, `is:issue`, `is:pr`,
 `label:"needs triage"`, `created:>2026-01-01`, `updated:<2026-06-01`,
 `in:title`. Search is rate limited separately at 30 requests a minute.
 
-### `list_milestones`
+### `github_list_milestones`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -178,7 +178,7 @@ carries `number`, `title`, `description`, `state`, `due_on`, `open_issues`,
 `closed_issues` and `html_url`, so the issue counts tell you what is left
 without listing the issues themselves.
 
-### `create_milestone`
+### `github_create_milestone`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -190,14 +190,14 @@ without listing the issues themselves.
 | `state` | str | `open` | `open` or `closed` |
 
 Titles are unique within a repository, so reusing one fails rather than
-returning the existing milestone. Call `list_milestones` first if you are not
+returning the existing milestone. Call `github_list_milestones` first if you are not
 sure whether it is already there.
 
 GitHub keeps only the date part of `due_on` and returns it as midnight UTC, so
 `2026-12-31T23:59:59Z` reads back as `2026-12-31T00:00:00Z`. The milestone is
 still due on that day.
 
-### `update_milestone`
+### `github_update_milestone`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -214,7 +214,7 @@ due date alone. A call supplying nothing to change is rejected. The `title`
 argument identifies the milestone and `new_title` renames it, so passing
 `title` alone changes nothing.
 
-### `set_issue_milestone`
+### `github_set_issue_milestone`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -225,14 +225,14 @@ argument identifies the milestone and `new_title` renames it, so passing
 
 Returns `IssueData`, whose `milestone` field reads back the title so you can
 confirm it landed. This is a separate tool rather than an argument on
-`update_issue` because clearing a milestone means sending an explicit null,
-and `update_issue` drops every argument left unset.
+`github_update_issue` because clearing a milestone means sending an explicit null,
+and `github_update_issue` drops every argument left unset.
 
 Milestones are addressed by title here and by number in the GitHub API, so a
 title that matches nothing fails with a not-found error naming it. The lookup
 covers closed milestones as well as open ones.
 
-### `list_repo_labels`
+### `github_list_repo_labels`
 
 | Parameter | Type | Default | Description |
 |---|---|---|---|
@@ -290,16 +290,16 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 
 ## Best Practices
 
-- Search for duplicates before creating an issue: `list_open_issues_prs` with `filtering="repo"` for the open ones, `search_issues_prs` when a closed one would also count
-- Read a known issue with `get_issue` rather than searching for it, since search omits the body and lags a write
-- Scope every `search_issues_prs` query with `repo:` or `org:`, or it searches all of GitHub
-- Call `list_repo_labels` before writing labels rather than guessing names, since GitHub creates a new label for a name that does not exist
+- Search for duplicates before creating an issue: `github_list_open_issues_prs` with `filtering="repo"` for the open ones, `github_search_issues_prs` when a closed one would also count
+- Read a known issue with `github_get_issue` rather than searching for it, since search omits the body and lags a write
+- Scope every `github_search_issues_prs` query with `repo:` or `org:`, or it searches all of GitHub
+- Call `github_list_repo_labels` before writing labels rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Title every issue as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Keep the type honest: `fix` for defects, `feat` for new behaviour, `chore` for maintenance
 - Write bodies in Markdown, with steps to reproduce for a bug or acceptance criteria for a feature
-- Pass `update_issue` only the fields you are changing, and read the current text before replacing a `title` or `body`
-- Include `mcp` in the `labels` you send to `update_issue`, since the list you send replaces the whole set
+- Pass `github_update_issue` only the fields you are changing, and read the current text before replacing a `title` or `body`
+- Include `mcp` in the `labels` you send to `github_update_issue`, since the list you send replaces the whole set
 - Close issues with `state="closed"` rather than deleting them
-- File an issue under a milestone as you create it, since `create_issue` takes the title directly
-- Read `open_issues` from `list_milestones` to see what a milestone has left, rather than listing and counting issues
+- File an issue under a milestone as you create it, since `github_create_issue` takes the title directly
+- Read `open_issues` from `github_list_milestones` to see what a milestone has left, rather than listing and counting issues
 - Reference the resolving PR in the body, e.g. `Resolved by #123`
