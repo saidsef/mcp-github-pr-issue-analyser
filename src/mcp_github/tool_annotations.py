@@ -45,8 +45,14 @@ def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
         fn: Any = None, *, task: bool = False, idempotent: bool = False, scopes: tuple[str, ...] = ()
     ) -> Any:
         def apply(f: Any) -> Any:
+            # Every tool here reaches api.github.com, so the world it acts on is open
+            # in every case. The protocol defaults this to true, and a null says
+            # nothing rather than saying so. See #407.
             f._mcp_annotations = ToolAnnotations(
-                read_only_hint=ro, destructive_hint=destructive, idempotent_hint=idempotent
+                read_only_hint=ro,
+                destructive_hint=destructive,
+                idempotent_hint=idempotent,
+                open_world_hint=True,
             )
             f._mcp_task = task
             f._mcp_scopes = scopes if ro else WRITE_SCOPES + scopes
