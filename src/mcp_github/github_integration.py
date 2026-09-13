@@ -1083,9 +1083,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         issue_number: int,
         milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null to take it off"] = None,
     ) -> IssueData:
-        """Files an issue under a milestone, or takes it off one. Setting is its own
-        tool because update_issue drops every argument left as null, which is what
-        clearing a milestone has to send."""
+        """Files an issue under a milestone, or takes it off one. Takes the title
+        rather than the number GitHub wants, and looks it up, which is the work
+        update_issue is kept clear of. Omit the title to clear the milestone."""
         number = await self._milestone_number(repo_owner, repo_name, milestone) if milestone else None
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         data = (
@@ -1478,7 +1478,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Changes a published release in place. Only the fields supplied are sent,
         so correcting a title does not wipe the notes. make_latest is settable on
-        create_release alone, to keep this signature inside the parameter budget."""
+        create_release alone, and only on the call that first publishes the tag,
+        since publishing again falls through to here and this tool does not send
+        it. Move the latest badge by deleting the release and publishing it again,
+        or in the GitHub UI."""
         fields: dict[str, Any] = {"name": name, "body": body, "draft": draft, "prerelease": prerelease}
         payload = {key: value for key, value in fields.items() if value is not None}
         if not payload:

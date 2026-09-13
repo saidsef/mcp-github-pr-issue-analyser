@@ -225,8 +225,8 @@ argument identifies the milestone and `new_title` renames it, so passing
 
 Returns `IssueData`, whose `milestone` field reads back the title so you can
 confirm it landed. This is a separate tool rather than an argument on
-`update_issue` because clearing a milestone means sending an explicit null,
-and `update_issue` drops every argument left unset.
+`update_issue` because it takes the title and resolves it to the number GitHub
+wants, which costs a second request that the common update path does not pay.
 
 Milestones are addressed by title here and by number in the GitHub API, so a
 title that matches nothing fails with a not-found error naming it. The lookup

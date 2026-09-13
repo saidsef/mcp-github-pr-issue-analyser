@@ -26,6 +26,7 @@ from mcp_github.auth import (
     get_oauth_verifier,
 )
 from mcp_github.issues_pr_analyser import VERSION, PRIssueAnalyser, _package_version
+from mcp_github.skills_access import SKILLS_DIR
 from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
@@ -503,3 +504,41 @@ class TestListOpenIssuesPrsSchema:
 
         assert "is:open" in description
         assert "search_issues_prs" in description
+
+
+class TestToolRationales:
+    """A tool description that explains itself has to be right, since a tool-only
+    client cannot cross-check it against the skill. See #400."""
+
+    @staticmethod
+    async def _described(name: str) -> str:
+        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        return tools[name].description or ""
+
+    @pytest.mark.anyio
+    async def test_update_release_says_how_to_move_the_latest_badge(self):
+        """The old wording blamed a parameter budget, and update_release is the
+        smaller of the two signatures."""
+        description = await self._described("update_release")
+
+        assert "parameter budget" not in description
+        assert "make_latest" in description
+        assert "publishing it again" in description
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_gives_a_reason_that_holds(self):
+        """update_issue dropping nulls is a rule this server writes for itself,
+        and labels already escape it with [], so it cannot be the reason."""
+        description = await self._described("set_issue_milestone")
+
+        assert "drops every argument" not in description
+        assert "title" in description
+
+    @pytest.mark.anyio
+    async def test_the_skill_and_the_description_agree_on_make_latest(self):
+        skill = (SKILLS_DIR / "release-management" / "SKILL.md").read_text(encoding="utf-8")
+        description = await self._described("update_release")
+
+        for claim in ("create_release", "make_latest"):
+            assert claim in skill and claim in description
+        assert "parameter budget" not in skill
