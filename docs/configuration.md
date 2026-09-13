@@ -2,23 +2,26 @@
 
 ## Authentication modes
 
-Three modes are supported. The active mode is selected automatically from environment variables.
+Four modes are supported. The active mode is selected automatically from environment variables.
 
 | Mode | When active | Token used for API calls |
 |------|-------------|--------------------------|
 | **stdio** (default) | `MCP_ENABLE_REMOTE` unset or false | Server's `GITHUB_TOKEN`, no transport auth |
-| **Static token** | `MCP_ENABLE_REMOTE` true, no `GITHUB_OAUTH_*` vars | Server's `GITHUB_TOKEN` for every caller |
-| **GitHub OAuth2** | `MCP_ENABLE_REMOTE` true and all three `GITHUB_OAUTH_*` vars set | Each user's own `gho_*` token |
+| **Static token** | `MCP_ENABLE_REMOTE` true, `GITHUB_TOKEN` set, no `GITHUB_OAUTH_*` vars | Server's `GITHUB_TOKEN` for every caller |
+| **GitHub OAuth2** | `MCP_ENABLE_REMOTE` true, all three `GITHUB_OAUTH_*` vars set, no `GITHUB_TOKEN` | Each user's own `gho_*` token |
+| **Both** | `MCP_ENABLE_REMOTE` true, `GITHUB_TOKEN` and all three `GITHUB_OAUTH_*` vars set | Whichever credential the request carried |
 
 In static-token HTTP mode, clients send `Authorization: Bearer <GITHUB_TOKEN>`, compared against the server's `GITHUB_TOKEN` in constant time. Every caller shares one identity and one rate limit.
 
 In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAuth2 flow, and requests the `repo`, `read:org`, `user` and `project` scopes. Each caller's own token is used for API calls, so audit trails and rate limits follow the individual user.
 
+Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines the two rather than one overriding the other. The OAuth provider serves the sign-in routes and the discovery metadata, and the static token is verified beside it, so a scheduled job that cannot run a browser flow reaches the same deployment as the people signing in. Each tool call acts with the token its own request carried. A bearer token matching neither credential is refused with `401 invalid_token`, and the refusal names neither.
+
 ## Environment variables
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GITHUB_TOKEN` | Unless OAuth2 | GitHub PAT with `repo` scope, and the bearer token in static-token HTTP mode. Without it and without the OAuth2 settings the server still starts, and refuses every call with `[AUTH_FAILED]` |
+| `GITHUB_TOKEN` | Unless OAuth2 | GitHub PAT with `repo` scope, and the bearer token in HTTP mode. Set it alongside the OAuth2 settings to accept both credentials. Without it and without the OAuth2 settings the server still starts, and refuses every call with `[AUTH_FAILED]` |
 | `MCP_ENABLE_REMOTE` | No | `true`, `1`, `yes` or `on` enables HTTP mode, required for OAuth2. Anything else stays on stdio. Set to `true` in the published image |
 | `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |

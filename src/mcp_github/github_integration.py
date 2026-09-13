@@ -31,12 +31,10 @@ from fastmcp.exceptions import ToolError
 
 from .activity import ActivityMixin
 from .auth import (
-    GITHUB_OAUTH_BASE_URL,
-    GITHUB_OAUTH_CLIENT_ID,
-    GITHUB_OAUTH_CLIENT_SECRET,
     MISSING_CREDENTIALS,
     APIKeyVerifier,
     get_oauth_verifier,
+    oauth_configured,
     resolve_token,
 )
 from .exceptions import (
@@ -400,10 +398,9 @@ class GitHubIntegration(ActivityMixin):
         """Initialises the GitHubIntegration instance."""
         self.github_token = GITHUB_TOKEN
 
-        # Detect OAuth2 mode first so the token check can be conditional
-        self._oauth_mode = bool(GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL)
-
-        # APIKeyVerifier only used in static-token mode
+        # Both credentials may be configured at once, so these two are independent
+        # rather than alternatives. See #389.
+        self._oauth_mode = oauth_configured()
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
         self._http = httpx.AsyncClient(timeout=_timeout())

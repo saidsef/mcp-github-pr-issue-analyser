@@ -34,6 +34,7 @@ from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.exceptions import NotFoundError
+from fastmcp.server.auth import AuthProvider, MultiAuth
 from fastmcp.server.middleware import Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
 from fastmcp_tasks import TasksExtension
@@ -52,9 +53,6 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from .auth import (
-    GITHUB_OAUTH_BASE_URL,
-    GITHUB_OAUTH_CLIENT_ID,
-    GITHUB_OAUTH_CLIENT_SECRET,
     UnconfiguredCredentials,
     aclose_token_store,
     setup_token_store,
@@ -175,12 +173,16 @@ class PRIssueAnalyser:
     def __init__(self):
         self.gi = GI()
 
-        def _select_auth():
+        def _select_auth() -> AuthProvider | None:
+            """The transport's authentication. Where both credentials are configured the
+            OAuth provider owns the routes and the metadata while the static token is
+            verified beside it, so either kind of caller reaches the server. See #389."""
             if not MCP_ENABLE_REMOTE:
                 return None
-            if GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET and GITHUB_OAUTH_BASE_URL:
-                return self.gi._oauth_verifier
-            return self.gi.verifier
+            oauth = self.gi._oauth_verifier if self.gi._oauth_mode else None
+            if oauth is not None and self.gi.verifier is not None:
+                return MultiAuth(server=oauth, verifiers=[self.gi.verifier])
+            return oauth or self.gi.verifier
 
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",

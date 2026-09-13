@@ -7,15 +7,15 @@
 | Layer | Module | Responsibility |
 |-------|--------|----------------|
 | MCP client | - | Connects over stdio, or HTTP POST to `/mcp` when `MCP_ENABLE_REMOTE` is true |
-| Auth layer | `auth.py` | Picks no auth, `APIKeyVerifier` or `GitHubProvider`, and resolves the token for each call |
+| Auth layer | `auth.py` | Picks no auth, `APIKeyVerifier`, `GitHubProvider` or both, and resolves the token for each call |
 | Token store | `auth.py` | `MemoryStore` by default, `DynamoDBStore` when `DYNAMODB_TABLE_ARN` is set, `RedisStore` when `REDIS_HOST_PORT` is |
 | Server | `issues_pr_analyser.py` | FastMCP server: tool registration, skills provider, metrics middleware, request routing |
 | GitHub integration | `github_integration.py`, `activity.py` | All GitHub API calls, REST v3 and GraphQL v4 |
 
 ## Request path
 
-1. The client opens a session. Over stdio it launches the server as a subprocess and there is no transport auth. Over HTTP the auth layer either compares the bearer token against `GITHUB_TOKEN` in constant time, or runs the GitHub OAuth2 authorisation code flow with PKCE.
-2. `resolve_token` returns the token for the call: the server's `GITHUB_TOKEN` in static mode, the caller's own `gho_*` token in OAuth2 mode. This is the only difference the tools see between the two modes.
+1. The client opens a session. Over stdio it launches the server as a subprocess and there is no transport auth. Over HTTP the auth layer compares the bearer token against `GITHUB_TOKEN` in constant time, runs the GitHub OAuth2 authorisation code flow with PKCE, or does both.
+2. `resolve_token` returns the token for the call: the one the request arrived with wherever the transport authenticated it, and the server's `GITHUB_TOKEN` otherwise. This is the only difference the tools see between the modes.
 3. `PRIssueAnalyser` routes the call to a registered tool. Tools are discovered from the MCP annotations on the integration's public methods, so adding an annotated method registers a tool. Every call passes through the metrics middleware.
 4. `GitHubIntegration` issues the API request over an async HTTP client bounded by `GITHUB_API_TIMEOUT`. Diffs, comments, merges, issues, labels, tags and releases go over REST v3. User search, activity, PR linked issues, PR status checks and star growth go over GraphQL v4.
 
@@ -28,13 +28,14 @@
 
 ## Auth layer
 
-The three rows in the diagram are mutually exclusive and selected at startup, not per request:
+The verifier is selected at startup, not per request:
 
 | Selected when | Verifier | Identity used |
 |---------------|----------|---------------|
 | `MCP_ENABLE_REMOTE` unset or false | none | Server's `GITHUB_TOKEN` |
-| `MCP_ENABLE_REMOTE` true, no `GITHUB_OAUTH_*` | `APIKeyVerifier` | Server's `GITHUB_TOKEN`, shared by every caller |
-| `MCP_ENABLE_REMOTE` true, all `GITHUB_OAUTH_*` | `GitHubProvider` | Each caller's own GitHub token |
+| `MCP_ENABLE_REMOTE` true, `GITHUB_TOKEN` only | `APIKeyVerifier` | Server's `GITHUB_TOKEN`, shared by every caller |
+| `MCP_ENABLE_REMOTE` true, all `GITHUB_OAUTH_*` only | `GitHubProvider` | Each caller's own GitHub token |
+| `MCP_ENABLE_REMOTE` true, `GITHUB_TOKEN` and all `GITHUB_OAUTH_*` | `MultiAuth` over both | Whichever credential the request carried |
 | Neither `GITHUB_TOKEN` nor `GITHUB_OAUTH_*` | none | None. Every call is refused |
 
 The server starts holding neither credential. Over HTTP the MCP endpoint answers 401 with
@@ -43,6 +44,8 @@ so a readiness probe reports the pod healthy. Over stdio a tool raises the same 
 reaches for a token. See #392.
 
 In OAuth2 mode the server acts as its own authorisation server: it accepts dynamic client registration, proxies GitHub's authorisation code flow, and issues JWTs signed with a key derived from `JWT_SIGNING_KEY` or the OAuth client secret. Audit trails and rate limits then follow the individual user rather than the server.
+
+Under `MultiAuth` the `GitHubProvider` still serves those routes and the protected resource metadata, and `APIKeyVerifier` is tried after it. Both report the same scopes, so the scope check on the composed provider passes for either credential. A bearer token matching neither is refused with `401 invalid_token`, naming neither.
 
 ## Token store
 

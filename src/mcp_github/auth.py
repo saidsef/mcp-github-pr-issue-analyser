@@ -64,6 +64,11 @@ DYNAMODB_SETUP_RETRY_SECONDS = 5.0
 # missing its secret gets one answer rather than two wordings.
 MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
+# What the OAuth flow asks GitHub for, and what a static token is taken to carry, so
+# composing the two does not refuse the static one for insufficient scope. project is
+# separate from repo, so the board tools need it named. See #351 and #389.
+GITHUB_SCOPES = ["repo", "read:org", "user", "project"]
+
 # The settings the ARN replaced. Left set, they now configure nothing.
 DYNAMODB_REPLACED_SETTINGS = ("DYNAMODB_TABLE_NAME", "DYNAMODB_REGION", "DYNAMODB_ENDPOINT_URL")
 
@@ -90,7 +95,7 @@ class APIKeyVerifier(TokenVerifier):
                 token=token,
                 client_id="github_token",
                 expires_at=None,
-                scopes=["api:read", "api:write"],
+                scopes=GITHUB_SCOPES,
                 claims={"authenticated": True},
             )
         return None
@@ -269,9 +274,14 @@ def _derive_jwt_signing_key() -> bytes:
     return derive_jwt_key(high_entropy_material=GITHUB_OAUTH_CLIENT_SECRET, salt="fastmcp-jwt-signing-key")  # type: ignore[arg-type]
 
 
+def oauth_configured() -> bool:
+    """True when the deployment holds the whole OAuth trio."""
+    return all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL))
+
+
 def get_oauth_verifier() -> GitHubProvider:
     """Return a GitHubProvider instance for OAuth2 authentication."""
-    if not all((GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, GITHUB_OAUTH_BASE_URL)):
+    if not oauth_configured():
         raise ValueError(
             "GITHUB_OAUTH_CLIENT_ID, GITHUB_OAUTH_CLIENT_SECRET, and GITHUB_OAUTH_BASE_URL must all be set"
         )
@@ -281,19 +291,19 @@ def get_oauth_verifier() -> GitHubProvider:
         client_secret=GITHUB_OAUTH_CLIENT_SECRET,  # type: ignore[arg-type]
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
         jwt_signing_key=_derive_jwt_signing_key(),
-        # project is separate from repo, so the board tools need it named. An
-        # authorisation granted before it was asked for stays without it. See #351.
-        required_scopes=["repo", "read:org", "user", "project"],
+        required_scopes=GITHUB_SCOPES,
         client_storage=build_token_store(),
     )
 
 
 def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
-    """Return the token for the current request."""
-    if oauth_mode:
-        access_token = get_access_token()
-        if access_token is not None:
-            return access_token.token
-        if not github_token:
-            raise RuntimeError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")
+    """Return the token the current request arrived with, or the static one.
+
+    A deployment may hold both credentials, so the request decides which token a
+    tool acts with rather than the configuration deciding for it. See #389."""
+    access_token = get_access_token()
+    if access_token is not None:
+        return access_token.token
+    if oauth_mode and not github_token:
+        raise RuntimeError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")
     return github_token or ""
