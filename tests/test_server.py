@@ -418,3 +418,49 @@ class TestCombinedCredentials:
         assert body["error"] == "invalid_token"
         assert "GITHUB_TOKEN" not in body["error_description"]
         assert "OAuth" not in body["error_description"]
+
+
+class TestSkillsAreReachable:
+    """Skills are published as skill:// resources and as tools. A tool-only
+    client never issues resources/list, so the tools are the path that has to
+    work everywhere. See #414."""
+
+    @pytest.mark.anyio
+    async def test_a_tool_only_client_can_list_and_read_a_skill(self):
+        analyser = _analyser()
+        names = {tool.name for tool in await analyser.mcp.list_tools(run_middleware=False)}
+
+        assert {"list_skills", "get_skill"} <= names
+
+    @pytest.mark.anyio
+    async def test_the_skill_tools_need_no_scope(self):
+        """A read tool is ungated, so the guidance is reachable on any grant."""
+        analyser = _analyser()
+        tools = {tool.name: tool for tool in await analyser.mcp.list_tools(run_middleware=False)}
+
+        assert not tools["list_skills"].tags
+        assert not tools["get_skill"].tags
+
+    @pytest.mark.anyio
+    async def test_both_paths_carry_the_same_set(self):
+        """The resources and the tools read the same files, so a skill added to
+        one path cannot go missing from the other."""
+        analyser = _analyser()
+        listed = {entry["name"] for entry in (await analyser.gi.list_skills())["skills"]}
+        published = {
+            str(resource.uri).removeprefix("skill://").removesuffix("/SKILL.md")
+            for resource in await analyser.mcp.list_resources()
+            if str(resource.uri).endswith("/SKILL.md")
+        }
+
+        assert listed == published
+        assert listed
+
+    @pytest.mark.anyio
+    async def test_the_instructions_name_the_tool_path(self):
+        """The instructions used to offer skill:// URIs alone, which a tool-only
+        client cannot act on."""
+        instructions = _analyser().mcp.instructions or ""
+
+        assert "list_skills" in instructions
+        assert "get_skill" in instructions

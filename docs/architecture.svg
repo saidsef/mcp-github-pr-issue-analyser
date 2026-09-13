@@ -141,7 +141,7 @@
   <text class="s" x="600" y="464" text-anchor="end" fill="#656d76" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">issues_pr_analyser.py</text>
   <path class="div" d="M236 480 H604" stroke="#d0d7de" stroke-width="1"/>
   <text class="l" x="244" y="504" fill="#24292f" font-size="12">tool registry - tools discovered by MCP annotation</text>
-  <text class="l" x="244" y="523" fill="#24292f" font-size="12">skills provider - eight skill:// resources</text>
+  <text class="l" x="244" y="523" fill="#24292f" font-size="12">skills provider - nine skills, as tools and resources</text>
   <text class="l" x="244" y="542" fill="#24292f" font-size="12">metrics middleware - counts and times each call</text>
 
   <!-- ===================== Prometheus ===================== -->
