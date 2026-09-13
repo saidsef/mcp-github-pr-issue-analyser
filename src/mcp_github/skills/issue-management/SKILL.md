@@ -173,7 +173,7 @@ Useful qualifiers: `repo:owner/name`, `org:name`, `is:issue`, `is:pr`,
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `{"total": int, "state": str, "milestones": [...]}`. Each milestone
+Returns `{"count": int, "has_more": bool, "state": str, "milestones": [...]}`. Each milestone
 carries `number`, `title`, `description`, `state`, `due_on`, `open_issues`,
 `closed_issues` and `html_url`, so the issue counts tell you what is left
 without listing the issues themselves.
@@ -242,7 +242,7 @@ covers closed milestones as well as open ones.
 | `page` | int | `1` | Page number |
 
 Returns `{"total": int, "labels": [{"name", "description", "color"}]}`, where
-`total` counts the labels on the page returned, not the repository total.
+`count` is the labels on the page returned. Page on while `has_more` is true.
 `description` is `null` for a label that has none.
 
 Returns every label the repository defines, not only those in use. Reading

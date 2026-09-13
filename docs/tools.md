@@ -2,6 +2,14 @@
 
 The server registers every public method on the GitHub integration that carries an MCP annotation. Read tools make no changes, write tools do, and destructive tools remove something that cannot be brought back. A few long-running read tools are registered as tasks, so the client can poll rather than block.
 
+## Pagination
+
+Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and returns `count` with `has_more`. `count` is the number of items in the reply, never the size of the result set. `has_more` comes from GitHub's `Link` header, so paging stops on a fact rather than on a guess from a full page.
+
+`total` appears only where GitHub reports a genuine count: `list_open_issues_prs` and `search_issues_prs` report the matches found, and `list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
+
+`list_project_items` reads a GraphQL connection, which pages by cursor, so it takes `after` and returns `next_cursor` in place of `page`.
+
 ## Pull requests
 
 | Tool | Kind | Description |
