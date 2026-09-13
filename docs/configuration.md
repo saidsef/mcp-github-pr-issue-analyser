@@ -122,3 +122,17 @@ metadata:
 ## Personal access token scopes
 
 The PAT needs `repo` for private repositories. Reading org membership in user activity queries also needs `read:org`. The project board tools need `read:project` to read and `project` to write, which `repo` does not cover. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope, plus Projects read and write for the board tools.
+
+## Scopes each tool needs
+
+Every tool declares the scopes its class of work needs, and the server checks that declaration against the caller's grant.
+
+| Tool class | Scopes required | Examples |
+|------------|-----------------|----------|
+| Read-only | None | `get_pr_diff`, `list_repos`, `search_issues_prs` |
+| Write | `repo` | `create_issue`, `update_pr`, `merge_pr` |
+| Destructive | `repo` | `delete_release`, `delete_tag`, `remove_from_project` |
+
+The check runs when the tools are listed as well as when one is called. In OAuth2 mode a grant without `repo` sees only the read-only tools, and a call to any of the others is refused with `insufficient scope (required: repo)`. The refusal names the scope the grant lacks, so a client can re-authorise for it rather than reading a GitHub `403` raised from inside the call.
+
+stdio has no grant to check, so every tool stays listed. Static-token HTTP mode holds the operator's own PAT and reaches every tool as well.

@@ -34,7 +34,8 @@ from fastmcp import FastMCP
 from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.exceptions import NotFoundError
-from fastmcp.server.middleware import Middleware, MiddlewareContext
+from fastmcp.server.auth import restrict_tag
+from fastmcp.server.middleware import AuthMiddleware, Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
 from fastmcp_tasks import TasksExtension
 from prometheus_client import (
@@ -60,6 +61,7 @@ from .auth import (
     setup_token_store,
 )
 from .github_integration import GitHubIntegration as GI
+from .tool_annotations import WRITE_SCOPES
 
 logger = logging.getLogger(__name__)
 
@@ -191,6 +193,10 @@ class PRIssueAnalyser:
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
         self.mcp.add_provider(GenerativeUI(tool_name="github_pr_issue_analyser_ui"))
         self.mcp.add_middleware(MetricsMiddleware())
+        # A tool carries the scopes it needs as its tags, so one check per scope gates
+        # every tool that declares it. The middleware names the shortfall on a refused
+        # call, which a per-tool check cannot do. See #388.
+        self.mcp.add_middleware(AuthMiddleware(auth=[restrict_tag(s, scopes=[s]) for s in WRITE_SCOPES]))
         # Background tasks are an extension in FastMCP 4, so a tool marked task=True
         # runs in the request path until the extension is registered.
         self.mcp.add_extension(TasksExtension())
@@ -233,7 +239,8 @@ class PRIssueAnalyser:
                 annotations = getattr(method, "_mcp_annotations", None)
                 if annotations is not None:
                     task = getattr(method, "_mcp_task", False)
-                    self.mcp.tool(annotations=annotations, task=task)(method)
+                    scopes: set[str] = set(getattr(method, "_mcp_scopes", ()))
+                    self.mcp.tool(annotations=annotations, task=task, tags=scopes or None)(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
 
     def run(self) -> None:
