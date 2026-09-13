@@ -35,7 +35,8 @@ and `list_repos` is a plain read.
 
 Returns `{"total": int, "repos": [...]}`, each entry carrying `name`, `owner`,
 `description`, `default_branch`, `private`, `fork`, `archived`, `pushed_at`
-and `html_url`. `total` counts the page returned, not everything the owner has.
+and `html_url`. `count` is the page returned, not everything the owner has, and
+`has_more` says whether to ask for the next one.
 
 You do not say whether the owner is a person or an organisation, because the
 tool reads the account type and picks the endpoint itself. That matters:

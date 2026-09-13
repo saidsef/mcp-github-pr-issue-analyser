@@ -65,7 +65,7 @@ defines.
 | `title` | str | - | Issue title, see Title Convention |
 | `body` | str | - | Issue description in Markdown |
 | `labels` | list[str] | - | Labels to apply. Required, pass `[]` for none |
-| `milestone` | str | `""` | Milestone title to file it under. Omit for none |
+| `milestone` | str \| None | `None` | Milestone title to file it under. Omit or pass null for no milestone |
 
 Returns `IssueData` with `number`, `title`, `body`, `state`, `author`,
 `labels`, `assignees`, `milestone`, `html_url`, `created_at`, `updated_at`.
@@ -173,7 +173,7 @@ Useful qualifiers: `repo:owner/name`, `org:name`, `is:issue`, `is:pr`,
 | `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `{"total": int, "state": str, "milestones": [...]}`. Each milestone
+Returns `{"count": int, "has_more": bool, "state": str, "milestones": [...]}`. Each milestone
 carries `number`, `title`, `description`, `state`, `due_on`, `open_issues`,
 `closed_issues` and `html_url`, so the issue counts tell you what is left
 without listing the issues themselves.
@@ -221,12 +221,12 @@ argument identifies the milestone and `new_title` renames it, so passing
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
 | `issue_number` | int | - | Issue number |
-| `milestone` | str \| None | `None` | Milestone title to file it under. Omit to take it off |
+| `milestone` | str \| None | `None` | Milestone title to file it under. Omit or pass null for no milestone |
 
 Returns `IssueData`, whose `milestone` field reads back the title so you can
 confirm it landed. This is a separate tool rather than an argument on
-`update_issue` because clearing a milestone means sending an explicit null,
-and `update_issue` drops every argument left unset.
+`update_issue` because it takes the title and resolves it to the number GitHub
+wants, which costs a second request that the common update path does not pay.
 
 Milestones are addressed by title here and by number in the GitHub API, so a
 title that matches nothing fails with a not-found error naming it. The lookup
@@ -242,7 +242,7 @@ covers closed milestones as well as open ones.
 | `page` | int | `1` | Page number |
 
 Returns `{"total": int, "labels": [{"name", "description", "color"}]}`, where
-`total` counts the labels on the page returned, not the repository total.
+`count` is the labels on the page returned. Page on while `has_more` is true.
 `description` is `null` for a label that has none.
 
 Returns every label the repository defines, not only those in use. Reading

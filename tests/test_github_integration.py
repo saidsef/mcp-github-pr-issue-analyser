@@ -196,7 +196,7 @@ class TestAnnotations:
             assert set(PROJECT_SCOPES) <= set(getattr(gi, name)._mcp_scopes), name
 
     def test_idempotent_tools_annotated_correctly(self, gi: GitHubIntegration):
-        for name in ("update_pr_description", "update_pr_branch", "update_issue", "update_assignees"):
+        for name in ("update_pr", "update_pr_branch", "update_issue", "update_assignees"):
             method = getattr(gi, name)
             ann = method._mcp_annotations
             assert ann.idempotent_hint is True, f"{name} should have idempotent_hint=True"
@@ -412,11 +412,11 @@ class TestMergePr:
 
 
 # ---------------------------------------------------------------------------
-# update_pr_description — reuses the PATCH response (no redundant GET)
+# update_pr — reuses the PATCH response (no redundant GET). See #399.
 # ---------------------------------------------------------------------------
 
 
-class TestUpdatePrDescription:
+class TestUpdatePrTitleAndBody:
     @pytest.mark.anyio
     async def test_reuses_patch_response_with_single_call(self, gi: GitHubIntegration):
         pr_payload = {
@@ -430,7 +430,7 @@ class TestUpdatePrDescription:
             "state": "open",
         }
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=pr_payload))
-        result = await gi.update_pr_description("o", "r", 5, "New title", "New body")
+        result = await gi.update_pr("o", "r", 5, title="New title", body="New body")
         # A single PATCH — the old implementation issued a follow-up GET.
         gi._http.request.assert_awaited_once()
         assert gi._http.request.call_args.args[0] == "PATCH"
@@ -1516,6 +1516,7 @@ class TestResponseTrimming:
             "draft": False,
             "prerelease": False,
             "body": "Generated notes",
+            "updated": False,
         }
 
 
@@ -1550,7 +1551,8 @@ class TestListRepoLabels:
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
         result = await gi.list_repo_labels("o", "r")
         assert result == {
-            "total": 2,
+            "count": 2,
+            "has_more": False,
             "labels": [
                 {"name": "bug", "description": "Something is not working", "color": "d73a4a"},
                 {"name": "mcp", "description": None, "color": "ededed"},
@@ -1563,7 +1565,7 @@ class TestListRepoLabels:
         result = await gi.list_repo_labels("o", "r", per_page=100, page=2)
         url = gi._http.request.call_args.args[1]
         assert url == "https://api.github.com/repos/o/r/labels?per_page=100&page=2"
-        assert result == {"total": 0, "labels": []}
+        assert result == {"count": 0, "has_more": False, "labels": []}
 
     def test_is_read_only(self, gi: GitHubIntegration):
         assert gi.list_repo_labels._mcp_annotations.read_only_hint is True
@@ -1949,7 +1951,7 @@ class TestSearchIssuesPRs:
         }
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
         result = await gi.search_issues_prs("rate limits")
-        assert result["total"] == 1
+        assert result["count"] == 1
         assert result["items"] == [
             {
                 "url": "https://github.com/o/r/issues/7",
@@ -2036,7 +2038,7 @@ class TestReleasesAndTags:
     async def test_list_releases_is_trimmed(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_release_payload()]))
         result = await gi.list_releases("o", "r")
-        assert result["total"] == 1
+        assert result["count"] == 1
         assert set(result["releases"][0]) == {
             "id", "tag_name", "name", "html_url", "draft", "prerelease", "body",
         }
@@ -2046,7 +2048,7 @@ class TestReleasesAndTags:
         payload = [{"name": "v1.0.0", "zipball_url": "z", "commit": {"sha": "abc123", "url": "u"}}]
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=payload))
         result = await gi.list_tags("o", "r")
-        assert result == {"total": 1, "tags": [{"name": "v1.0.0", "sha": "abc123"}]}
+        assert result == {"count": 1, "has_more": False, "tags": [{"name": "v1.0.0", "sha": "abc123"}]}
 
     @pytest.mark.anyio
     async def test_update_release_sends_only_the_fields_supplied(self, gi: GitHubIntegration):
@@ -2079,19 +2081,34 @@ class TestReleasesAndTags:
         gi._http.request.assert_not_called()
 
     @pytest.mark.anyio
-    async def test_create_release_updates_when_the_tag_already_has_one(self, gi: GitHubIntegration):
+    async def test_create_release_refuses_a_tag_that_already_has_one(self, gi: GitHubIntegration):
+        """A retry after a timeout used to land here and replace the published
+        notes without saying so. See #401."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(status_code=422, json_data={"errors": [{"code": "already_exists"}]})
+        )
+        with pytest.raises(GitHubValidationError, match="update_release"):
+            await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "second attempt")
+        # The POST went out and nothing followed it.
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_create_release_updates_when_asked_to(self, gi: GitHubIntegration):
         responses = iter([
             _mock_response(status_code=422, json_data={"errors": [{"code": "already_exists"}]}),
             _mock_response(json_data=_release_payload()),
             _mock_response(json_data=_release_payload(body="second attempt")),
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "second attempt")
+        result = await gi.create_release(
+            "o", "r", "v1.0.0", "v1.0.0", "second attempt", if_exists="update"
+        )
         calls = gi._http.request.call_args_list
         assert calls[0].args[0] == "POST"
         assert calls[2].args[0] == "PATCH"
         assert calls[2].kwargs["json"]["body"] == "second attempt"
         assert result["body"] == "second attempt"
+        assert result["updated"] is True
 
     @pytest.mark.anyio
     async def test_create_release_still_raises_on_other_validation_errors(self, gi: GitHubIntegration):
@@ -2822,7 +2839,7 @@ class TestMilestones:
     async def test_list_milestones_is_trimmed_and_carries_issue_counts(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_milestone_payload()]))
         result = await gi.list_milestones("o", "r")
-        assert result["total"] == 1
+        assert result["count"] == 1
         assert result["state"] == "open"
         assert result["milestones"][0] == {
             "number": 3,
@@ -3014,7 +3031,8 @@ class TestListRepos:
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_repo_payload()]))
         result = await gi.list_repos()
         assert result == {
-            "total": 1,
+            "count": 1,
+            "has_more": False,
             "repos": [{
                 "name": "toolbox",
                 "owner": "octocat",
@@ -3302,3 +3320,212 @@ class TestRequestedReviewers:
         result = await gi.get_pr_content("o", "r", 5)
         assert result["requested_reviewers"] == []
         assert result["requested_teams"] == []
+
+
+# ---------------------------------------------------------------------------
+# delete_release(delete_tag=True) against a released tag. See #404.
+# ---------------------------------------------------------------------------
+
+
+class TestDeleteReleaseWithTag:
+    @pytest.mark.anyio
+    async def test_the_release_goes_before_the_tag(self, gi: GitHubIntegration):
+        """The whole reason this path needs no force flag. Reverse the order and
+        a failed tag delete would strand a release naming a ref nobody can fetch."""
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=204),
+            _mock_response(status_code=204),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        await gi.delete_release("o", "r", "v1.0.0", delete_tag=True)
+
+        methods_and_urls = [(c.args[0], c.args[1]) for c in gi._http.request.call_args_list]
+        assert len(methods_and_urls) == 3
+        assert methods_and_urls[0][0] == "GET"
+        assert methods_and_urls[1] == ("DELETE", "https://api.github.com/repos/o/r/releases/55")
+        assert methods_and_urls[2][0] == "DELETE"
+        assert methods_and_urls[2][1].endswith("/git/refs/tags/v1.0.0")
+
+    @pytest.mark.anyio
+    async def test_a_failed_release_delete_leaves_the_tag_alone(self, gi: GitHubIntegration):
+        responses = iter([
+            _mock_response(json_data=_release_payload()),
+            _mock_response(status_code=500, reason_phrase="Server Error"),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(ToolError):
+            await gi.delete_release("o", "r", "v1.0.0", delete_tag=True)
+        assert gi._http.request.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_the_same_ref_is_refused_through_delete_tag(self, gi: GitHubIntegration):
+        """The asymmetry the description now explains: one path deletes this ref
+        freely, the other refuses it."""
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_release_payload()))
+        with pytest.raises(GitHubValidationError, match="force=True"):
+            await gi.delete_tag("o", "r", "v1.0.0")
+        assert gi._http.request.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# milestone sentinel — one encoding across both tools. See #403.
+# ---------------------------------------------------------------------------
+
+
+class TestMilestoneSentinel:
+    @pytest.mark.anyio
+    async def test_create_issue_accepts_null_for_no_milestone(self, gi: GitHubIntegration):
+        """Passing null used to be a hard validation error here, while it was the
+        documented way to say the same thing on set_issue_milestone."""
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone=None)
+        assert gi._http.request.call_count == 1
+        assert "milestone" not in gi._http.request.call_args.kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_create_issue_reads_an_empty_string_the_same_way(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone="")
+        assert "milestone" not in gi._http.request.call_args.kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_reads_an_empty_string_as_clear(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.set_issue_milestone("o", "r", 7, "")
+        assert gi._http.request.call_args.kwargs["json"] == {"milestone": None}
+
+    @staticmethod
+    def _lookup_then_write(gi: GitHubIntegration) -> None:
+        """A milestone lookup followed by the issue write it feeds."""
+        responses = iter([
+            _mock_response(json_data=[{"title": "v2.0", "number": 3}]),
+            _mock_response(json_data=_issue_payload()),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+    @pytest.mark.anyio
+    async def test_create_issue_resolves_a_title_to_a_number(self, gi: GitHubIntegration):
+        self._lookup_then_write(gi)
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone="v2.0")
+        assert gi._http.request.call_args.kwargs["json"]["milestone"] == 3
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_resolves_a_title_to_a_number(self, gi: GitHubIntegration):
+        self._lookup_then_write(gi)
+        await gi.set_issue_milestone("o", "r", 7, "v2.0")
+        assert gi._http.request.call_args.kwargs["json"]["milestone"] == 3
+
+    @pytest.mark.anyio
+    async def test_both_tools_declare_the_same_milestone_schema(self):
+        import inspect as _inspect
+
+        shapes = {
+            name: _inspect.signature(getattr(GitHubIntegration, name)).parameters["milestone"]
+            for name in ("create_issue", "set_issue_milestone")
+        }
+        assert len({str(p.annotation) for p in shapes.values()}) == 1, shapes
+        assert {p.default for p in shapes.values()} == {None}
+
+
+# ---------------------------------------------------------------------------
+# Pagination metadata across the list tools. See #405.
+# ---------------------------------------------------------------------------
+
+_NEXT_LINK = '<https://api.github.com/repositories/1/tags?page=2>; rel="next", ' '<...?page=83>; rel="last"'
+
+
+class TestPaginationMetadata:
+    @pytest.mark.anyio
+    async def test_has_more_reads_the_link_header(self, gi: GitHubIntegration):
+        """A full page is not the signal. A set dividing exactly by per_page would
+        loop forever on that guess, so the header decides."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(
+                json_data=[{"name": "v1", "commit": {"sha": "a"}}], headers={"Link": _NEXT_LINK}
+            )
+        )
+        result = await gi.list_tags("o", "r")
+        assert result["has_more"] is True
+        assert result["count"] == 1
+
+    @pytest.mark.anyio
+    async def test_the_last_page_carries_no_next_link(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"name": "v1", "commit": {"sha": "a"}}]))
+        assert (await gi.list_tags("o", "r"))["has_more"] is False
+
+    @pytest.mark.anyio
+    async def test_a_rel_last_without_a_rel_next_is_not_more(self, gi: GitHubIntegration):
+        """The final page still names first and last, so matching the header alone
+        would report another page that is not there."""
+        link = '<https://api.github.com/x?page=1>; rel="first", <https://api.github.com/x?page=3>; rel="last"'
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=[], headers={"Link": link}))
+        assert (await gi.list_tags("o", "r"))["has_more"] is False
+
+    @pytest.mark.anyio
+    async def test_count_is_the_page_not_the_result_set(self, gi: GitHubIntegration):
+        """list_tags used to answer total with the page length, so a repository
+        with 83 pages of tags reported 30."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(
+                json_data=[{"name": f"v{n}", "commit": {"sha": "a"}} for n in range(50)],
+                headers={"Link": _NEXT_LINK},
+            )
+        )
+        result = await gi.list_tags("o", "r")
+        assert result["count"] == 50
+        assert "total" not in result
+        assert result["has_more"] is True
+
+    @pytest.mark.anyio
+    async def test_a_search_keeps_the_real_total_beside_the_page(self, gi: GitHubIntegration):
+        """GitHub gives a genuine match count here, so total stays and means it."""
+        gi._http.request = AsyncMock(
+            return_value=_mock_response(
+                json_data={
+                    "total_count": 900,
+                    "incomplete_results": False,
+                    "items": [{
+                        "html_url": "https://github.com/o/r/issues/7",
+                        "title": "Rate limits",
+                        "number": 7,
+                        "state": "open",
+                        "created_at": "2026-07-01T00:00:00Z",
+                        "updated_at": "2026-07-02T00:00:00Z",
+                        "user": _NOISE_USER,
+                        "labels": [{"name": "bug"}],
+                    }],
+                },
+                headers={"Link": _NEXT_LINK},
+            )
+        )
+        result = await gi.search_issues_prs("rate limit")
+        assert result["total"] == 900
+        assert result["count"] == 1
+        assert result["has_more"] is True
+
+    @pytest.mark.anyio
+    async def test_a_replayed_page_still_knows_it_has_a_successor(self, gi: GitHubIntegration):
+        """A 304 rebuilds the response from cache. Dropping Link there would tell
+        the caller a cached first page was the last one."""
+        first = _mock_response(
+            json_data=[{"name": "v1", "commit": {"sha": "a"}}], etag="W/abc", headers={"Link": _NEXT_LINK}
+        )
+        responses = iter([first, _mock_response(status_code=304)])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        assert (await gi.list_tags("o", "r"))["has_more"] is True
+        assert (await gi.list_tags("o", "r"))["has_more"] is True
+
+    @pytest.mark.anyio
+    async def test_every_rest_list_tool_defaults_to_the_same_page_size(self):
+        import inspect as _inspect
+
+        names = [
+            "list_pr_comments", "list_open_issues_prs", "search_issues_prs", "list_repo_labels",
+            "list_repos", "list_milestones", "list_releases", "list_tags", "list_project_items",
+        ]
+        defaults = {
+            name: _inspect.signature(getattr(GitHubIntegration, name)).parameters["per_page"].default
+            for name in names
+        }
+        assert set(defaults.values()) == {50}, defaults

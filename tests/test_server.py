@@ -26,11 +26,18 @@ from mcp_github.auth import (
     get_oauth_verifier,
 )
 from mcp_github.issues_pr_analyser import VERSION, PRIssueAnalyser, _package_version
+from mcp_github.skills_access import SKILLS_DIR
 from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 _MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
 _STATIC_TOKEN = "test-token"
+_SNAKE = {
+    "readOnlyHint": "read_only_hint",
+    "destructiveHint": "destructive_hint",
+    "idempotentHint": "idempotent_hint",
+    "openWorldHint": "open_world_hint",
+}
 _AUTH_HEADERS = _MCP_HEADERS | {"Authorization": f"Bearer {_STATIC_TOKEN}"}
 _A_RELEASE = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
 _OAUTH_SETTINGS = {
@@ -503,3 +510,114 @@ class TestListOpenIssuesPrsSchema:
 
         assert "is:open" in description
         assert "search_issues_prs" in description
+
+
+class TestRemovedTools:
+    """A name the server no longer answers to must not survive in the prose a
+    client reads, or it advertises a tool nobody can call. See #399."""
+
+    @pytest.mark.anyio
+    async def test_update_pr_description_is_gone(self):
+        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+
+        assert "update_pr_description" not in names
+        assert "update_pr" in names
+
+    @pytest.mark.anyio
+    async def test_the_instructions_do_not_name_it(self):
+        assert "update_pr_description" not in (_analyser().mcp.instructions or "")
+
+    def test_no_skill_still_points_at_it(self):
+        stale = [
+            path.parent.name
+            for path in SKILLS_DIR.glob("*/SKILL.md")
+            if "update_pr_description" in path.read_text(encoding="utf-8")
+        ]
+
+        assert stale == []
+
+
+class TestToolRationales:
+    """A tool description that explains itself has to be right, since a tool-only
+    client cannot cross-check it against the skill. See #400."""
+
+    @staticmethod
+    async def _described(name: str) -> str:
+        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        return tools[name].description or ""
+
+    @pytest.mark.anyio
+    async def test_update_release_says_how_to_move_the_latest_badge(self):
+        """The old wording blamed a parameter budget, and update_release is the
+        smaller of the two signatures."""
+        description = await self._described("update_release")
+
+        assert "parameter budget" not in description
+        assert "make_latest" in description
+        assert "publishing it again" in description
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_gives_a_reason_that_holds(self):
+        """update_issue dropping nulls is a rule this server writes for itself,
+        and labels already escape it with [], so it cannot be the reason."""
+        description = await self._described("set_issue_milestone")
+
+        assert "drops every argument" not in description
+        assert "title" in description
+
+    @pytest.mark.anyio
+    async def test_the_skill_and_the_description_agree_on_make_latest(self):
+        skill = (SKILLS_DIR / "release-management" / "SKILL.md").read_text(encoding="utf-8")
+        description = await self._described("update_release")
+
+        for claim in ("create_release", "make_latest"):
+            assert claim in skill and claim in description
+        assert "parameter budget" not in skill
+
+
+class TestAnnotationCoverage:
+    """Every tool this repo registers declares all four hints, so a new one
+    cannot ship unannotated. See #407."""
+
+    # The Choice and GenerativeUI providers register these, so their annotations
+    # are FastMCP's to set rather than this repo's.
+    _PROVIDED = {"choose", "github_pr_issue_analyser_ui", "search_prefab_components"}
+
+    async def _own_tools(self) -> list[Any]:
+        tools = await _analyser().mcp.list_tools(run_middleware=False)
+        return [tool for tool in tools if tool.name not in self._PROVIDED]
+
+    @pytest.mark.anyio
+    async def test_every_tool_declares_all_four_hints(self):
+        missing = {
+            tool.name: [
+                hint
+                for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+                if getattr(tool.annotations, _SNAKE[hint], None) is None
+            ]
+            for tool in await self._own_tools()
+            if tool.annotations is None
+            or any(
+                getattr(tool.annotations, _SNAKE[hint], None) is None
+                for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
+            )
+        }
+
+        assert missing == {}
+
+    @pytest.mark.anyio
+    async def test_every_tool_acts_on_an_open_world(self):
+        """All of them reach api.github.com."""
+        assert all(tool.annotations.open_world_hint is True for tool in await self._own_tools())
+
+    @pytest.mark.anyio
+    async def test_the_coverage_check_sees_the_whole_tool_list(self):
+        """A guard that silently skipped every tool would pass the check above."""
+        assert len(await self._own_tools()) > 40
+
+    @pytest.mark.anyio
+    async def test_no_tool_that_writes_claims_to_be_read_only(self):
+        writers = [t for t in await self._own_tools() if t.tags]
+
+        assert writers
+        assert all(tool.annotations.read_only_hint is False for tool in writers)
