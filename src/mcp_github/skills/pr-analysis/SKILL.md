@@ -53,12 +53,18 @@ Returns `PRContent` with exactly these fields:
 | `head_sha` | str \| None | Newest commit on the PR branch |
 | `head_ref` | str \| None | Branch the PR merges from |
 | `base_ref` | str \| None | Branch the PR merges into |
+| `requested_reviewers` | list[str] | Logins asked to review and yet to answer |
+| `requested_teams` | list[str] | Team slugs asked to review |
 
 Nothing else is returned. Draft status, labels and `mergeable` are **not**
 available from this tool. `state` is `closed` for both merged and abandoned PRs
 and does not distinguish the two.
 
 `head_sha` is what `github_update_pr_branch` takes as `expected_head_sha`.
+
+GitHub empties `requested_reviewers` once that reviewer answers, so an empty
+list with no reviews means nobody was asked. Read the verdicts themselves with
+`github_list_pr_reviews`.
 
 To learn whether a PR is a draft, call `github_list_open_issues_prs` with
 `filtering="repo"` and read `is_draft` on the matching entry. That tool returns

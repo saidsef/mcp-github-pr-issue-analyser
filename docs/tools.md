@@ -2,17 +2,24 @@
 
 The server registers every public method on the GitHub integration that carries an MCP annotation. Read tools make no changes, write tools do, and destructive tools remove something that cannot be brought back. A few long-running read tools are registered as tasks, so the client can poll rather than block.
 
+## Pagination
+
+Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and returns `count` with `has_more`. `count` is the number of items in the reply, never the size of the result set. `has_more` comes from GitHub's `Link` header, so paging stops on a fact rather than on a guess from a full page.
+
+`total` appears only where GitHub reports a genuine count: `github_list_open_issues_prs` and `github_search_issues_prs` report the matches found, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
+
+`github_list_project_items` reads a GraphQL connection, which pages by cursor, so it takes `after` and returns `next_cursor` in place of `page`.
+
 ## Pull requests
 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `github_get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
-| `github_get_pr_content` | read | PR title, description, author, timestamps, state, head SHA and the branches either side |
+| `github_get_pr_content` | read | PR title, description, author, timestamps, state, head SHA, the branches either side and who was asked to review |
 | `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `github_create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
 | `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
-| `github_update_pr_description` | write | Change the title and body of a PR together |
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
 | `github_update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `github_merge_pr` | write | Merge using the merge, squash or rebase method |
@@ -21,6 +28,7 @@ The server registers every public method on the GitHub integration that carries 
 | `github_list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
 | `github_update_pr_comment` | write | Rewrite a comment already posted |
 | `github_reply_to_review_comment` | write | Reply on an existing review thread |
+| `github_list_pr_reviews` | read | Reviews submitted on a PR, each with its author, verdict and timestamp |
 | `github_submit_review` | write | Approve, request changes, or comment as a review |
 | `github_set_assignees` | write | Assign or update users on a PR or issue |
 
@@ -52,12 +60,12 @@ The server registers every public method on the GitHub integration that carries 
 |------|------|-------------|
 | `github_get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
 | `github_create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
-| `github_create_release` | write | Publish a release with a changelog, updating one that already exists for the tag |
+| `github_create_release` | write | Publish a release with a changelog, refusing a tag that already has one unless `if_exists="update"` |
 | `github_list_releases` | read | A repository's releases, newest first |
 | `github_get_release` | read | One release, by tag or the latest published |
 | `github_update_release` | write | Change a published release's title, notes, draft or prerelease state |
 | `github_list_tags` | read | A repository's tags and the commit each points at |
-| `github_delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise |
+| `github_delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise, which skips the `github_delete_tag` force check |
 | `github_delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
 
 ## Project boards

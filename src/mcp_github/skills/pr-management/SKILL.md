@@ -24,10 +24,9 @@ Open pull requests, keep them current, and merge them once they are ready.
 ### Updating a PR
 
 1. Call `github_update_pr` to change any subset of the title, body, state, base branch and labels. This is the one to reach for, since it leaves the fields you omit alone
-2. Call `github_update_pr_description` only when replacing both the title and the body together
-3. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
-4. Call `github_set_assignees` to set the assignees
-5. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
+2. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
+3. Call `github_set_assignees` to set the assignees
+4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
 
 ### Closing a PR
 
@@ -102,21 +101,6 @@ Returns `pr_number`, `is_draft` and `url`. REST accepts `draft` only when the PR
 is created, so this runs a GraphQL mutation and needs a token that can write to
 the repository.
 
-### `github_update_pr_description`
-
-| Parameter | Type | Description |
-|---|---|---|
-| `repo_owner` | str | GitHub organisation or username |
-| `repo_name` | str | Repository name |
-| `pr_number` | int | Pull request number |
-| `new_title` | str | Replacement title, required |
-| `new_description` | str | Replacement body in Markdown, required |
-
-Returns `PRContent`. Both fields are sent on every call, so pass the current
-value for whichever one you are not changing or it will be overwritten. Fetch
-the current values with `github_get_pr_content` first. Prefer `github_update_pr` when only
-one of the two is changing.
-
 ### `github_set_assignees`
 
 | Parameter | Type | Description |
@@ -166,7 +150,7 @@ PR titles and commit subjects share one shape with issue titles:
 | `<scope>` | Lowercase area touched: `auth`, `tools`, `deps`, `cache`, `skills`, `readme`, `k8s`. Use `/` for a compound scope such as `docker/k8s` |
 | Summary | Prose, not a slug. Lowercase start, imperative mood, no trailing full stop, roughly 72 characters or fewer |
 
-This governs `title` in `github_create_pr`, `new_title` in `github_update_pr_description` and
+This governs `title` in `github_create_pr`, `title` in `github_update_pr` and
 `commit_title` in `github_merge_pr`. Always set `commit_title` explicitly when
 squashing, otherwise the subject landing on the default branch inherits a
 branch commit. Append the PR reference, e.g.
@@ -198,8 +182,6 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Write PR bodies in Markdown with a summary, the motivation, and how it was tested
 - Gate the merge on `github_get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
-- Reach for `github_update_pr` to change one field, and `github_update_pr_description` only when replacing both title and body
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
-- Read the current title and body with `github_get_pr_content` before `github_update_pr_description`, since both fields are replaced
 - Delete the head branch after merging

@@ -160,7 +160,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use github_get_pr_diff (preferred) and github_get_pr_content for detailed PR analysis
 - Use github_get_repository_file to read the code a hunk sits in, since a few lines of context rarely settle whether a change is right
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
-- Use github_update_pr_description to keep PRs up-to-date
+- Use github_update_pr to change a PR's title, body, state, base branch or labels, leaving out whatever is not changing
 - Use github_create_issue and github_update_issue for issue management
 - Use the labels parameter on github_create_pr and github_update_pr to label a pull request, since GitHub keeps PR labels on the issues endpoint
 - Use github_set_issue_milestone to file an issue under a milestone after it exists, since github_update_issue cannot clear one
