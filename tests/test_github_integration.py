@@ -3193,3 +3193,63 @@ class TestMissingCredentials:
         assert raised.value.status_code == 401
         assert "[AUTH_FAILED] HTTP 401" in str(raised.value)
         assert MISSING_CREDENTIALS in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# milestone sentinel — one encoding across both tools. See #403.
+# ---------------------------------------------------------------------------
+
+
+class TestMilestoneSentinel:
+    @pytest.mark.anyio
+    async def test_create_issue_accepts_null_for_no_milestone(self, gi: GitHubIntegration):
+        """Passing null used to be a hard validation error here, while it was the
+        documented way to say the same thing on set_issue_milestone."""
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone=None)
+        assert gi._http.request.call_count == 1
+        assert "milestone" not in gi._http.request.call_args.kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_create_issue_reads_an_empty_string_the_same_way(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone="")
+        assert "milestone" not in gi._http.request.call_args.kwargs["json"]
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_reads_an_empty_string_as_clear(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
+        await gi.set_issue_milestone("o", "r", 7, "")
+        assert gi._http.request.call_args.kwargs["json"] == {"milestone": None}
+
+    @staticmethod
+    def _lookup_then_write(gi: GitHubIntegration) -> None:
+        """A milestone lookup followed by the issue write it feeds."""
+        responses = iter([
+            _mock_response(json_data=[{"title": "v2.0", "number": 3}]),
+            _mock_response(json_data=_issue_payload()),
+        ])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+
+    @pytest.mark.anyio
+    async def test_create_issue_resolves_a_title_to_a_number(self, gi: GitHubIntegration):
+        self._lookup_then_write(gi)
+        await gi.create_issue("o", "r", "A bug", "Details", ["bug"], milestone="v2.0")
+        assert gi._http.request.call_args.kwargs["json"]["milestone"] == 3
+
+    @pytest.mark.anyio
+    async def test_set_issue_milestone_resolves_a_title_to_a_number(self, gi: GitHubIntegration):
+        self._lookup_then_write(gi)
+        await gi.set_issue_milestone("o", "r", 7, "v2.0")
+        assert gi._http.request.call_args.kwargs["json"]["milestone"] == 3
+
+    @pytest.mark.anyio
+    async def test_both_tools_declare_the_same_milestone_schema(self):
+        import inspect as _inspect
+
+        shapes = {
+            name: _inspect.signature(getattr(GitHubIntegration, name)).parameters["milestone"]
+            for name in ("create_issue", "set_issue_milestone")
+        }
+        assert len({str(p.annotation) for p in shapes.values()}) == 1, shapes
+        assert {p.default for p in shapes.values()} == {None}

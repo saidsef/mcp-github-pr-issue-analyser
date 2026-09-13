@@ -1081,7 +1081,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_owner: str,
         repo_name: str,
         issue_number: int,
-        milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null to take it off"] = None,
+        milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null for no milestone"] = None,
     ) -> IssueData:
         """Files an issue under a milestone, or takes it off one. Setting is its own
         tool because update_issue drops every argument left as null, which is what
@@ -1114,7 +1114,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         title: str,
         body: str,
         labels: list[str],
-        milestone: Annotated[str, "Milestone title to file it under. Omit for none"] = "",
+        milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null for no milestone"] = None,
     ) -> IssueData:
         """Creates a new issue."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
