@@ -31,9 +31,7 @@ from mcp_github.tool_annotations import (
     _write,
 )
 
-# ---------------------------------------------------------------------------
 # Helpers
-# ---------------------------------------------------------------------------
 
 
 def _mock_response(
@@ -115,9 +113,7 @@ _EMPTY_STATUS_CHECKS = {
 }
 
 
-# ---------------------------------------------------------------------------
 # Fixture
-# ---------------------------------------------------------------------------
 
 
 @pytest.fixture
@@ -129,9 +125,7 @@ def gi() -> GitHubIntegration:
     return instance
 
 
-# ---------------------------------------------------------------------------
 # Annotation semantics
-# ---------------------------------------------------------------------------
 
 
 class TestAnnotations:
@@ -229,9 +223,7 @@ class TestAnnotations:
         assert ann.read_only_hint is False
 
 
-# ---------------------------------------------------------------------------
 # Connection pooling — single shared client
-# ---------------------------------------------------------------------------
 
 
 class TestConnectionPooling:
@@ -251,9 +243,7 @@ class TestConnectionPooling:
         assert gi._http is client_before
 
 
-# ---------------------------------------------------------------------------
 # Conditional reads
-# ---------------------------------------------------------------------------
 
 
 class TestEtagCache:
@@ -300,9 +290,7 @@ class TestEtagCache:
         assert len(gi._etags) == 3
 
 
-# ---------------------------------------------------------------------------
 # Timeouts
-# ---------------------------------------------------------------------------
 
 
 class TestTimeouts:
@@ -323,9 +311,7 @@ class TestTimeouts:
         assert instance._http.timeout.read == TIMEOUT
 
 
-# ---------------------------------------------------------------------------
 # aclose / async context manager
-# ---------------------------------------------------------------------------
 
 
 class TestLifecycle:
@@ -359,9 +345,7 @@ class TestLifecycle:
         assert instance._http.is_closed
 
 
-# ---------------------------------------------------------------------------
 # merge_pr — request shape and GitHub error surfacing
-# ---------------------------------------------------------------------------
 
 
 class TestMergePr:
@@ -432,9 +416,7 @@ class TestMergePr:
         }
 
 
-# ---------------------------------------------------------------------------
 # update_pr — reuses the PATCH response (no redundant GET). See #399.
-# ---------------------------------------------------------------------------
 
 
 class TestUpdatePrTitleAndBody:
@@ -471,9 +453,7 @@ class TestUpdatePrTitleAndBody:
         }
 
 
-# ---------------------------------------------------------------------------
 # get_pr_content head SHA — the source update_pr_branch needs. See #411.
-# ---------------------------------------------------------------------------
 
 
 class TestPRHeadSha:
@@ -519,9 +499,7 @@ class TestPRHeadSha:
         assert gi._http.request.call_args.kwargs["json"] == {"expected_head_sha": "9341d65"}
 
 
-# ---------------------------------------------------------------------------
 # get_user_activities — Context progress ordering and completeness
-# ---------------------------------------------------------------------------
 
 
 class TestGetUserActivitiesContext:
@@ -591,9 +569,7 @@ class TestGetUserActivitiesContext:
             assert section.field in result
 
 
-# ---------------------------------------------------------------------------
 # get_user_activities — filtering, capping and date handling
-# ---------------------------------------------------------------------------
 
 
 def _repo_block(owner: str, name: str, nodes: list[dict]) -> dict:
@@ -785,9 +761,7 @@ class TestGetUserActivitiesDates:
         }
 
 
-# ---------------------------------------------------------------------------
 # get_repo_stars_since — new stars within a date window
-# ---------------------------------------------------------------------------
 
 
 class TestGetRepoStarsSince:
@@ -1016,9 +990,7 @@ class TestGetRepoStarsSince:
         assert len(result["since"]) == 20
 
 
-# ---------------------------------------------------------------------------
 # get_pr_status_checks — check_suites allocation is conditional on ctx
-# ---------------------------------------------------------------------------
 
 
 class TestGetPrStatusChecks:
@@ -1068,9 +1040,7 @@ class TestGetPrStatusChecks:
         assert result["overall"] == "unknown"
 
 
-# ---------------------------------------------------------------------------
 # get_latest_sha + create_tag — empty-repo contract
-# ---------------------------------------------------------------------------
 
 
 class TestGetLatestShaAndCreateTag:
@@ -1177,9 +1147,7 @@ class TestGetLatestShaAndCreateTag:
         gi._http.request.assert_awaited_once()
 
 
-# ---------------------------------------------------------------------------
 # get_pr_status_checks — pagination + truncation
-# ---------------------------------------------------------------------------
 
 
 def _status_page(
@@ -1335,9 +1303,7 @@ class TestStatusChecksPagination:
         assert "truncated" in msg
 
 
-# ---------------------------------------------------------------------------
 # Response trimming — write tools return compact contracts, not raw payloads
-# ---------------------------------------------------------------------------
 
 _NOISE_USER = {
     "login": "octocat",
@@ -1657,9 +1623,7 @@ class TestResponseTrimming:
         }
 
 
-# ---------------------------------------------------------------------------
 # Repository labels
-# ---------------------------------------------------------------------------
 
 
 class TestListRepoLabels:
@@ -1708,9 +1672,7 @@ class TestListRepoLabels:
         assert gi.list_repo_labels._mcp_annotations.read_only_hint is True
 
 
-# ---------------------------------------------------------------------------
 # get_repository_file + list_repository_tree — repository reads. See #409.
-# ---------------------------------------------------------------------------
 
 
 def _raw(content: bytes) -> MagicMock:
@@ -1872,9 +1834,7 @@ class TestListRepositoryTree:
         assert gi.list_repository_tree._mcp_annotations.read_only_hint is True
 
 
-# ---------------------------------------------------------------------------
 # add_inline_pr_comment — side and multi-line ranges. See #410.
-# ---------------------------------------------------------------------------
 
 
 def _inline_responses(**overrides):
@@ -2001,9 +1961,7 @@ class TestInlineCommentPlacement:
         assert comment["start_side"] == "RIGHT"
 
 
-# ---------------------------------------------------------------------------
 # get_pr_diff — size reporting and truncation (#314)
-# ---------------------------------------------------------------------------
 
 
 class TestGetPRDiff:
@@ -2052,9 +2010,7 @@ class TestGetPRDiff:
         gi._http.request.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
 # search_issues_prs (#346)
-# ---------------------------------------------------------------------------
 
 
 class TestSearchIssuesPRs:
@@ -2121,9 +2077,7 @@ class TestSearchIssuesPRs:
         assert gi.search_issues_prs._mcp_annotations.read_only_hint is True
 
 
-# ---------------------------------------------------------------------------
 # Releases and tags — read, update, delete (#347)
-# ---------------------------------------------------------------------------
 
 
 def _release_payload(**overrides) -> dict:
@@ -2318,9 +2272,7 @@ class TestReleasesAndTags:
             assert getattr(gi, name)._mcp_annotations.read_only_hint is True, name
 
 
-# ---------------------------------------------------------------------------
 # update_pr and set_pr_draft (#348)
-# ---------------------------------------------------------------------------
 
 
 def _pr_payload(**overrides) -> dict:
@@ -2498,9 +2450,7 @@ class TestSetPRDraft:
         gi._execute_graphql.assert_not_called()
 
 
-# ---------------------------------------------------------------------------
 # PR comments — list, edit, reply (#349)
-# ---------------------------------------------------------------------------
 
 
 class TestPRComments:
@@ -2621,9 +2571,7 @@ class TestPRComments:
         assert gi.list_pr_comments._mcp_annotations.read_only_hint is True
 
 
-# ---------------------------------------------------------------------------
 # _request allow_status
-# ---------------------------------------------------------------------------
 
 
 class TestAllowStatus:
@@ -2640,9 +2588,7 @@ class TestAllowStatus:
             await gi._request("GET", "https://api.github.com/x", allow_status=(422,))
 
 
-# ---------------------------------------------------------------------------
 # Project boards (#351)
-# ---------------------------------------------------------------------------
 
 # An owner whose projectV2 resolved to nothing, which is what a wrong number and
 # a token that cannot see Projects both look like.
@@ -2949,9 +2895,7 @@ class TestGraphQLScopeErrors:
                 raise GitHubAuthError("Missing scope.")
 
 
-# ---------------------------------------------------------------------------
 # Milestones (#350)
-# ---------------------------------------------------------------------------
 
 
 def _milestone_payload(**overrides) -> dict:
@@ -3107,9 +3051,7 @@ class TestMilestones:
             assert getattr(gi, name)._mcp_annotations.idempotent_hint is True, name
 
 
-# ---------------------------------------------------------------------------
 # list_repos (#354)
-# ---------------------------------------------------------------------------
 
 
 def _repo_payload(**overrides) -> dict:
@@ -3201,9 +3143,7 @@ class TestListRepos:
         assert gi.list_repos._mcp_annotations.read_only_hint is True
 
 
-# ---------------------------------------------------------------------------
 # Error detail
-# ---------------------------------------------------------------------------
 
 
 _SAML_403 = {
@@ -3354,9 +3294,7 @@ class TestMissingCredentials:
         assert MISSING_CREDENTIALS in str(raised.value)
 
 
-# ---------------------------------------------------------------------------
 # list_pr_reviews — the read counterpart to update_reviews. See #408.
-# ---------------------------------------------------------------------------
 
 
 def _review_payload(**overrides) -> dict:
@@ -3459,9 +3397,7 @@ class TestRequestedReviewers:
         assert result["requested_teams"] == []
 
 
-# ---------------------------------------------------------------------------
 # delete_release(delete_tag=True) against a released tag. See #404.
-# ---------------------------------------------------------------------------
 
 
 class TestDeleteReleaseWithTag:
@@ -3505,9 +3441,7 @@ class TestDeleteReleaseWithTag:
         assert gi._http.request.call_count == 1
 
 
-# ---------------------------------------------------------------------------
 # milestone sentinel — one encoding across both tools. See #403.
-# ---------------------------------------------------------------------------
 
 
 class TestMilestoneSentinel:
@@ -3565,9 +3499,7 @@ class TestMilestoneSentinel:
         assert {p.default for p in shapes.values()} == {None}
 
 
-# ---------------------------------------------------------------------------
 # Pagination metadata across the list tools. See #405.
-# ---------------------------------------------------------------------------
 
 _NEXT_LINK = '<https://api.github.com/repositories/1/tags?page=2>; rel="next", ' '<...?page=83>; rel="last"'
 

@@ -65,9 +65,7 @@ DYNAMODB_SETUP_RETRY_SECONDS = 5.0
 MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
 # The scopes the flow asks GitHub for, advertises to clients and mints for a static
-# token. Both credentials report the same set, so composing them does not refuse the
-# static one for insufficient scope. project is separate from repo, so the board tools
-# need it named, and an authorisation granted before it was asked for stays without it.
+# token. project is separate from repo, so the board tools need it named.
 # See #351 and #389.
 GITHUB_SCOPES: tuple[str, ...] = ("repo", "read:org", "user", "project")
 
@@ -309,10 +307,8 @@ def get_oauth_verifier() -> GitHubProvider:
     # The floor is all the provider would otherwise offer, so registration, discovery
     # and the consent screen are put back to every scope the tools need.
     provider.update_default_scopes(list(GITHUB_SCOPES))
-    # The authorisation request falls back to required_scopes when a client names no
-    # scopes of its own, and that floor is deliberately just user, so GitHub was asked
-    # for user alone and no grant ever carried repo. The floor and the fallback are one
-    # list on the provider, so the request carries the full set instead. See #441.
+    # The request falls back to required_scopes when a client names none of its own,
+    # and that floor is just user, so the full set is named here instead. See #441.
     provider._extra_authorize_params = {**getattr(provider, "_extra_authorize_params", {}),
                                         "scope": " ".join(GITHUB_SCOPES)}
     return provider

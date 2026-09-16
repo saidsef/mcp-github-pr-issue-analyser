@@ -20,7 +20,6 @@
 
 from __future__ import annotations
 
-# Query to search for a GitHub user by username
 SEARCH_USER_QUERY = """
 query($username: String!) {
   user(login: $username) {
@@ -64,7 +63,6 @@ query($username: String!) {
 }
 """
 
-# Query to fetch issues that will be auto-closed when a PR is merged
 PR_LINKED_ISSUES_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -88,11 +86,8 @@ query($owner: String!, $repo: String!, $number: Int!) {
 }
 """
 
-# Query to fetch check runs and commit status for a PR's HEAD commit.
-# Paginates check suites via $suitesAfter. Runs-within-suite are returned
-# 100 at a time alongside an endCursor and hasNextPage; if a suite has
-# more, the caller follows up with CHECK_SUITE_RUNS_QUERY using the
-# suite's node id.
+# Check suites paginate via $suitesAfter. The runs within a suite come 100 at a
+# time, and a suite holding more is followed up with CHECK_SUITE_RUNS_QUERY.
 PR_STATUS_CHECKS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
   repository(owner: $owner, name: $repo) {
@@ -167,10 +162,8 @@ query($suiteId: ID!, $after: String) {
 }
 """
 
-# Query to get user contributions with optional date filtering.
-# Only fields the mappers in activity.py actually read are requested -- the
-# collection is fetched wide (100 repos x 100 contributions) because org and
-# repo filtering has no server-side equivalent on contributionsCollection.
+# Only the fields the mappers in activity.py read are requested. The collection is
+# fetched wide, since contributionsCollection has no server-side org or repo filter.
 USER_CONTRIBUTIONS_QUERY = """
 fragment RepoRef on Repository {
   name
@@ -296,11 +289,9 @@ mutation($pullRequestId: ID!) {
 }
 """
 
-# Projects (v2) has no REST surface, and everything on it is addressed by node
-# id rather than by owner, repo and number. See #351.
-#
-# repositoryOwner resolves a login without the caller saying whether it names a
-# user or an organisation, which projectV2 on either type alone cannot do.
+# Projects (v2) has no REST surface, and everything on it is addressed by node id.
+# repositoryOwner resolves a login without the caller saying whether it names a user
+# or an organisation, which projectV2 on either type alone cannot do. See #351.
 _PROJECT_FIELDS_FRAGMENT = """
 fragment ProjectFields on ProjectV2 {
   id
