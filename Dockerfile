@@ -1,6 +1,6 @@
 # Deno and uv ship the binary in an image of their own, so dependabot bumps
 # these FROM lines like any other image. See #323.
-FROM denoland/deno:bin-2.9.6 AS deno
+FROM denoland/deno:bin-2.9.7 AS deno
 FROM ghcr.io/astral-sh/uv:0.12.13 AS uv
 
 FROM docker.io/python:3.14-slim AS builder
