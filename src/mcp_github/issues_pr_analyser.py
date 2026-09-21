@@ -51,14 +51,18 @@ from prometheus_client import (
 )
 from starlette.middleware import Middleware as ASGIMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, Response
+from starlette.responses import HTMLResponse, JSONResponse, Response
 
+from . import admin
 from .auth import (
     UnconfiguredCredentials,
     aclose_token_store,
+    get_token_store,
+    oauth_configured,
     setup_token_store,
 )
 from .github_integration import GitHubIntegration as GI
+from .preferences import ToolPreferences, read_record
 from .tool_annotations import GATED_SCOPES
 
 logger = logging.getLogger(__name__)
@@ -267,6 +271,9 @@ class PRIssueAnalyser:
         # every tool that declares it. The middleware names the shortfall on a refused
         # call, which a per-tool check cannot do. See #388.
         self.mcp.add_middleware(AuthMiddleware(auth=[restrict_tag(s, scopes=[s]) for s in GATED_SCOPES]))
+        # After the scope gate, so a tool the grant cannot reach stays unreachable
+        # whatever the user turned on. See #451.
+        self.mcp.add_middleware(ToolPreferences())
         # Background tasks are an extension in FastMCP 4, so a tool marked task=True
         # runs in the request path until the extension is registered.
         self.mcp.add_extension(TasksExtension())
@@ -283,8 +290,51 @@ class PRIssueAnalyser:
             tools = await self.mcp.list_tools(run_middleware=False)
             return JSONResponse({"status": "ok", "service": self.mcp.name, "version": VERSION, "tools": len(tools)})
 
+        if self._admin_enabled:
+            self._register_admin_routes()
+
         logger.info("MCP Server initialised")
         self.register_tools()
+
+    @property
+    def _admin_enabled(self) -> bool:
+        """The admin page needs an HTTP surface to be reached on and an OAuth flow to
+        identify a user by, and a static-token deployment has neither. See #451."""
+        return MCP_ENABLE_REMOTE and oauth_configured()
+
+    def _register_admin_routes(self) -> None:
+        """The browser sign-in and the per-user tool list."""
+        provider = self.gi._oauth_verifier
+
+        @self.mcp.custom_route(admin.ADMIN_PATH, methods=["GET"])
+        async def admin_route(request: Request) -> Response:
+            session = await admin.read_session(request)
+            if session is None:
+                return await admin.start_login(provider, admin.ADMIN_PATH)
+            record = await read_record(str(session.get("sub", "")))
+            tools = await self.mcp.list_tools(run_middleware=False)
+            return HTMLResponse(
+                admin.render_page(
+                    login=str(session.get("login", "")),
+                    tools=list(tools),
+                    disabled={str(name) for name in record.get("disabled") or []},
+                    csrf=str(session.get("csrf", "")),
+                    saved=request.query_params.get("saved") == "1",
+                )
+            )
+
+        @self.mcp.custom_route(admin.CALLBACK_PATH, methods=["GET"])
+        async def admin_callback_route(request: Request) -> Response:
+            return await admin.complete_login(provider, request)
+
+        @self.mcp.custom_route(f"{admin.ADMIN_PATH}/preferences", methods=["POST"])
+        async def admin_preferences_route(request: Request) -> Response:
+            return await admin.save_preferences(request)
+
+        @self.mcp.custom_route(f"{admin.ADMIN_PATH}/logout", methods=["POST"])
+        async def admin_logout_route(request: Request) -> Response:
+            form = await request.form()
+            return await admin.sign_out(request, everywhere=form.get("everywhere") == "1")
 
     @asynccontextmanager
     async def _lifespan(self, _server: FastMCP) -> AsyncIterator[None]:
@@ -292,7 +342,12 @@ class PRIssueAnalyser:
         HTTP clients and the token store's client when the server shuts down.
         See #315, #357 and #363."""
         try:
+            # The store records itself only once something builds it, and setup reads
+            # that record, so the shared store is claimed before the table check runs.
+            get_token_store()
             await setup_token_store()
+            if self._admin_enabled:
+                await admin.register_admin_client(self.gi._oauth_verifier)
             yield
         finally:
             await self.gi.aclose()

@@ -53,6 +53,12 @@ OAuth client registrations and token state live in the store returned by `build_
 
 The DynamoDB store is prepared from the lifespan, not on the first request, so a missing table is created and a role that cannot create it stops the server at startup. The server closes the store's client from the lifespan, alongside the GitHub HTTP clients.
 
+One store instance is shared. The OAuth provider, the admin routes and the preferences middleware all read it, and building a second would leave the first backend client unreleased and, in memory mode, hide the OAuth state from the second reader.
+
+## The admin page
+
+`GET /admin` serves a per-user tool list to a signed-in browser, and a middleware applies what each user chose to their own MCP sessions. The page authenticates as a client of this server rather than of GitHub, so the deployment keeps one OAuth App. See [The admin page](./configuration.md#the-admin-page).
+
 ## Observability
 
 The metrics middleware wraps every tool call and the server serves `GET /metrics` on the same port as `/mcp`. Alongside it, `GET /` returns the server's name, version and registered tool count as JSON. Both routes sit outside the auth layer, so a scraper and a probe need no credentials. See [Metrics](./metrics.md) and [Checking the server is up](./installation.md#checking-the-server-is-up).

@@ -33,6 +33,7 @@ from urllib.parse import urlparse
 import aioboto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
+from cryptography.fernet import Fernet
 from fastmcp.server.auth import AccessToken, TokenVerifier
 from fastmcp.server.auth.jwt_issuer import derive_jwt_key
 from fastmcp.server.auth.providers.github import GitHubProvider
@@ -42,6 +43,7 @@ from key_value.aio.protocols import AsyncKeyValue
 from key_value.aio.stores.dynamodb import DynamoDBStore
 from key_value.aio.stores.memory import MemoryStore
 from key_value.aio.stores.redis import RedisStore
+from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from redis.asyncio import Redis as AsyncRedis
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -83,8 +85,21 @@ STS_CONFIG = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 
 
 logger = logging.getLogger(__name__)
 
+# The salt the OAuth provider's own signing key is derived under. Each consumer of
+# the key material takes its own, so one derivation cannot stand in for another.
+JWT_SIGNING_SALT = "fastmcp-jwt-signing-key"
+ADMIN_SECRET_SALT = "mcp-admin-secret-store"
+
 # The store the server built, kept so shutdown can release its client. See #357.
 _token_store: AsyncKeyValue | None = None
+
+# The one store every consumer shares. Building a second would leak the first
+# backend client and, in memory mode, hide the OAuth state from the second reader.
+_shared_store: AsyncKeyValue | None = None
+
+# The encrypted view over the shared store, built once because deriving its key
+# runs a KDF.
+_admin_store: AsyncKeyValue | None = None
 
 
 class APIKeyVerifier(TokenVerifier):
@@ -269,19 +284,53 @@ def build_token_store() -> AsyncKeyValue:
     return _namespaced(_token_store)
 
 
+def get_token_store() -> AsyncKeyValue:
+    """Return the token store every consumer shares.
+
+    build_token_store stays a factory, so calling it twice builds two backend clients
+    and the first is never released. Everything that needs the store asks here. See #451."""
+    global _shared_store
+    if _shared_store is None:
+        _shared_store = build_token_store()
+    return _shared_store
+
+
 async def aclose_token_store() -> None:
     """Release the token store's client on shutdown. See #357."""
-    global _token_store
+    global _token_store, _shared_store, _admin_store
     store, _token_store = _token_store, None
+    _shared_store = None
+    _admin_store = None
     if store is not None:
         await store.close()  # type: ignore[attr-defined]
 
 
-def _derive_jwt_signing_key() -> bytes:
-    """Return a stable JWT signing key from JWT_SIGNING_KEY or GITHUB_OAUTH_CLIENT_SECRET."""
+def _derive_jwt_signing_key(salt: str = JWT_SIGNING_SALT) -> bytes:
+    """Return a stable signing key from JWT_SIGNING_KEY or GITHUB_OAUTH_CLIENT_SECRET.
+
+    The salt separates one consumer's key from another's, so the admin store's key
+    cannot decrypt anything the provider signed."""
     if JWT_SIGNING_KEY:
-        return derive_jwt_key(low_entropy_material=JWT_SIGNING_KEY, salt="fastmcp-jwt-signing-key")
-    return derive_jwt_key(high_entropy_material=GITHUB_OAUTH_CLIENT_SECRET, salt="fastmcp-jwt-signing-key")  # type: ignore[arg-type]
+        return derive_jwt_key(low_entropy_material=JWT_SIGNING_KEY, salt=salt)
+    if not GITHUB_OAUTH_CLIENT_SECRET:
+        raise ValueError("JWT_SIGNING_KEY or GITHUB_OAUTH_CLIENT_SECRET must be set to derive a signing key")
+    return derive_jwt_key(high_entropy_material=GITHUB_OAUTH_CLIENT_SECRET, salt=salt)
+
+
+def admin_secret_store() -> AsyncKeyValue:
+    """Return the encrypted view over the shared store, for the collections holding
+    secrets. derive_jwt_key already returns Fernet's own key format, so the wrapper
+    takes the key rather than deriving a second one from it. See #451."""
+    global _admin_store
+    if _admin_store is None:
+        _admin_store = FernetEncryptionWrapper(
+            key_value=get_token_store(),
+            fernet=Fernet(key=_derive_jwt_signing_key(salt=ADMIN_SECRET_SALT)),
+            # A rotated key reads as a miss, so an admin signs in again rather than
+            # meeting an error on every page.
+            raise_on_decryption_error=False,
+        )
+    return _admin_store
 
 
 def oauth_configured() -> bool:
@@ -302,7 +351,7 @@ def get_oauth_verifier() -> GitHubProvider:
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
         jwt_signing_key=_derive_jwt_signing_key(),
         required_scopes=list(REQUIRED_SCOPES),
-        client_storage=build_token_store(),
+        client_storage=get_token_store(),
     )
     # The floor is all the provider would otherwise offer, so registration, discovery
     # and the consent screen are put back to every scope the tools need.

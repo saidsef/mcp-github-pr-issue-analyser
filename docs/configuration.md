@@ -132,6 +132,46 @@ metadata:
     eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/mcp-github
 ```
 
+## The admin page
+
+A signed-in GitHub user turns individual tools on and off for themselves at
+`/admin`. The choice is held against their GitHub user id and applies to their own
+MCP sessions, so one user's tool list never changes another's.
+
+The page is served whenever the OAuth trio is set and the server runs over HTTP. It
+adds no setting of its own, and a deployment holding only `GITHUB_TOKEN` serves no
+admin page because a static token names no user to hold a preference for.
+
+Signing in reuses the OAuth App already configured above. The page is a client of
+this server rather than of GitHub, so the authorisation callback registered on the
+OAuth App stays `<GITHUB_OAUTH_BASE_URL>/auth/callback` and no second app is needed.
+Opening `/admin` redirects to the server's own consent screen, then to GitHub, and
+back to `/admin/callback`. The session lasts eight hours and rides an `HttpOnly`
+cookie scoped to `/admin`, marked `Secure` when the base URL is HTTPS.
+
+Sign out ends the current session. Sign out everywhere additionally raises a counter
+held with the user's preferences, and every session issued under an earlier value is
+refused on its next request.
+
+A tool turned off is hidden from that user's tool list and refused when called by
+name, because a client caches the list it read when it connected. The scope gate
+runs separately, so a tool the grant cannot reach stays unreachable whatever the
+page says.
+
+Four collections hold this, alongside the OAuth state in the same store. Sessions
+and sign-in state are encrypted with a key derived from `JWT_SIGNING_KEY`, or from
+`GITHUB_OAUTH_CLIENT_SECRET` when that is unset. Rotating either signs admins out
+and leaves their saved preferences intact.
+
+| Collection | Holds | Expiry |
+|------------|-------|--------|
+| `admin-login-state` | A sign-in in progress | 10 minutes |
+| `admin-sessions` | Signed-in browser sessions | 8 hours |
+| `admin-users` | Tool preferences per user | None |
+| `admin-audit` | The last 50 admin actions per user | 90 days |
+
+The page reads and writes single keys, so the DynamoDB policy below is unchanged.
+
 ## Tool renames
 
 A client fetches the tool list when it connects and caches it, so renaming a tool
