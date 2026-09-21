@@ -45,13 +45,6 @@ def _sts_session(account=None, error=None):
     return session
 
 
-@pytest.fixture(autouse=True)
-def _reset_token_store():
-    """build_token_store records what it built, so drop it between tests."""
-    yield
-    auth._token_store = None
-
-
 class TestBuildRedisClient:
     """URI parsing and AsyncRedis constructor kwargs."""
 
