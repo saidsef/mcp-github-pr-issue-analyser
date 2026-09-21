@@ -41,7 +41,7 @@ def _deployment():
     with ExitStack() as stack:
         stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
         stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
-        stack.enter_context(patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", "an-oauth-client-secret"))
+        stack.enter_context(patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", "an-oauth-client-key"))
         stack.enter_context(patch("mcp_github.auth.JWT_SIGNING_KEY", None))
         stack.enter_context(patch("mcp_github.admin.GITHUB_OAUTH_BASE_URL", BASE_URL))
         yield

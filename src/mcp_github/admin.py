@@ -54,6 +54,28 @@ LOGIN_STATE_SECONDS = 10 * 60
 ADMIN_PATH = "/admin"
 CALLBACK_PATH = "/admin/callback"
 
+# A public client authenticates with PKCE rather than a secret, which is what OAuth
+# spells "none".
+PUBLIC_CLIENT = "none"
+
+UNREGISTERED = "unregistered"
+INCOMPLETE = "incomplete"
+EXPIRED = "expired"
+BAD_CODE = "bad-code"
+UNKNOWN_USER = "unknown-user"
+STALE_FORM = "stale-form"
+UNEXPECTED = "unexpected"
+
+ERRORS = {
+    UNREGISTERED: "The admin client is not registered.",
+    INCOMPLETE: "The sign-in reply was incomplete.",
+    EXPIRED: "The sign-in attempt expired. Try again.",
+    BAD_CODE: "That sign-in code is not valid.",
+    UNKNOWN_USER: "GitHub did not confirm who you are.",
+    STALE_FORM: "That form was stale. Reload the page and try again.",
+    UNEXPECTED: "Something went wrong. Try again.",
+}
+
 logger = logging.getLogger(__name__)
 
 
@@ -102,7 +124,7 @@ async def register_admin_client(provider: Any) -> None:
         grant_types=["authorization_code"],
         response_types=["code"],
         scope=" ".join(GITHUB_SCOPES),
-        token_endpoint_auth_method="none",
+        token_endpoint_auth_method=PUBLIC_CLIENT,
         application_type="web",
         client_name="MCP GitHub admin page",
     )
@@ -173,7 +195,7 @@ async def start_login(provider: Any, return_path: str) -> Response:
     """Send the browser into this server's own authorisation flow."""
     client = await _client(provider)
     if client is None:
-        return HTMLResponse(_error_page("The admin client is not registered."), status_code=503)
+        return HTMLResponse(_error_page(UNREGISTERED), status_code=503)
     state = secrets.token_urlsafe(32)
     verifier, challenge = _pkce_pair()
     await admin_secret_store().put(
@@ -194,27 +216,27 @@ async def start_login(provider: Any, return_path: str) -> Response:
 
 
 async def _redeem_code(provider: Any, code: str, verifier: str) -> tuple[str, str, str] | str:
-    """The subject, login and issued token behind a returned code, or why not.
+    """The subject, login and issued token behind a returned code, or the reason not.
 
     The exchange runs in process, which skips the SDK's token endpoint, so the PKCE
     verifier is checked here rather than being taken on trust."""
     client = await _client(provider)
     if client is None:
-        return "The admin client is not registered."
+        return UNREGISTERED
     auth_code = await provider.load_authorization_code(client, code)
     if auth_code is None:
-        return "That sign-in code is not valid."
+        return BAD_CODE
     if not hmac.compare_digest(_challenge_for(verifier), auth_code.code_challenge or ""):
         logger.warning("Admin sign-in refused: the PKCE verifier did not match the challenge")
-        return "That sign-in code is not valid."
+        return BAD_CODE
     issued = await provider.exchange_authorization_code(client, auth_code)
     access = await provider.load_access_token(issued.access_token)
     if access is None:
-        return "GitHub did not confirm who you are."
+        return UNKNOWN_USER
     claims = access.claims or {}
     subject = str(getattr(access, "subject", None) or claims.get("sub") or "")
     if not subject:
-        return "GitHub did not confirm who you are."
+        return UNKNOWN_USER
     return subject, str(claims.get("login") or ""), issued.access_token
 
 
@@ -223,12 +245,12 @@ async def complete_login(provider: Any, request: Request) -> Response:
     state = request.query_params.get("state", "")
     code = request.query_params.get("code", "")
     if not state or not code:
-        return HTMLResponse(_error_page("The sign-in reply was incomplete."), status_code=400)
+        return HTMLResponse(_error_page(INCOMPLETE), status_code=400)
 
     pending = await admin_secret_store().get(key=state, collection=LOGIN_STATE_COLLECTION)
     await admin_secret_store().delete(key=state, collection=LOGIN_STATE_COLLECTION)
     if not pending or float(pending.get("expires_at", 0)) <= time.time():
-        return HTMLResponse(_error_page("The sign-in attempt expired. Try again."), status_code=400)
+        return HTMLResponse(_error_page(EXPIRED), status_code=400)
 
     resolved = await _redeem_code(provider, code, str(pending.get("verifier", "")))
     if isinstance(resolved, str):
@@ -261,7 +283,7 @@ async def save_preferences(request: Request) -> Response:
         return RedirectResponse(ADMIN_PATH, status_code=302)
     form = await request.form()
     if not hmac.compare_digest(str(form.get("csrf", "")), str(session.get("csrf", ""))):
-        return HTMLResponse(_error_page("That form was stale. Reload the page and try again."), status_code=400)
+        return HTMLResponse(_error_page(STALE_FORM), status_code=400)
     offered = {str(name) for name in form.getlist("tool")}
     enabled = {str(name) for name in form.getlist("enabled")}
     disabled = offered - enabled
@@ -285,8 +307,19 @@ button { font: inherit; padding: 0.45rem 0.9rem; }
 """
 
 
-def _error_page(message: str) -> str:
-    return f"<!doctype html><title>Admin</title><style>{_STYLE}</style><h1>Admin</h1><p>{html.escape(message)}</p>"
+def _error_page(reason: str) -> str:
+    """The page shown when signing in or saving does not go through.
+
+    Callers name a reason rather than passing a message, so the only strings that
+    reach the markup are the ones written here."""
+    parts = [
+        "<!doctype html><title>Admin</title><style>",
+        _STYLE,
+        "</style><h1>Admin</h1><p>",
+        ERRORS.get(reason, ERRORS[UNEXPECTED]),
+        "</p>",
+    ]
+    return "".join(parts)
 
 
 def render_page(login: str, tools: list[Any], disabled: set[str], csrf: str, saved: bool) -> str:

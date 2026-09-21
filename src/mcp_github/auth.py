@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 # The salt the OAuth provider's own signing key is derived under. Each consumer of
 # the key material takes its own, so one derivation cannot stand in for another.
 JWT_SIGNING_SALT = "fastmcp-jwt-signing-key"
-ADMIN_SECRET_SALT = "mcp-admin-secret-store"
+ADMIN_STORE_SALT = "mcp-admin-store"
 
 # The store the server built, kept so shutdown can release its client. See #357.
 _token_store: AsyncKeyValue | None = None
@@ -325,7 +325,7 @@ def admin_secret_store() -> AsyncKeyValue:
     if _admin_store is None:
         _admin_store = FernetEncryptionWrapper(
             key_value=get_token_store(),
-            fernet=Fernet(key=_derive_jwt_signing_key(salt=ADMIN_SECRET_SALT)),
+            fernet=Fernet(key=_derive_jwt_signing_key(salt=ADMIN_STORE_SALT)),
             # A rotated key reads as a miss, so an admin signs in again rather than
             # meeting an error on every page.
             raise_on_decryption_error=False,

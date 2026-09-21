@@ -11,7 +11,7 @@ from key_value.aio.wrappers.encryption import FernetEncryptionWrapper
 
 from mcp_github import auth
 from mcp_github.auth import (
-    ADMIN_SECRET_SALT,
+    ADMIN_STORE_SALT,
     JWT_SIGNING_SALT,
     _derive_jwt_signing_key,
     aclose_token_store,
@@ -20,7 +20,7 @@ from mcp_github.auth import (
 )
 from mcp_github.github_integration import GitHubIntegration
 
-CLIENT_SECRET = "an-oauth-client-secret"
+CLIENT_KEY = "an-oauth-client-key"
 
 
 @contextmanager
@@ -29,7 +29,7 @@ def _memory_mode():
     with ExitStack() as stack:
         stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
         stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
-        stack.enter_context(patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", CLIENT_SECRET))
+        stack.enter_context(patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", CLIENT_KEY))
         stack.enter_context(patch("mcp_github.auth.JWT_SIGNING_KEY", None))
         yield
 
@@ -57,7 +57,7 @@ class TestSharedStore:
     async def test_aclose_drops_every_cached_view(self):
         with patch("mcp_github.auth.REDIS_HOST_PORT", None), patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None):
             get_token_store()
-        with patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", CLIENT_SECRET):
+        with patch("mcp_github.auth.GITHUB_OAUTH_CLIENT_SECRET", CLIENT_KEY):
             admin_secret_store()
         await aclose_token_store()
         assert auth._token_store is None
@@ -83,7 +83,7 @@ class TestSigningKey:
 
     def test_the_admin_salt_gives_a_different_key(self):
         with _memory_mode():
-            assert _derive_jwt_signing_key(JWT_SIGNING_SALT) != _derive_jwt_signing_key(ADMIN_SECRET_SALT)
+            assert _derive_jwt_signing_key(JWT_SIGNING_SALT) != _derive_jwt_signing_key(ADMIN_STORE_SALT)
 
     def test_the_default_salt_is_the_providers_own(self):
         with _memory_mode():
@@ -98,7 +98,7 @@ class TestSigningKey:
     def test_the_derived_key_is_a_usable_fernet_key(self):
         """derive_jwt_key already returns Fernet's own format, so no second KDF runs."""
         with _memory_mode():
-            assert Fernet(key=_derive_jwt_signing_key(ADMIN_SECRET_SALT)) is not None
+            assert Fernet(key=_derive_jwt_signing_key(ADMIN_STORE_SALT)) is not None
 
 
 class TestAdminSecretStore:
