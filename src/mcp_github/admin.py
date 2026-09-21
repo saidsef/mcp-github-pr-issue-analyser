@@ -304,6 +304,11 @@ label { display: flex; gap: 0.6rem; align-items: baseline; }
 button { font: inherit; padding: 0.45rem 0.9rem; }
 .bar { display: flex; gap: 0.75rem; align-items: center; margin-top: 1.5rem; }
 .saved { background: #2e7d3222; border: 1px solid #2e7d3255; padding: 0.5rem 0.75rem; }
+h2 { font-size: 1rem; margin: 1.75rem 0 0; display: flex; align-items: baseline; gap: 0.5rem; }
+.count { color: #666; font-weight: 400; font-size: 0.85rem; }
+.pick { margin-left: auto; display: flex; gap: 0.35rem; }
+.pick button { font-size: 0.8rem; padding: 0.15rem 0.5rem; }
+.note { color: #666; font-size: 0.85rem; margin: 0.2rem 0 0; }
 """
 
 
@@ -322,20 +327,102 @@ def _error_page(reason: str) -> str:
     return "".join(parts)
 
 
+# The order groups run in, hardest to undo last, so the tools worth a second look
+# are not buried in the middle of a long page.
+GROUPS = (
+    ("read-only", "Read-only"),
+    ("write", "Write"),
+    ("board", "Board write"),
+    ("destructive", "Destructive"),
+    ("provider", "Provider tools"),
+)
+
+GROUP_NOTES = {
+    "read-only": "Reads from GitHub, changes nothing.",
+    "write": "Creates or changes something on GitHub. Needs the repo scope.",
+    "board": "Changes a project board. Needs the repo and project scopes.",
+    "destructive": "Removes something that does not come back.",
+    "provider": "Added by the choice and generative UI providers rather than the tool registry.",
+}
+
+
+def tool_group(tool: Any) -> str:
+    """Which group a tool belongs in, read off the tags and annotations it already
+    carries. This is the same split `docs/configuration.md` publishes."""
+    annotations = getattr(tool, "annotations", None)
+    if annotations is None:
+        return "provider"
+    if annotations.read_only_hint:
+        return "read-only"
+    if annotations.destructive_hint:
+        return "destructive"
+    return "board" if "project" in (getattr(tool, "tags", None) or ()) else "write"
+
+
+# Enough to tell two tools apart while keeping every row about one line, since some
+# descriptions run to a paragraph.
+BLURB_CHARS = 96
+
+
+def _blurb(tool: Any) -> str:
+    """One short line about a tool, cut at a word boundary."""
+    # The whole description collapses to one line first, because a docstring's first
+    # line often breaks mid-sentence and reads as though it were cut off.
+    text = " ".join((getattr(tool, "description", "") or "").split())
+    if len(text) <= BLURB_CHARS:
+        return text
+    return text[:BLURB_CHARS].rsplit(" ", 1)[0].rstrip(".,;:") + "..."
+
+
+def _tool_row(tool: Any, disabled: set[str]) -> str:
+    """One checkbox. The hidden field carries the name whether or not it is ticked,
+    so a save can work out which tools were turned off."""
+    name = html.escape(tool.name)
+    checked = "" if tool.name in disabled else " checked"
+    description = _blurb(tool)
+    return (
+        f'<li><label><input type="checkbox" name="enabled" value="{name}"{checked}>'
+        f"<span>{name}</span></label>"
+        f'<input type="hidden" name="tool" value="{name}">'
+        + (f'<p class="desc">{html.escape(description)}</p>' if description else "")
+        + "</li>"
+    )
+
+
+def _group_section(title: str, note: str, tools: list[Any], disabled: set[str]) -> str:
+    rows = "".join(_tool_row(tool, disabled) for tool in sorted(tools, key=lambda item: item.name))
+    return (
+        f'<section><h2>{html.escape(title)} <span class="count">{len(tools)}</span>'
+        '<span class="pick"><button type="button" data-all="1">All</button>'
+        '<button type="button" data-all="0">None</button></span></h2>'
+        f'<p class="note">{html.escape(note)}</p>'
+        f"<ul>{rows}</ul></section>"
+    )
+
+
+# Plain DOM, because the page carries no framework and the buttons only ever tick
+# the boxes inside their own section.
+_PICK_SCRIPT = """
+document.querySelectorAll('h2 button[data-all]').forEach(function (button) {
+  button.addEventListener('click', function () {
+    var on = button.dataset.all === '1';
+    button.closest('section').querySelectorAll('input[name=enabled]').forEach(function (box) {
+      box.checked = on;
+    });
+  });
+});
+"""
+
+
 def render_page(login: str, tools: list[Any], disabled: set[str], csrf: str, saved: bool) -> str:
     """The page itself. Served as one self-contained response, the way the landing
     and metrics routes are, so the server takes on no templating dependency."""
-    rows = []
-    for tool in sorted(tools, key=lambda item: item.name):
-        checked = "" if tool.name in disabled else " checked"
-        description = (getattr(tool, "description", "") or "").strip().split("\n")[0]
-        rows.append(
-            f'<li><label><input type="checkbox" name="enabled" value="{html.escape(tool.name)}"{checked}>'
-            f'<span>{html.escape(tool.name)}</span></label>'
-            f'<input type="hidden" name="tool" value="{html.escape(tool.name)}">'
-            + (f'<p class="desc">{html.escape(description)}</p>' if description else "")
-            + "</li>"
-        )
+    held: dict[str, list[Any]] = {key: [] for key, _ in GROUPS}
+    for tool in tools:
+        held[tool_group(tool)].append(tool)
+    sections = "".join(
+        _group_section(title, GROUP_NOTES[key], held[key], disabled) for key, title in GROUPS if held[key]
+    )
     notice = '<p class="saved">Preferences saved.</p>' if saved else ""
     return (
         "<!doctype html><title>MCP GitHub admin</title>"
@@ -346,11 +433,12 @@ def render_page(login: str, tools: list[Any], disabled: set[str], csrf: str, sav
         f"{notice}"
         f'<form method="post" action="{ADMIN_PATH}/preferences">'
         f'<input type="hidden" name="csrf" value="{html.escape(csrf)}">'
-        f'<ul>{"".join(rows)}</ul>'
+        f"{sections}"
         '<div class="bar"><button type="submit">Save</button></div>'
         "</form>"
         f'<form method="post" action="{ADMIN_PATH}/logout" class="bar">'
         '<button type="submit">Sign out</button>'
         '<button type="submit" name="everywhere" value="1">Sign out everywhere</button>'
         "</form>"
+        f"<script>{_PICK_SCRIPT}</script>"
     )

@@ -25,6 +25,7 @@ from mcp_github.admin import (
     save_preferences,
     sign_out,
     start_login,
+    tool_group,
 )
 from mcp_github.auth import admin_secret_store
 from mcp_github.preferences import bump_epoch, read_actions, read_disabled
@@ -324,26 +325,74 @@ class TestSavePreferences:
         assert response.headers["location"] == ADMIN_PATH
 
 
+def _t(name, *, ro=False, destructive=False, tags=()):
+    annotations = SimpleNamespace(read_only_hint=ro, destructive_hint=destructive)
+    return SimpleNamespace(name=name, description="", annotations=annotations, tags=set(tags))
+
+
+class TestGrouping:
+    """The group comes off the tags and annotations a tool already carries."""
+
+    def test_a_read_only_tool_is_read_only(self):
+        assert tool_group(_t("github_get_pr_diff", ro=True)) == "read-only"
+
+    def test_a_repo_scoped_tool_is_a_write(self):
+        assert tool_group(_t("github_create_issue", tags=("repo",))) == "write"
+
+    def test_a_project_scoped_tool_is_a_board_write(self):
+        assert tool_group(_t("github_add_to_project", tags=("repo", "project"))) == "board"
+
+    def test_destructive_beats_the_scope(self):
+        """github_remove_from_project carries both, and the destructive read is the
+        one worth showing."""
+        assert tool_group(_t("github_remove_from_project", destructive=True, tags=("repo", "project"))) == "destructive"
+
+    def test_a_tool_with_no_annotations_came_from_a_provider(self):
+        assert tool_group(SimpleNamespace(name="choose", description="", annotations=None, tags=set())) == "provider"
+
+
 class TestRenderPage:
     """What the page shows."""
 
+    def test_the_groups_are_headed_and_counted(self):
+        tools = [_t("a", ro=True), _t("b", ro=True), _t("c", tags=("repo",))]
+        page = render_page(LOGIN, tools, set(), "tok", saved=False)
+        assert "Read-only" in page
+        assert "Write" in page
+        assert '<span class="count">2</span>' in page
+
+    def test_an_empty_group_is_left_out(self):
+        page = render_page(LOGIN, [_t("a", ro=True)], set(), "tok", saved=False)
+        assert "Destructive" not in page
+
+    def test_destructive_comes_after_write(self):
+        tools = [_t("a", tags=("repo",)), _t("b", destructive=True, tags=("repo",))]
+        page = render_page(LOGIN, tools, set(), "tok", saved=False)
+        assert page.index(">Write ") < page.index(">Destructive ")
+
     def test_a_disabled_tool_is_unticked(self):
-        page = render_page(LOGIN, [SimpleNamespace(name="a", description="")], {"a"}, "tok", saved=False)
+        page = render_page(LOGIN, [_t("a", ro=True)], {"a"}, "tok", saved=False)
         assert 'value="a"' in page
-        assert "checked" not in page
+        assert 'value="a" checked' not in page
 
     def test_an_enabled_tool_is_ticked(self):
-        page = render_page(LOGIN, [SimpleNamespace(name="a", description="")], set(), "tok", saved=False)
-        assert "checked" in page
+        page = render_page(LOGIN, [_t("a", ro=True)], set(), "tok", saved=False)
+        assert 'value="a" checked' in page
 
     def test_every_tool_is_carried_so_the_complement_can_be_worked_out(self):
-        tools = [SimpleNamespace(name="a", description=""), SimpleNamespace(name="b", description="")]
+        tools = [_t("a", ro=True), _t("b", ro=True)]
         page = render_page(LOGIN, tools, {"b"}, "tok", saved=False)
         assert page.count('name="tool"') == 2
 
     def test_the_login_is_escaped(self):
-        page = render_page("<script>x</script>", [], set(), "tok", saved=False)
-        assert "<script>" not in page
+        page = render_page("<script>alert(1)</script>", [], set(), "tok", saved=False)
+        assert "&lt;script&gt;alert(1)&lt;/script&gt;" in page
+        assert "<script>alert(1)</script>" not in page
+
+    def test_a_tool_name_is_escaped(self):
+        page = render_page(LOGIN, [_t('a"><img src=x>', ro=True)], set(), "tok", saved=False)
+        assert '<img src=x>' not in page
+        assert "&lt;img src=x&gt;" in page
 
     def test_saving_says_so(self):
         assert "Preferences saved" in render_page(LOGIN, [], set(), "tok", saved=True)

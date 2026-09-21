@@ -158,6 +158,13 @@ name, because a client caches the list it read when it connected. The scope gate
 runs separately, so a tool the grant cannot reach stays unreachable whatever the
 page says.
 
+The page groups the tools the way the table under [Scopes each tool needs](#scopes-each-tool-needs)
+does, reading the group off the tags and annotations each tool already carries.
+Read-only, Write, Board write and Destructive come from the registry, and Provider
+tools are the ones the choice and generative UI providers add. Each group has All and
+None buttons, so clearing the destructive tools takes two clicks rather than a hunt
+through the whole list.
+
 Four collections hold this, alongside the OAuth state in the same store. Sessions
 and sign-in state are encrypted with a key derived from `JWT_SIGNING_KEY`, or from
 `GITHUB_OAUTH_CLIENT_SECRET` when that is unset. Rotating either signs admins out
