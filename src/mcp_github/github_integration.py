@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import functools
 import logging
 import time
 from contextlib import asynccontextmanager
@@ -500,9 +501,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Exit async context manager and close HTTP client."""
         await self.aclose()
 
-    @property
+    @functools.cached_property
     def _oauth_verifier(self):
-        """Returns a GitHubProvider instance for OAuth2 authentication."""
+        """Returns a GitHubProvider instance for OAuth2 authentication.
+
+        Cached because each build takes a store consumer with it, and a second
+        provider would leave the first backend client unreleased."""
         return get_oauth_verifier()
 
     @property

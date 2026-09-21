@@ -86,6 +86,10 @@ logger = logging.getLogger(__name__)
 # The store the server built, kept so shutdown can release its client. See #357.
 _token_store: AsyncKeyValue | None = None
 
+# The one store every consumer shares. A second would leak the first backend client
+# and, in memory mode, hold none of the state the first had written.
+_shared_store: AsyncKeyValue | None = None
+
 
 class APIKeyVerifier(TokenVerifier):
     """Verifies requests using a static GitHub personal access token.
@@ -269,10 +273,22 @@ def build_token_store() -> AsyncKeyValue:
     return _namespaced(_token_store)
 
 
+def get_token_store() -> AsyncKeyValue:
+    """Return the token store every consumer shares.
+
+    build_token_store is a factory, so calling it twice builds two backend clients and
+    only the second is ever released. Anything that needs the store asks here."""
+    global _shared_store
+    if _shared_store is None:
+        _shared_store = build_token_store()
+    return _shared_store
+
+
 async def aclose_token_store() -> None:
     """Release the token store's client on shutdown. See #357."""
-    global _token_store
+    global _token_store, _shared_store
     store, _token_store = _token_store, None
+    _shared_store = None
     if store is not None:
         await store.close()  # type: ignore[attr-defined]
 
@@ -302,7 +318,7 @@ def get_oauth_verifier() -> GitHubProvider:
         base_url=GITHUB_OAUTH_BASE_URL,  # type: ignore[arg-type]
         jwt_signing_key=_derive_jwt_signing_key(),
         required_scopes=list(REQUIRED_SCOPES),
-        client_storage=build_token_store(),
+        client_storage=get_token_store(),
     )
     # The floor is all the provider would otherwise offer, so registration, discovery
     # and the consent screen are put back to every scope the tools need.
