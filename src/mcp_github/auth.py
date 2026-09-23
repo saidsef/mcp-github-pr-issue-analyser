@@ -54,40 +54,24 @@ REDIS_HOST_PORT = getenv("REDIS_HOST_PORT")
 REDIS_PASSWORD = getenv("REDIS_PASSWORD")
 DYNAMODB_TABLE_ARN = getenv("DYNAMODB_TABLE_ARN")
 
-# The replica that loses the race to create the table is told it exists, and the
-# winner's table reads as missing until it leaves CREATING. See #363.
 DYNAMODB_SETUP_RETRY_CODES = frozenset({"ResourceInUseException", "ResourceNotFoundException"})
 DYNAMODB_SETUP_ATTEMPTS = 10
 DYNAMODB_SETUP_RETRY_SECONDS = 5.0
 
-# Reported by the transport and by any tool that reaches GitHub, so a deployment
-# missing its secret gets one answer rather than two wordings.
 MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
-# The scopes the flow asks GitHub for, advertises to clients and mints for a static
-# token. project is separate from repo, so the board tools need it named.
-# See #351 and #389.
 GITHUB_SCOPES: tuple[str, ...] = ("repo", "read:org", "user", "project")
 
-# The floor every request clears, which names none of the scopes the tool gate checks.
-# The transport refuses a grant short of the floor before the gate can filter the list,
-# so a gated scope named here would take the read-only tools down with it. See #388.
 REQUIRED_SCOPES: tuple[str, ...] = ("user",)
 
-# The settings the ARN replaced. Left set, they now configure nothing.
 DYNAMODB_REPLACED_SETTINGS = ("DYNAMODB_TABLE_NAME", "DYNAMODB_REGION", "DYNAMODB_ENDPOINT_URL")
 
-# The account check runs before the server binds its port, so it fails fast where
-# there is no route to STS rather than holding the rollout for botocore's minutes.
 STS_CONFIG = Config(connect_timeout=3, read_timeout=5, retries={"max_attempts": 1})
 
 logger = logging.getLogger(__name__)
 
-# The store the server built, kept so shutdown can release its client. See #357.
 _token_store: AsyncKeyValue | None = None
 
-# The one store every consumer shares. A second would leak the first backend client
-# and, in memory mode, hold none of the state the first had written.
 _shared_store: AsyncKeyValue | None = None
 
 
@@ -191,7 +175,6 @@ async def _check_caller_account(region: str, account: str) -> None:
     to a same-named table in the caller's own and nothing says so."""
     session = aioboto3.Session(region_name=region)
     try:
-        # aioboto3 only types the services it ships stubs for, and STS is not one.
         sts_client: Any = session.client(service_name="sts", config=STS_CONFIG)
         async with sts_client as sts:
             caller = (await sts.get_caller_identity()).get("Account")
@@ -320,11 +303,7 @@ def get_oauth_verifier() -> GitHubProvider:
         required_scopes=list(REQUIRED_SCOPES),
         client_storage=get_token_store(),
     )
-    # The floor is all the provider would otherwise offer, so registration, discovery
-    # and the consent screen are put back to every scope the tools need.
     provider.update_default_scopes(list(GITHUB_SCOPES))
-    # The request falls back to required_scopes when a client names none of its own,
-    # and that floor is just user, so the full set is named here instead. See #441.
     provider._extra_authorize_params = {**getattr(provider, "_extra_authorize_params", {}),
                                         "scope": " ".join(GITHUB_SCOPES)}
     return provider

@@ -524,8 +524,6 @@ class TestDynamoDBStoreEndToEnd:
             await store.put("client-1", {"client_secret": "abc"}, collection="oauth")
             assert await store.get("client-1", collection="oauth") == {"client_secret": "abc"}
 
-            # The library writes the expiry to the table's TTL attribute, which is
-            # what keeps expired tokens from piling up.
             await store.put("expiring", {"tok": "x"}, collection="oauth", ttl=60)
             _, remaining = await store.ttl("expiring", collection="oauth")
             assert remaining is not None and 0 < remaining <= 60

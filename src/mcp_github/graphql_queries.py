@@ -86,8 +86,6 @@ query($owner: String!, $repo: String!, $number: Int!) {
 }
 """
 
-# Check suites paginate via $suitesAfter. The runs within a suite come 100 at a
-# time, and a suite holding more is followed up with CHECK_SUITE_RUNS_QUERY.
 PR_STATUS_CHECKS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
   repository(owner: $owner, name: $repo) {
@@ -138,9 +136,6 @@ query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
 }
 """
 
-# Supplemental query: paginate check runs for a single check suite by id.
-# Used to drain the runs of a suite whose first page was truncated by
-# PR_STATUS_CHECKS_QUERY.
 CHECK_SUITE_RUNS_QUERY = """
 query($suiteId: ID!, $after: String) {
   node(id: $suiteId) {
@@ -162,8 +157,6 @@ query($suiteId: ID!, $after: String) {
 }
 """
 
-# Only the fields the mappers in activity.py read are requested. The collection is
-# fetched wide, since contributionsCollection has no server-side org or repo filter.
 USER_CONTRIBUTIONS_QUERY = """
 fragment RepoRef on Repository {
   name
@@ -263,8 +256,6 @@ query($username: String!, $since: DateTime, $until: DateTime) {
 }
 """
 
-# Draft status is settable through REST only when the pull request is created,
-# so moving an existing one either way goes through GraphQL. See #348.
 MARK_PR_READY_MUTATION = """
 mutation($pullRequestId: ID!) {
   markPullRequestReadyForReview(input: {pullRequestId: $pullRequestId}) {
@@ -289,9 +280,6 @@ mutation($pullRequestId: ID!) {
 }
 """
 
-# Projects (v2) has no REST surface, and everything on it is addressed by node id.
-# repositoryOwner resolves a login without the caller saying whether it names a user
-# or an organisation, which projectV2 on either type alone cannot do. See #351.
 _PROJECT_FIELDS_FRAGMENT = """
 fragment ProjectFields on ProjectV2 {
   id
@@ -344,9 +332,6 @@ query($owner: String!, $number: Int!) {
 """
 )
 
-# issueOrPullRequest saves the caller saying which of the two a number is.
-# projectItems rides along because setting a field or taking a card off the
-# board needs the item id, and asking for it separately would cost a round trip.
 ISSUE_PROJECT_ITEMS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {
@@ -386,9 +371,6 @@ query($owner: String!, $repo: String!, $number: Int!) {
 }
 """
 
-# Every field value is a different type in a union, so each one the board can
-# hold is selected by name. A type not selected here comes back as an empty
-# node, which the flattener drops because it carries no field to key on.
 PROJECT_ITEMS_QUERY = """
 fragment ItemPage on ProjectV2 {
   id
@@ -491,8 +473,6 @@ query($owner: String!, $number: Int!, $first: Int!, $after: String) {
 }
 """
 
-# GitHub returns the item already there rather than a second one, which is what
-# makes adding safe to retry.
 ADD_PROJECT_ITEM_MUTATION = """
 mutation($projectId: ID!, $contentId: ID!) {
   addProjectV2ItemById(input: {projectId: $projectId, contentId: $contentId}) {
