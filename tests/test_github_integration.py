@@ -2967,19 +2967,13 @@ class TestErrorDetail:
     """GitHub explains a refusal in the response body, and the exception text is all
     the client sees, so the body has to survive into the message."""
 
-    @staticmethod
-    async def _merge(gi: GitHubIntegration) -> None:
-        checks = {"pr_number": 42, "overall": "passing", "check_runs": [], "commit_statuses": [], "truncated": False}
-        with patch.object(GitHubIntegration, "get_pr_status_checks", new_callable=AsyncMock, return_value=checks):
-            await gi.merge_pr("owner", "repo", 42, commit_title="fix(auth): retry a refused token")
-
     @pytest.mark.anyio
     async def test_a_permission_403_carries_githubs_own_message(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(
             return_value=_mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
         )
         with pytest.raises(ToolError, match="SAML enforcement"):
-            await self._merge(gi)
+            await gi.update_pr_branch("owner", "repo", 42)
 
     @pytest.mark.anyio
     async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
@@ -2987,15 +2981,15 @@ class TestErrorDetail:
         gi._http.request = AsyncMock(
             return_value=_mock_response(status_code=403, json_data=body, text=json.dumps(body))
         )
-        with pytest.raises(ToolError, match=r"PR #42 merge: Refused.*approving review"):
-            await self._merge(gi)
+        with pytest.raises(ToolError, match=r"PR #42 update branch: Refused.*approving review"):
+            await gi.update_pr_branch("owner", "repo", 42)
 
     @pytest.mark.anyio
     async def test_a_403_with_no_body_still_points_at_the_token(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(status_code=403, text=""))
         gi._http.request.return_value.json.side_effect = ValueError("not json")
         with pytest.raises(ToolError, match="Permission denied. Check your token permissions"):
-            await self._merge(gi)
+            await gi.update_pr_branch("owner", "repo", 42)
 
     def test_a_permission_403_is_not_read_as_a_rate_limit(self, gi: GitHubIntegration):
         response = _mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))

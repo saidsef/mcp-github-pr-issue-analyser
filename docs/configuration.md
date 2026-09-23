@@ -172,11 +172,6 @@ tool's `_meta` as `skill://pr-review/SKILL.md`. A client reads that alongside th
 tool it is about to call, so reaching the guidance needs neither the server
 instructions nor a prior `github_list_skills`.
 
-`github_merge_pr` goes further and refuses a call the `pr-management` skill would
-not allow: one without a `commit_title` in the `<type>(<scope>): summary` shape,
-or one on a PR whose checks are not passing and `force` is not set. The refusal
-names the skill.
-
 The mapping is read at startup from the `` `tool_name` `` headings in each SKILL.md,
 so a tool is claimed in one place and the pointer cannot disagree with the skill.
 Moving a tool between skills is a heading move and nothing else. Of the 52 tools,

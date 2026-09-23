@@ -207,7 +207,6 @@ _MILESTONE_FIELDS = (
 _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 
 _OpenClosed = Literal["open", "closed"]
-_MergeMethod = Literal["merge", "squash", "rebase"]
 _COMMIT_TITLE = re.compile(r"^(feat|fix|chore|docs|refactor|test|perf|ci|build)\([a-z0-9/]+\): \S")
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
@@ -1180,16 +1179,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_owner: str,
         repo_name: str,
         pr_number: int,
-        commit_title: Annotated[str | None, "Subject of the merge commit, as <type>(<scope>): summary"] = None,
+        commit_title: Annotated[str, "Subject of the merge commit, as <type>(<scope>): summary"],
         commit_message: str | None = None,
-        merge_method: _MergeMethod = "squash",
+        merge_method: Literal["merge", "squash", "rebase"] = "squash",
         force: Annotated[bool, "Merge although the checks are failing, pending or absent"] = False,
     ) -> dict[str, Any]:
         """Merges a pull request. Refused without a commit_title in the
         <type>(<scope>): summary shape, since a squash without one takes its subject
         from a branch commit, and refused while the PR's checks are anything but
         passing unless force is set, since a merge cannot be undone."""
-        if not commit_title or not _COMMIT_TITLE.match(commit_title):
+        if not _COMMIT_TITLE.match(commit_title):
             raise GitHubValidationError(f"commit_title must read <type>(<scope>): summary. {pointer('pr-management')}")
         overall = (await self.get_pr_status_checks(repo_owner, repo_name, pr_number))["overall"]
         if overall != "passing" and not force:

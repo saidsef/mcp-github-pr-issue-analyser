@@ -67,9 +67,9 @@ def pointer(skill: str) -> str:
 
 class SkillPointer(Transform):
     """Names the documenting skill on each tool's description and records it under
-    the skill key of the tool's meta. A tool that writes leads with the pointer,
-    since a footer under a long schema is what a client skims past, and a tool that
-    only reads keeps it at the end. Server-level transforms run after the providers
+    the skill key of the tool's meta. A tool annotated as writing leads with the
+    pointer, since a footer under a long schema is what a client skims past, and any
+    other tool keeps it at the end. Server-level transforms run after the providers
     are aggregated, so the tools FastMCP registers for itself are covered too."""
 
     def __init__(self) -> None:
@@ -83,13 +83,13 @@ class SkillPointer(Transform):
         if skill is None:
             return tool
         line = pointer(skill)
-        reads = bool(tool.annotations and tool.annotations.read_only_hint)
+        writes = bool(tool.annotations) and not tool.annotations.read_only_hint
         if not tool.description:
             description = line
-        elif reads:
-            description = f"{tool.description}\n\n{line}"
-        else:
+        elif writes:
             description = f"{line} {tool.description}"
+        else:
+            description = f"{tool.description}\n\n{line}"
         return tool.model_copy(
             update={
                 "description": description,

@@ -24,8 +24,8 @@ def _checks(overall: str = "passing"):
 
 class TestCommitTitle:
     @pytest.mark.anyio
-    @pytest.mark.parametrize("title", [None, "", "Update README", "fix: empty diff", "[WIP] cache work", "Fix(tools): caps"])
-    async def test_missing_or_off_convention_title_is_refused_before_github(self, gi: GitHubIntegration, title):
+    @pytest.mark.parametrize("title", ["", "Update README", "fix: empty diff", "[WIP] cache work", "Fix(tools): caps"])
+    async def test_off_convention_title_is_refused_before_github(self, gi: GitHubIntegration, title: str):
         gi._http.request = AsyncMock()
         with _checks() as reading, pytest.raises(GitHubValidationError) as excinfo:
             await gi.merge_pr("owner", "repo", 42, commit_title=title)
@@ -68,7 +68,7 @@ class TestCheckGate:
     @pytest.mark.anyio
     async def test_force_does_not_waive_the_title(self, gi: GitHubIntegration):
         with _checks("unknown"), pytest.raises(GitHubValidationError):
-            await gi.merge_pr("owner", "repo", 42, force=True)
+            await gi.merge_pr("owner", "repo", 42, commit_title="Update README", force=True)
 
     @pytest.mark.anyio
     async def test_checks_are_read_for_the_pr_being_merged(self, gi: GitHubIntegration):

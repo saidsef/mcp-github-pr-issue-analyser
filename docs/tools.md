@@ -101,7 +101,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 Workflow guidance ships with the server. `github_list_skills` and `github_get_skill` reach it with tool support alone, and the same content is served as MCP resources under the `skill://` URI scheme for clients that read resources. [Configuration](./configuration.md#skills) covers which path a given client gets.
 
-Every tool above names the skill that documents it, in its own description and in its `_meta`, so the guidance is reachable without listing the skills first. A tool that writes leads with the pointer, and a tool that reads carries it at the end.
+Every tool above names the skill that documents it, in its own description and in its `_meta`, so the guidance is reachable without listing the skills first.
 
 | Tool | Kind | Description |
 |------|------|-------------|

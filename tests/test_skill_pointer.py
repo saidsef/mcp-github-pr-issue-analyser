@@ -107,11 +107,12 @@ class TestTheServedToolList:
         assert description.startswith(pointer("release-management") + " Deletes a tag.")
 
     @pytest.mark.anyio
-    async def test_a_reading_tool_ends_with_the_pointer(self):
-        description = (await _tools())["github_get_pr_diff"].description or ""
+    @pytest.mark.parametrize(("name", "skill"), [("github_get_pr_diff", "pr-analysis"), ("choose", "interactive-ui")])
+    async def test_a_tool_not_annotated_as_writing_ends_with_the_pointer(self, name: str, skill: str):
+        description = (await _tools())[name].description or ""
 
-        assert not description.startswith(pointer("pr-analysis"))
-        assert description.endswith(pointer("pr-analysis"))
+        assert not description.startswith(pointer(skill))
+        assert description.endswith(pointer(skill))
 
     @pytest.mark.anyio
     async def test_the_skill_uri_rides_along_in_meta(self):
