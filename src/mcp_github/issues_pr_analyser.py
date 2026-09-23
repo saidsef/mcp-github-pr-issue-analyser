@@ -59,6 +59,7 @@ from .auth import (
     setup_token_store,
 )
 from .github_integration import GitHubIntegration as GI
+from .skill_pointer import SkillPointer
 from .tool_annotations import GATED_SCOPES
 
 logger = logging.getLogger(__name__)
@@ -209,9 +210,11 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Always maintain a professional, clear and concise tone
 
 ## Skills
-Workflow guidance ships with the server. Call github_list_skills for the set and
-github_get_skill to read one, which needs nothing but tool support. The same content is served as MCP
-resources under the skill:// URI scheme, for a client that reads resources:
+Workflow guidance ships with the server. Every tool a skill documents names that skill
+at the end of its own description, so github_get_skill can be called without listing
+first. Call github_list_skills for the set, and github_get_skill to read one, which
+needs nothing but tool support. The same content is served as MCP resources under the
+skill:// URI scheme, for a client that reads resources:
 - skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
 - skill://pr-review/SKILL.md -- post inline comments and submit review decisions
 - skill://pr-management/SKILL.md -- create, update, assign, refresh and merge PRs
@@ -301,6 +304,7 @@ class PRIssueAnalyser:
                     registered = _tool_name(name)
                     self.mcp.tool(registered, annotations=annotations, task=task, tags=scopes or None)(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
+        self.mcp.add_transform(SkillPointer())
 
     def run(self) -> None:
         """Runs the MCP server. Uses HTTP when MCP_ENABLE_REMOTE is true, otherwise stdio."""

@@ -165,6 +165,22 @@ server publishes it two ways, and every client reaches at least one of them.
 | `github_list_skills` and `github_get_skill` tools | Tool support only | The name, description and full text of every skill |
 | `skill://<name>/SKILL.md` resources | `resources/list` and `resources/read` | The same text, plus a `skill://<name>/_manifest` per skill |
 
+Each tool also names the skill that documents it. The description ends with
+`Workflow and conventions: github_get_skill('pr-review').` and the same skill
+appears in the tool's `_meta` as `skill://pr-review/SKILL.md`. A client reads that
+alongside the tool it is about to call, so reaching the guidance needs neither the
+server instructions nor a prior `github_list_skills`.
+
+The mapping is read at startup from the `` `tool_name` `` headings in each SKILL.md,
+so a tool is claimed in one place and the pointer cannot disagree with the skill.
+Moving a tool between skills is a heading move and nothing else. Of the 52 tools,
+50 carry a pointer; `github_get_skill` and `github_list_skills` carry none, since
+pointing those at a skill would send a client in a circle.
+
+The pointer is added by a server-level transform rather than written into each
+description, which is what puts it on the three tools FastMCP's own Choice and
+GenerativeUI providers register.
+
 The tools are the path to rely on. A host that consumes only tools never issues
 `resources/list`, so a `skill://` URI stays invisible to it however correctly it
 is served. Both paths read the same files, so neither goes stale against the
