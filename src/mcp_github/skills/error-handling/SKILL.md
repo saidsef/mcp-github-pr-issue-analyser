@@ -68,7 +68,7 @@ one of these steps arrives the same way, as `RATE_LIMITED` inside
 | `AUTH_FAILED` | 401 | The token is missing, expired or revoked | Stop. Tell the user to re-authenticate. Retrying cannot help |
 | `RATE_LIMITED` | 403 | A rate limit GitHub reported as a 403 is exhausted | Wait for the reset, then retry the same call unchanged |
 | `NOT_FOUND` | 404 | The resource is absent, or the token cannot see it | Check the owner, repo and number. Do not retry unchanged |
-| `VALIDATION_ERROR` | 422 | GitHub rejected the arguments | Fix the arguments. Retrying unchanged fails again |
+| `VALIDATION_ERROR` | 422 | GitHub rejected the arguments, or the server refused them before asking GitHub | Fix the arguments. Retrying unchanged fails again |
 | `GITHUB_API_ERROR` | 403, 429 or other | Permission denied, a secondary rate limit sent as a 429, or any status not listed above | Read the message. Permission problems need a token or approval change, not a retry |
 
 Three of these are easy to misread.

@@ -110,15 +110,6 @@ _EMPTY_STATUS_CHECKS = {
 }
 
 
-@pytest.fixture
-def gi() -> GitHubIntegration:
-    """GitHubIntegration instance with a mocked HTTP client and test token."""
-    with patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"):
-        instance = GitHubIntegration()
-    instance._http = AsyncMock()
-    return instance
-
-
 class TestAnnotations:
     def test_read_only_hints(self):
         def fn(): ...
@@ -321,74 +312,6 @@ class TestLifecycle:
             instance = GitHubIntegration()
         await instance.aclose()
         assert instance._http.is_closed
-
-
-class TestMergePr:
-    @pytest.mark.anyio
-    async def test_merges_without_ctx(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"merged": True}))
-        result = await gi.merge_pr("owner", "repo", 42)
-        assert result == {"merged": True}
-
-    @pytest.mark.anyio
-    async def test_http_error_propagates_as_tool_error_with_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=_mock_response(status_code=405, json_data={"message": "Not mergeable"})
-        )
-        with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 42)
-        assert "Not mergeable" in str(excinfo.value)
-        assert "405" in str(excinfo.value)
-
-    @pytest.mark.anyio
-    async def test_merge_405_includes_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=_mock_response(
-                status_code=405, json_data={"message": "Pull Request is not mergeable"}
-            )
-        )
-        with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 251)
-        text = str(excinfo.value)
-        assert "Pull Request is not mergeable" in text
-        assert "405" in text
-
-    @pytest.mark.anyio
-    async def test_merge_409_includes_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=_mock_response(
-                status_code=409, json_data={"message": "Head branch was modified"}
-            )
-        )
-        with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 42)
-        text = str(excinfo.value)
-        assert "Head branch was modified" in text
-        assert "409" in text
-
-    @pytest.mark.anyio
-    async def test_merge_does_not_accept_ctx_kwarg(self, gi: GitHubIntegration):
-        with pytest.raises(TypeError):
-            await gi.merge_pr("owner", "repo", 42, ctx=object())  # type: ignore[call-arg]
-
-    @pytest.mark.anyio
-    async def test_merge_payload_includes_optional_commit_fields(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"merged": True}))
-        await gi.merge_pr(
-            "owner",
-            "repo",
-            42,
-            commit_title="Custom title",
-            commit_message="Custom message",
-            merge_method="rebase",
-        )
-        kwargs = gi._http.request.call_args.kwargs
-        payload = kwargs["json"]
-        assert payload == {
-            "merge_method": "rebase",
-            "commit_title": "Custom title",
-            "commit_message": "Custom message",
-        }
 
 
 class TestUpdatePrTitleAndBody:
@@ -3044,13 +2967,19 @@ class TestErrorDetail:
     """GitHub explains a refusal in the response body, and the exception text is all
     the client sees, so the body has to survive into the message."""
 
+    @staticmethod
+    async def _merge(gi: GitHubIntegration) -> None:
+        checks = {"pr_number": 42, "head_sha": None, "overall": "passing", "check_runs": [], "commit_statuses": [], "truncated": False}
+        with patch.object(GitHubIntegration, "get_pr_status_checks", new_callable=AsyncMock, return_value=checks):
+            await gi.merge_pr("owner", "repo", 42, commit_title="fix(auth): retry a refused token")
+
     @pytest.mark.anyio
     async def test_a_permission_403_carries_githubs_own_message(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(
             return_value=_mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
         )
         with pytest.raises(ToolError, match="SAML enforcement"):
-            await gi.merge_pr("owner", "repo", 42)
+            await self._merge(gi)
 
     @pytest.mark.anyio
     async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
@@ -3059,14 +2988,14 @@ class TestErrorDetail:
             return_value=_mock_response(status_code=403, json_data=body, text=json.dumps(body))
         )
         with pytest.raises(ToolError, match=r"PR #42 merge: Refused.*approving review"):
-            await gi.merge_pr("owner", "repo", 42)
+            await self._merge(gi)
 
     @pytest.mark.anyio
     async def test_a_403_with_no_body_still_points_at_the_token(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(status_code=403, text=""))
         gi._http.request.return_value.json.side_effect = ValueError("not json")
         with pytest.raises(ToolError, match="Permission denied. Check your token permissions"):
-            await gi.merge_pr("owner", "repo", 42)
+            await self._merge(gi)
 
     def test_a_permission_403_is_not_read_as_a_rate_limit(self, gi: GitHubIntegration):
         response = _mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))

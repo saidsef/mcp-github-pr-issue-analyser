@@ -169,6 +169,7 @@ Returns `StatusChecksResult`:
 | Field | Type | Description |
 |---|---|---|
 | `pr_number` | int | The PR queried |
+| `head_sha` | str \| None | The commit the checks were read on, `None` when the head branch is gone |
 | `overall` | str | One of `passing`, `failing`, `pending`, `unknown` |
 | `check_runs` | list | Check runs on the head commit |
 | `commit_statuses` | list | Legacy commit statuses on the head commit |

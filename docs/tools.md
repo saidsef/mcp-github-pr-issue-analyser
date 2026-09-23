@@ -22,7 +22,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
 | `github_update_pr_branch` | write | Update the PR branch with the latest base branch |
-| `github_merge_pr` | write | Merge using the merge, squash or rebase method |
+| `github_merge_pr` | write | Merge using the merge, squash or rebase method, once the checks pass and with a `commit_title` |
 | `github_add_pr_comments` | write | Post a general comment on the PR thread |
 | `github_add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
 | `github_list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
