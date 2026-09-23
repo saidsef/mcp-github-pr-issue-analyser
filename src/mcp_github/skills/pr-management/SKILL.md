@@ -40,6 +40,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 1. Confirm the review decision is an approval
 2. **Ask the user in chat and get an explicit yes before calling `github_merge_pr`. The tool does not prompt and the merge cannot be undone**
 3. Call `github_merge_pr` with a `commit_title` in the Title Convention. The tool reads the checks itself and refuses unless `overall` is `passing`
+4. Pass `force=True` only when the user has accepted merging over checks that are failing, pending or absent
 
 ## Tool Parameters
 
@@ -136,11 +137,12 @@ be fixed locally.
 | `commit_title` | str | - | Merge commit title in the Title Convention. A call without one is refused |
 | `commit_message` | str \| None | `None` | Merge commit body |
 | `merge_method` | str | `squash` | One of `merge`, `squash`, `rebase` |
+| `force` | bool | `False` | Merge although the checks are failing, pending or absent |
 
 Two refusals happen before GitHub is asked, each a `VALIDATION_ERROR` naming this
 skill: a `commit_title` missing or off the Title Convention, and checks that read
-as anything other than `passing`. A repository with no checks reads as `unknown`,
-which is not a pass.
+as anything other than `passing` unless `force` is set. A repository with no
+checks reads as `unknown`, which is not a pass, so merging there needs `force`.
 
 ## Title Convention
 
@@ -225,7 +227,7 @@ Two hundred and fifty words across all five sections is the ceiling.
 - Write PR bodies to the PR Body template above, and cut a section rather than padding it
 - Link the issue with `Fixes #N.` under Related Issues, so merging closes it
 - Assign every PR with `github_set_assignees` as you open it, so it has an owner from the start
-- Let `github_merge_pr` gate on the checks itself. `unknown` is not a pass
+- Let `github_merge_pr` gate on the checks itself, and reach for `force=True` only with the user's explicit agreement
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do

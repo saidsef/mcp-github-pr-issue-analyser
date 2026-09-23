@@ -54,8 +54,21 @@ class TestCheckGate:
         with _checks(overall), pytest.raises(GitHubValidationError) as excinfo:
             await gi.merge_pr("owner", "repo", 42, commit_title=TITLE)
         assert overall in str(excinfo.value)
+        assert "force=True" in str(excinfo.value)
         assert SKILL in str(excinfo.value)
         gi._http.request.assert_not_called()
+
+    @pytest.mark.anyio
+    async def test_force_merges_over_checks_that_are_not_passing(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=_mock_response(json_data={"merged": True}))
+        with _checks("unknown"):
+            result = await gi.merge_pr("owner", "repo", 42, commit_title=TITLE, force=True)
+        assert result == {"merged": True}
+
+    @pytest.mark.anyio
+    async def test_force_does_not_waive_the_title(self, gi: GitHubIntegration):
+        with _checks("unknown"), pytest.raises(GitHubValidationError):
+            await gi.merge_pr("owner", "repo", 42, force=True)
 
     @pytest.mark.anyio
     async def test_checks_are_read_for_the_pr_being_merged(self, gi: GitHubIntegration):

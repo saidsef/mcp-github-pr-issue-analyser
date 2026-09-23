@@ -1183,16 +1183,20 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         commit_title: Annotated[str | None, "Subject of the merge commit, as <type>(<scope>): summary"] = None,
         commit_message: str | None = None,
         merge_method: _MergeMethod = "squash",
+        force: Annotated[bool, "Merge although the checks are failing, pending or absent"] = False,
     ) -> dict[str, Any]:
         """Merges a pull request. Refused without a commit_title in the
         <type>(<scope>): summary shape, since a squash without one takes its subject
         from a branch commit, and refused while the PR's checks are anything but
-        passing, since a merge cannot be undone."""
+        passing unless force is set, since a merge cannot be undone."""
         if not commit_title or not _COMMIT_TITLE.match(commit_title):
             raise GitHubValidationError(f"commit_title must read <type>(<scope>): summary. {pointer('pr-management')}")
         overall = (await self.get_pr_status_checks(repo_owner, repo_name, pr_number))["overall"]
-        if overall != "passing":
-            raise GitHubValidationError(f"PR #{pr_number} checks are {overall}, not passing. {pointer('pr-management')}")
+        if overall != "passing" and not force:
+            raise GitHubValidationError(
+                f"PR #{pr_number} checks are {overall}, not passing. Pass force=True to merge regardless. "
+                f"{pointer('pr-management')}"
+            )
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
         payload: dict[str, Any] = {"merge_method": merge_method, "commit_title": commit_title}
         if commit_message is not None:
