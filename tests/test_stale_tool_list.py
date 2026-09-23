@@ -15,7 +15,6 @@ from prometheus_client import REGISTRY
 
 from mcp_github.issues_pr_analyser import PRIssueAnalyser
 
-# A name from before the rename in #430. It is not registered and is not forwarded.
 RETIRED = "create_issue"
 CURRENT = "github_create_issue"
 AN_ISSUE = {"repo_owner": "o", "repo_name": "r", "title": "t", "body": "b", "labels": []}

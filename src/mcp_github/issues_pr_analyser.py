@@ -89,8 +89,6 @@ MCP_ENABLE_REMOTE = _env_enabled("MCP_ENABLE_REMOTE")
 
 TOOL_PREFIX = "github_"
 
-# Where the Python name and the tool name should differ, because the method name
-# describes the call worse than the tool name can. See #406.
 _TOOL_NAMES = {"update_reviews": "submit_review", "update_assignees": "set_assignees"}
 
 
@@ -99,7 +97,6 @@ def _tool_name(method_name: str) -> str:
     return f"{TOOL_PREFIX}{_TOOL_NAMES.get(method_name, method_name)}"
 
 try:
-    # CPU, memory and runtime metrics alongside the tool counters below
     ProcessCollector(registry=REGISTRY)
     PlatformCollector(registry=REGISTRY)
 except ValueError:
@@ -108,8 +105,6 @@ except ValueError:
 TOOL_CALLS = Counter("mcp_tool_invocations_total", "Total tool calls", ["tool_name", "outcome"])
 TOOL_DURATION = Histogram("mcp_tool_duration_seconds", "Tool call duration", ["tool_name", "outcome"])
 TOOL_IN_PROGRESS = Gauge("mcp_tool_in_progress", "Tool calls currently running")
-# Unlabelled on purpose. A label carrying the name asked for would let a caller
-# grow the series count by inventing tools, which is what #304 fixed.
 STALE_TOOL_LIST = Counter("mcp_stale_tool_list_total", "Tool calls naming a tool the server does not register")
 
 
@@ -134,8 +129,6 @@ class StaleToolList(Middleware):
         try:
             return await call_next(context)
         except InsufficientScopeError:
-            # The tool exists and the grant is short. Re-reading would return the
-            # same list, so this is a permissions answer rather than a stale one.
             raise
         except (NotFoundError, AuthorizationError):
             STALE_TOOL_LIST.inc()
@@ -263,12 +256,7 @@ class PRIssueAnalyser:
         )
         self.mcp.add_middleware(StaleToolList())
         self.mcp.add_middleware(MetricsMiddleware())
-        # A tool carries the scopes it needs as its tags, so one check per scope gates
-        # every tool that declares it. The middleware names the shortfall on a refused
-        # call, which a per-tool check cannot do. See #388.
         self.mcp.add_middleware(AuthMiddleware(auth=[restrict_tag(s, scopes=[s]) for s in GATED_SCOPES]))
-        # Background tasks are an extension in FastMCP 4, so a tool marked task=True
-        # runs in the request path until the extension is registered.
         self.mcp.add_extension(TasksExtension())
 
         @self.mcp.custom_route("/metrics", methods=["GET"])
@@ -310,9 +298,6 @@ class PRIssueAnalyser:
                 if annotations is not None:
                     task = getattr(method, "_mcp_task", False)
                     scopes: set[str] = set(getattr(method, "_mcp_scopes", ()))
-                    # The service prefix goes on the tool name rather than the Python
-                    # one, so a session holding this server and a GitLab one does not
-                    # offer an agent three tools called create_issue. See #406.
                     registered = _tool_name(name)
                     self.mcp.tool(registered, annotations=annotations, task=task, tags=scopes or None)(method)
         self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))

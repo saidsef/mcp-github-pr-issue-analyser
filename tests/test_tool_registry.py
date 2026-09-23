@@ -20,8 +20,6 @@ import pytest
 
 SNAPSHOT = Path(__file__).parent / "registered_tools.txt"
 
-# Registered by FastMCP's Choice and GenerativeUI providers rather than by this
-# repository, so their names are not ours to keep stable.
 PROVIDED = {"choose", "github_pr_issue_analyser_ui", "github_search_prefab_components"}
 
 

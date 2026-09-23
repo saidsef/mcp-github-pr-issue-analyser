@@ -107,8 +107,6 @@ class _Section(NamedTuple):
     mapper: Any
 
 
-# Drives the mapping and the ctx progress sequence, so neither hardcodes a
-# count. A new section also needs a key on UserActivityResult. See #298.
 ACTIVITY_SECTIONS: tuple[_Section, ...] = (
     _Section("commits", "commitContributionsByRepository", "Fetching commits...", _map_commit),
     _Section("pull_requests", "pullRequestContributionsByRepository", "Fetching pull requests...", _map_pull_request),
@@ -116,10 +114,9 @@ ACTIVITY_SECTIONS: tuple[_Section, ...] = (
     _Section("reviews", "pullRequestReviewContributionsByRepository", "Fetching reviews...", _map_review),
 )
 
-# Sections plus the trailing repo-stars stage.
 ACTIVITY_STAGES = len(ACTIVITY_SECTIONS) + 1
-MAX_REPO_PAGES = 5  # 100 repos per page × 5 = 500 repo ceiling
-MAX_HISTORY_PAGES = 12  # 30 weeks per page × 12 ≈ 7 years of star history
+MAX_REPO_PAGES = 5
+MAX_HISTORY_PAGES = 12
 
 
 def _stars_in_week(week: dict[str, Any], cutoff_day: datetime) -> tuple[int, bool]:
@@ -146,7 +143,7 @@ def _normalise_until(value: str) -> str:
 class ActivityMixin:
     """User activity tools, mixed into GitHubIntegration."""
 
-    if TYPE_CHECKING:  # supplied by GitHubIntegration
+    if TYPE_CHECKING:
         _http: httpx.AsyncClient
 
         async def _request(
@@ -344,9 +341,7 @@ class ActivityMixin:
             if len(batch) < 100:
                 break
         else:
-            # The last page came back full, so there are probably more.
             truncated = True
-        # Most-starred first, since those are likeliest to have gained stars recently
         candidates = sorted(
             [r for r in all_repos if r.get("stargazers_count", 0) > 0],
             key=lambda r: r["stargazers_count"],

@@ -300,8 +300,6 @@ class TestScopeFloor:
         with _deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
-        # The transport reads the first and the GitHub token check the second, and
-        # both refuse a grant short of them before any tool is reached.
         assert provider.required_scopes == list(REQUIRED_SCOPES)
         assert provider._token_validator.required_scopes == list(REQUIRED_SCOPES)
 
@@ -622,8 +620,6 @@ class TestAnnotationCoverage:
     """Every tool this repo registers declares all four hints, so a new one
     cannot ship unannotated. See #407."""
 
-    # The Choice and GenerativeUI providers register these, so their annotations
-    # are FastMCP's to set rather than this repo's.
     _PROVIDED = {"choose", "github_pr_issue_analyser_ui", "github_search_prefab_components"}
 
     async def _own_tools(self) -> list[Any]:
@@ -670,7 +666,6 @@ class TestToolNaming:
     """Tool names carry a service prefix, so a session holding this server and a
     GitLab one does not offer an agent three tools called create_issue. See #406."""
 
-    # FastMCP's Choice provider hardcodes this one and exposes no way to rename it.
     _NOT_OURS = {"choose"}
 
     @pytest.mark.anyio

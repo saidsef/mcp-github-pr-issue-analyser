@@ -178,16 +178,15 @@ class StatusChecksResult(TypedDict):
 
 
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
-TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))  # seconds, bounds reading the response
-CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))  # seconds, bounds opening the connection
-ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))  # 0 disables conditional reads
-DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))  # 128 KB, wider than any patch this repo produces
-FILE_MAX_BYTES = int(getenv("GITHUB_FILE_MAX_BYTES", "131072"))  # 128 KB, a window rather than a cap on the file
-MAX_MILESTONE_PAGES = 5  # 100 milestones per page × 5, enough to resolve a title in any real repo
-MAX_STATUS_CHECKS_SUITE_PAGES = 5  # 50 suites per page × 5 = 250 suite ceiling
-MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5  # 100 runs per page × 5 = 500 run ceiling per suite
+TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))
+CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))
+ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))
+DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))
+FILE_MAX_BYTES = int(getenv("GITHUB_FILE_MAX_BYTES", "131072"))
+MAX_MILESTONE_PAGES = 5
+MAX_STATUS_CHECKS_SUITE_PAGES = 5
+MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5
 
-# Conversation comments hang off the issue, review comments off the pull request.
 _COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
 
 _RELEASE_FIELDS = ("id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
@@ -203,12 +202,8 @@ _MILESTONE_FIELDS = (
     "html_url",
 )
 
-# One key per field-value type PROJECT_ITEMS_QUERY selects, in the order a node
-# is searched. Each node holds exactly one of them.
 _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 
-# Named once so the comma does not sit inside a signature, where the complexity
-# counter reads it as another parameter.
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
@@ -479,8 +474,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Initialises the GitHubIntegration instance."""
         self.github_token = GITHUB_TOKEN
 
-        # Both credentials may be configured at once, so these two are independent
-        # rather than alternatives. See #389.
         self._oauth_mode = oauth_configured()
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
@@ -570,7 +563,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         own wording separates them, so detail carries it into every message."""
         error_text = response.text.lower()
         if "rate limit" not in error_text:
-            # Guessing at the token is only right when GitHub named no cause of its own.
             msg = "Refused." if detail else "Permission denied. Check your token permissions."
             if self._oauth_mode:
                 msg += (
@@ -634,7 +626,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             response = await self._http.request(method, url, headers=sent, **kwargs)
             if response.status_code == 304 and cached:
                 logger.info(f"Not modified {ctx}")
-                # Link rides along, or a replayed page would forget it has a successor.
                 headers = {"Link": cached[2]} if cached[2] else None
                 return httpx.Response(200, content=cached[1], headers=headers, request=response.request)
             if response.status_code in allow_status:
@@ -676,7 +667,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         url = f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch"
         content = (await self._request("GET", url, context=f"PR #{pr_number} diff")).content
         kept = content[:max_bytes]
-        # Cutting on a byte boundary can split a character, so drop the partial one.
         return {
             "pr_number": pr_number,
             "patch": kept.decode("utf-8", errors="ignore"),
@@ -834,7 +824,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
             data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
         if labels is not None:
-            # Sent last so the payload returned carries the fields above as well.
             data = await self._replace_labels(repo_owner, repo_name, pr_number, labels)
         return _pr_content(data)
 
@@ -958,7 +947,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         items are reachable and any qualifier GitHub search accepts works."""
         if not query.strip():
             raise GitHubValidationError("Supply a search query.")
-        # advanced_search=true is what the current qualifier set is served under.
         url = (
             "https://api.github.com/search/issues"
             f"?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
@@ -1039,7 +1027,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         owner's account type picks the endpoint, since /orgs 404s on a person and
         /users hides an organisation's private repositories. See #354."""
         if not owner:
-            # The only endpoint that returns the caller's own private repositories.
             path = "user/repos"
         elif await self._account_kind(owner) == "Organization":
             path = f"orgs/{owner}/repos"
@@ -1146,8 +1133,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         it sees a write immediately. See #358."""
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
         data = (await self._request("GET", url, context=f"issue #{issue_number}")).json()
-        # GitHub serves pull requests from this path too, and _issue_result would
-        # report one as an issue.
         if "pull_request" in data:
             raise GitHubValidationError(f"#{issue_number} is a pull request. Use github_get_pr_content instead.")
         return _issue_result(data)
@@ -1341,8 +1326,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         if ref:
             url += f"?ref={quote(ref, safe='')}"
         where = f"{path} at {ref or 'the default branch'}"
-        # The raw media type sidesteps the 1 MB ceiling the base64 body carries,
-        # and a directory answers as JSON however the Accept header is set.
         response = await self._request(
             "GET", url, context=where, headers={"Accept": "application/vnd.github.raw"}
         )
@@ -1351,8 +1334,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         content = response.content
         window = content[offset : offset + limit]
         end = offset + len(window)
-        # A NUL byte is how git itself calls a blob binary. Decoding one would
-        # return mangled text under a name that promises the file.
         binary = b"\x00" in window
         return {
             "path": path,
@@ -1379,8 +1360,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         tree exceeded GitHub's cap, which no amount of paging widens. See #409."""
         target = f"{ref or 'HEAD'}:{path.strip('/')}" if path.strip("/") else (ref or "HEAD")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees/{quote(target, safe='')}"
-        # GitHub reads any value of recursive as on, "false" and "0" included, so
-        # a one-level listing needs the parameter absent rather than negative.
         if recursive:
             url += "?recursive=1"
         where = f"{path or 'the root'} at {ref or 'the default branch'}"
@@ -1406,14 +1385,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Fetches the SHA of the newest commit on ref, or on the default branch when
         ref is omitted. Returns None if the repository has no commits. The answer is
         a reading rather than a pin, so a push landing afterwards moves it."""
-        # per_page=1 because only the newest SHA is read. The default of 30
-        # returns every field of 30 commits to answer with 40 characters.
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits?per_page=1"
         if ref:
             url += f"&sha={quote(ref, safe='')}"
         where = f"{ref or 'default branch'} of {repo_owner}/{repo_name}"
-        # An empty repository answers 409 rather than with an empty list, so the
-        # no-commits contract only holds by reading that status. See #411.
         response = await self._request("GET", url, context=f"commits for {where}", allow_status=(409,))
         if response.status_code == 409:
             return None
@@ -1439,8 +1414,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             raise GitHubNotFoundError(f"No commits found in {repo_owner}/{repo_name}; cannot create tag {tag_name}")
         ref_target = target
         if message:
-            # POST /git/refs has no message field. An annotated tag is a separate
-            # object that holds one, and the ref then points at that object.
             ref_target = (
                 await self._request(
                     "POST",
@@ -1609,8 +1582,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         cannot be what is left behind. See #404."""
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
         base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
-        # Order matters: the release is gone before the tag, so a failure here
-        # leaves a tag with no release, which is the ordinary state.
         await self._request("DELETE", f"{base}/releases/{release['id']}", context=f"delete release {tag_name}")
         if delete_tag:
             await self._delete_tag_ref(repo_owner, repo_name, tag_name)

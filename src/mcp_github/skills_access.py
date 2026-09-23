@@ -89,7 +89,6 @@ class SkillsMixin:
     ) -> SkillContent:
         """Reads one skill in full. The same content is served as a skill://
         resource, so a client that reads resources needs neither tool."""
-        # A name carrying a separator would otherwise walk out of the skills tree.
         wanted = name.strip().removeprefix("skill://").removesuffix("/SKILL.md").strip("/")
         path = SKILLS_DIR / wanted / "SKILL.md"
         if "/" in wanted or "\\" in wanted or not path.is_file():

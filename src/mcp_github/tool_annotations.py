@@ -28,15 +28,10 @@ from typing import Any
 
 from mcp.types import ToolAnnotations
 
-# The scopes a grant needs before a tool that changes anything is listed or called.
-# Read-only tools need none. See #388.
 WRITE_SCOPES: tuple[str, ...] = ("repo",)
 
-# A board sits outside the repository it tracks, so a tool that writes to one names
-# this on top of the write scopes. See #351.
 PROJECT_SCOPES: tuple[str, ...] = ("project",)
 
-# Every scope the server gates on, one check each.
 GATED_SCOPES: tuple[str, ...] = WRITE_SCOPES + PROJECT_SCOPES
 
 
@@ -45,9 +40,6 @@ def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
         fn: Any = None, *, task: bool = False, idempotent: bool = False, scopes: tuple[str, ...] = ()
     ) -> Any:
         def apply(f: Any) -> Any:
-            # Every tool here reaches api.github.com, so the world it acts on is open
-            # in every case. The protocol defaults this to true, and a null says
-            # nothing rather than saying so. See #407.
             f._mcp_annotations = ToolAnnotations(
                 read_only_hint=ro,
                 destructive_hint=destructive,

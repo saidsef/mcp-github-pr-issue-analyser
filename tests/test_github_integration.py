@@ -31,8 +31,6 @@ from mcp_github.tool_annotations import (
     _write,
 )
 
-# Helpers
-
 
 def _mock_response(
     status_code: int = 200,
@@ -71,7 +69,6 @@ def _weeks_back(newest_sunday: str, count: int, per_day: int) -> list[dict]:
     return [_week((newest - timedelta(weeks=i)).strftime("%Y-%m-%d"), [per_day] * 7) for i in range(count)]
 
 
-# Older than every cutoff the star tests use, so it ends the walk.
 _OLD_WEEK = _week("2000-01-02", [0] * 7)
 
 
@@ -113,9 +110,6 @@ _EMPTY_STATUS_CHECKS = {
 }
 
 
-# Fixture
-
-
 @pytest.fixture
 def gi() -> GitHubIntegration:
     """GitHubIntegration instance with a mocked HTTP client and test token."""
@@ -123,9 +117,6 @@ def gi() -> GitHubIntegration:
         instance = GitHubIntegration()
     instance._http = AsyncMock()
     return instance
-
-
-# Annotation semantics
 
 
 class TestAnnotations:
@@ -223,9 +214,6 @@ class TestAnnotations:
         assert ann.read_only_hint is False
 
 
-# Connection pooling — single shared client
-
-
 class TestConnectionPooling:
     @pytest.mark.anyio
     async def test_shared_client_not_recreated_per_request(self, gi: GitHubIntegration):
@@ -241,9 +229,6 @@ class TestConnectionPooling:
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[{"sha": "abc"}]))
         await gi.get_latest_sha("owner", "repo")
         assert gi._http is client_before
-
-
-# Conditional reads
 
 
 class TestEtagCache:
@@ -290,9 +275,6 @@ class TestEtagCache:
         assert len(gi._etags) == 3
 
 
-# Timeouts
-
-
 class TestTimeouts:
     """Connecting and reading are bounded separately. See #313."""
 
@@ -309,9 +291,6 @@ class TestTimeouts:
             instance = GitHubIntegration()
         assert instance._http.timeout.connect == CONNECT_TIMEOUT
         assert instance._http.timeout.read == TIMEOUT
-
-
-# aclose / async context manager
 
 
 class TestLifecycle:
@@ -338,14 +317,10 @@ class TestLifecycle:
 
     @pytest.mark.anyio
     async def test_closing_the_shared_client_closes_graphql_too(self):
-        # One client serves both, so there is nothing else left open. See #305.
         with patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"):
             instance = GitHubIntegration()
         await instance.aclose()
         assert instance._http.is_closed
-
-
-# merge_pr — request shape and GitHub error surfacing
 
 
 class TestMergePr:
@@ -416,9 +391,6 @@ class TestMergePr:
         }
 
 
-# update_pr — reuses the PATCH response (no redundant GET). See #399.
-
-
 class TestUpdatePrTitleAndBody:
     @pytest.mark.anyio
     async def test_reuses_patch_response_with_single_call(self, gi: GitHubIntegration):
@@ -434,7 +406,6 @@ class TestUpdatePrTitleAndBody:
         }
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=pr_payload))
         result = await gi.update_pr("o", "r", 5, title="New title", body="New body")
-        # A single PATCH — the old implementation issued a follow-up GET.
         gi._http.request.assert_awaited_once()
         assert gi._http.request.call_args.args[0] == "PATCH"
         assert gi._http.request.call_args.kwargs["json"] == {"title": "New title", "body": "New body"}
@@ -451,9 +422,6 @@ class TestUpdatePrTitleAndBody:
             "requested_reviewers": [],
             "requested_teams": [],
         }
-
-
-# get_pr_content head SHA — the source update_pr_branch needs. See #411.
 
 
 class TestPRHeadSha:
@@ -497,9 +465,6 @@ class TestPRHeadSha:
         content = await gi.get_pr_content("o", "r", 5)
         await gi.update_pr_branch("o", "r", 5, expected_head_sha=content["head_sha"])
         assert gi._http.request.call_args.kwargs["json"] == {"expected_head_sha": "9341d65"}
-
-
-# get_user_activities — Context progress ordering and completeness
 
 
 class TestGetUserActivitiesContext:
@@ -567,9 +532,6 @@ class TestGetUserActivitiesContext:
             result = await gi.get_user_activities("user1")
         for section in ACTIVITY_SECTIONS:
             assert section.field in result
-
-
-# get_user_activities — filtering, capping and date handling
 
 
 def _repo_block(owner: str, name: str, nodes: list[dict]) -> dict:
@@ -761,9 +723,6 @@ class TestGetUserActivitiesDates:
         }
 
 
-# get_repo_stars_since — new stars within a date window
-
-
 class TestGetRepoStarsSince:
     @pytest.mark.anyio
     async def test_short_repo_listing_is_not_truncated(self, gi: GitHubIntegration):
@@ -774,8 +733,6 @@ class TestGetRepoStarsSince:
 
     @pytest.mark.anyio
     async def test_repo_listing_pages_past_the_first_hundred(self, gi: GitHubIntegration):
-        # Two full pages then a short one: every repo is considered, and the
-        # most-starred sits on the second page where a single call would miss it.
         page1 = [{"name": f"r{i}", "stargazers_count": 1, "html_url": "u", "description": None} for i in range(100)]
         page2 = [{"name": "popular", "stargazers_count": 999, "html_url": "u", "description": None}]
         history = [_week("2090-01-01", [1, 0, 0, 0, 0, 0, 0]), _OLD_WEEK]
@@ -801,8 +758,6 @@ class TestGetRepoStarsSince:
             {"name": "repo-a", "stargazers_count": 10, "html_url": "https://github.com/u/repo-a", "description": None},
             {"name": "repo-b", "stargazers_count": 5, "html_url": "https://github.com/u/repo-b", "description": "B"},
         ]
-        # repo-a: 2 new stars in the cutoff week; repo-b: 1 new, plus one the week
-        # before the cutoff that must not count.
         history_a = [_week("2090-01-01", [1, 1, 0, 0, 0, 0, 0]), _OLD_WEEK]
         history_b = [
             _week("2090-01-01", [1, 0, 0, 0, 0, 0, 0]),
@@ -833,7 +788,6 @@ class TestGetRepoStarsSince:
         repos_payload = [
             {"name": "edge", "stargazers_count": 2, "html_url": "https://github.com/u/edge", "description": None},
         ]
-        # Sunday and Monday sit before the cutoff, Tuesday lands exactly on it.
         history = [_week("2090-01-01", [0, 0, 1, 0, 0, 0, 0]), _OLD_WEEK]
         responses = iter([_mock_response(json_data=repos_payload), _mock_response(json_data=history)])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
@@ -849,7 +803,6 @@ class TestGetRepoStarsSince:
         repos_payload = [
             {"name": "straddle", "stargazers_count": 20, "html_url": "https://github.com/u/s", "description": None},
         ]
-        # Ten stars fall on the Sunday and Monday before the cutoff, six on or after.
         history = [_week("2090-01-01", [5, 5, 1, 2, 3, 0, 0]), _OLD_WEEK]
         responses = iter([_mock_response(json_data=repos_payload), _mock_response(json_data=history)])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
@@ -878,7 +831,7 @@ class TestGetRepoStarsSince:
 
         result = await gi.get_repo_stars_since("u", since="2090-01-01")
 
-        assert requested == [1]  # page 2 never fetched
+        assert requested == [1]
         assert result["repos"][0]["new_stars"] == 21
 
     @pytest.mark.anyio
@@ -905,7 +858,6 @@ class TestGetRepoStarsSince:
         result = await gi.get_repo_stars_since("u", since="2089-06-05")
 
         assert requested == [1, 2]
-        # 30 whole weeks on page 1, then the single cutoff week on page 2.
         assert result["repos"][0]["new_stars"] == 217
         assert result["truncated"] is False
 
@@ -952,7 +904,7 @@ class TestGetRepoStarsSince:
         repos_payload = [
             {"name": "old-repo", "stargazers_count": 3, "html_url": "https://github.com/u/old-repo", "description": None},
         ]
-        history_old = [_OLD_WEEK]  # every week before the cutoff → no new stars
+        history_old = [_OLD_WEEK]
 
         responses = iter([
             _mock_response(json_data=repos_payload),
@@ -985,12 +937,8 @@ class TestGetRepoStarsSince:
     async def test_default_since_is_30_days_ago(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[]))
         result = await gi.get_repo_stars_since("u")
-        # since should be ~30 days ago — just check it's a valid ISO string
         assert result["since"].endswith("Z")
         assert len(result["since"]) == 20
-
-
-# get_pr_status_checks — check_suites allocation is conditional on ctx
 
 
 class TestGetPrStatusChecks:
@@ -1038,9 +986,6 @@ class TestGetPrStatusChecks:
         with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=_EMPTY_STATUS_CHECKS):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert result["overall"] == "unknown"
-
-
-# get_latest_sha + create_tag — empty-repo contract
 
 
 class TestGetLatestShaAndCreateTag:
@@ -1108,7 +1053,6 @@ class TestGetLatestShaAndCreateTag:
     async def test_create_tag_uses_the_sha_it_is_given(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data={"ref": "refs/tags/v1"}))
         await gi.create_tag("o", "r", "v1", sha="deadbee")
-        # One call only: the latest-SHA lookup is skipped when a commit is named.
         assert gi._http.request.call_count == 1
         assert gi._http.request.call_args.kwargs["json"]["sha"] == "deadbee"
 
@@ -1136,7 +1080,6 @@ class TestGetLatestShaAndCreateTag:
         assert calls[0].kwargs["json"] == {
             "tag": "v1", "message": "ship it", "object": "deadbee", "type": "commit",
         }
-        # The ref points at the tag object, not the commit, or the message is lost.
         assert calls[1].kwargs["json"]["sha"] == "tagobj1"
 
     @pytest.mark.anyio
@@ -1145,9 +1088,6 @@ class TestGetLatestShaAndCreateTag:
         with pytest.raises(GitHubNotFoundError, match="No commits found"):
             await gi.create_tag("owner", "empty-repo", "v1.0.0", "First tag")
         gi._http.request.assert_awaited_once()
-
-
-# get_pr_status_checks — pagination + truncation
 
 
 def _status_page(
@@ -1254,7 +1194,6 @@ class TestStatusChecksPagination:
             side_effect=[suite_page, *([infinite_runs] * 10)],
         ) as p:
             result = await gi.get_pr_status_checks("owner", "repo", 1)
-        # 1 suite query + 5 run-pagination queries (MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE)
         assert p.await_count == 6
         assert result["truncated"] is True
         assert result["overall"] == "unknown"
@@ -1302,8 +1241,6 @@ class TestStatusChecksPagination:
         msg = ctx.info.call_args[0][0]
         assert "truncated" in msg
 
-
-# Response trimming — write tools return compact contracts, not raw payloads
 
 _NOISE_USER = {
     "login": "octocat",
@@ -1462,7 +1399,6 @@ class TestResponseTrimming:
     async def test_create_issue_without_labels_creates_an_unlabelled_issue(
         self, gi: GitHubIntegration
     ):
-        # #402: labels must be omittable, and omitting must not append anything.
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload(labels=[])))
         result = await gi.create_issue("o", "r", "A bug", "Details")
         assert "labels" not in gi._http.request.call_args.kwargs["json"]
@@ -1470,7 +1406,6 @@ class TestResponseTrimming:
 
     @pytest.mark.anyio
     async def test_create_issue_mcp_label_opt_out(self, gi: GitHubIntegration):
-        # #402: the 'mcp' append is opt-out.
         gi._http.request = AsyncMock(
             return_value=_mock_response(json_data=_issue_payload(labels=[{"name": "bug"}]))
         )
@@ -1623,9 +1558,6 @@ class TestResponseTrimming:
         }
 
 
-# Repository labels
-
-
 class TestListRepoLabels:
     @pytest.mark.anyio
     async def test_returns_trimmed_labels_with_total(self, gi: GitHubIntegration):
@@ -1670,9 +1602,6 @@ class TestListRepoLabels:
 
     def test_is_read_only(self, gi: GitHubIntegration):
         assert gi.list_repo_labels._mcp_annotations.read_only_hint is True
-
-
-# get_repository_file + list_repository_tree — repository reads. See #409.
 
 
 def _raw(content: bytes) -> MagicMock:
@@ -1834,9 +1763,6 @@ class TestListRepositoryTree:
         assert gi.list_repository_tree._mcp_annotations.read_only_hint is True
 
 
-# add_inline_pr_comment — side and multi-line ranges. See #410.
-
-
 def _inline_responses(**overrides):
     """A head-SHA read followed by the created review comment."""
     comment = {
@@ -1961,9 +1887,6 @@ class TestInlineCommentPlacement:
         assert comment["start_side"] == "RIGHT"
 
 
-# get_pr_diff — size reporting and truncation (#314)
-
-
 class TestGetPRDiff:
     @pytest.mark.anyio
     async def test_short_patch_comes_back_whole(self, gi: GitHubIntegration):
@@ -1996,7 +1919,6 @@ class TestGetPRDiff:
 
     @pytest.mark.anyio
     async def test_a_split_character_is_dropped_not_mangled(self, gi: GitHubIntegration):
-        # 'é' is two bytes, so a three-byte cut lands mid-character.
         gi._http.request = AsyncMock(return_value=_mock_response(text="abé"))
         result = await gi.get_pr_diff("o", "r", 5, max_bytes=3)
         assert result["patch"] == "ab"
@@ -2008,9 +1930,6 @@ class TestGetPRDiff:
         with pytest.raises(GitHubValidationError):
             await gi.get_pr_diff("o", "r", 5, max_bytes=-1)
         gi._http.request.assert_not_called()
-
-
-# search_issues_prs (#346)
 
 
 class TestSearchIssuesPRs:
@@ -2075,9 +1994,6 @@ class TestSearchIssuesPRs:
 
     def test_is_read_only(self, gi: GitHubIntegration):
         assert gi.search_issues_prs._mcp_annotations.read_only_hint is True
-
-
-# Releases and tags — read, update, delete (#347)
 
 
 def _release_payload(**overrides) -> dict:
@@ -2180,7 +2096,6 @@ class TestReleasesAndTags:
         )
         with pytest.raises(GitHubValidationError, match="update_release"):
             await gi.create_release("o", "r", "v1.0.0", "v1.0.0", "second attempt")
-        # The POST went out and nothing followed it.
         assert gi._http.request.call_count == 1
 
     @pytest.mark.anyio
@@ -2239,7 +2154,6 @@ class TestReleasesAndTags:
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=_release_payload()))
         with pytest.raises(GitHubValidationError, match="force=True"):
             await gi.delete_tag("o", "r", "v1.0.0")
-        # The lookup happened, the delete did not.
         assert gi._http.request.call_count == 1
 
     @pytest.mark.anyio
@@ -2270,9 +2184,6 @@ class TestReleasesAndTags:
     def test_read_tools_are_read_only(self, gi: GitHubIntegration):
         for name in ("list_releases", "get_release", "list_tags"):
             assert getattr(gi, name)._mcp_annotations.read_only_hint is True, name
-
-
-# update_pr and set_pr_draft (#348)
 
 
 def _pr_payload(**overrides) -> dict:
@@ -2450,9 +2361,6 @@ class TestSetPRDraft:
         gi._execute_graphql.assert_not_called()
 
 
-# PR comments — list, edit, reply (#349)
-
-
 class TestPRComments:
     @pytest.mark.anyio
     async def test_conversation_comments_come_from_the_issues_path(self, gi: GitHubIntegration):
@@ -2571,9 +2479,6 @@ class TestPRComments:
         assert gi.list_pr_comments._mcp_annotations.read_only_hint is True
 
 
-# _request allow_status
-
-
 class TestAllowStatus:
     @pytest.mark.anyio
     async def test_allowed_status_is_returned_not_raised(self, gi: GitHubIntegration):
@@ -2588,10 +2493,6 @@ class TestAllowStatus:
             await gi._request("GET", "https://api.github.com/x", allow_status=(422,))
 
 
-# Project boards (#351)
-
-# An owner whose projectV2 resolved to nothing, which is what a wrong number and
-# a token that cannot see Projects both look like.
 _NO_PROJECT: dict = {"repositoryOwner": {}}
 
 
@@ -2895,9 +2796,6 @@ class TestGraphQLScopeErrors:
                 raise GitHubAuthError("Missing scope.")
 
 
-# Milestones (#350)
-
-
 def _milestone_payload(**overrides) -> dict:
     payload = {
         "number": 3,
@@ -3039,7 +2937,6 @@ class TestMilestones:
     async def test_clearing_sends_an_explicit_null(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=_issue_payload()))
         result = await gi.set_issue_milestone("o", "r", 7)
-        # An omitted key would leave the milestone in place, so null has to go up.
         assert gi._http.request.call_args.kwargs["json"] == {"milestone": None}
         assert gi._http.request.call_count == 1
         assert result["milestone"] is None
@@ -3049,9 +2946,6 @@ class TestMilestones:
         assert gi.create_milestone._mcp_annotations.destructive_hint is False
         for name in ("update_milestone", "set_issue_milestone"):
             assert getattr(gi, name)._mcp_annotations.idempotent_hint is True, name
-
-
-# list_repos (#354)
 
 
 def _repo_payload(**overrides) -> dict:
@@ -3093,14 +2987,12 @@ class TestListRepos:
         ])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         await gi.list_repos("acme")
-        # /users/acme/repos would answer, but only with the public ones.
         assert gi._http.request.call_args.args[1] == "https://api.github.com/orgs/acme/repos"
 
     @pytest.mark.anyio
     async def test_no_owner_reads_the_callers_own(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=_mock_response(json_data=[_repo_payload(private=True)]))
         result = await gi.list_repos()
-        # No account lookup, since there is no owner to classify.
         assert gi._http.request.call_count == 1
         assert gi._http.request.call_args.args[1] == "https://api.github.com/user/repos"
         assert result["repos"][0]["private"] is True
@@ -3136,14 +3028,10 @@ class TestListRepos:
         gi._http.request = AsyncMock(return_value=_mock_response(status_code=404, json_data={}))
         with pytest.raises(GitHubNotFoundError, match="No user or organisation named 'nope'"):
             await gi.list_repos("nope")
-        # The listing was never attempted.
         assert gi._http.request.call_count == 1
 
     def test_is_read_only(self, gi: GitHubIntegration):
         assert gi.list_repos._mcp_annotations.read_only_hint is True
-
-
-# Error detail
 
 
 _SAML_403 = {
@@ -3194,7 +3082,6 @@ class TestErrorDetail:
             status_code=403,
             json_data=body,
             text=json.dumps(body),
-            # The primary window is unrelated and long past, so Retry-After is the only usable wait.
             headers={"Retry-After": "60", "X-RateLimit-Reset": "1"},
         )
         with pytest.raises(GitHubRateLimitError) as caught:
@@ -3292,9 +3179,6 @@ class TestMissingCredentials:
         assert raised.value.status_code == 401
         assert "[AUTH_FAILED] HTTP 401" in str(raised.value)
         assert MISSING_CREDENTIALS in str(raised.value)
-
-
-# list_pr_reviews — the read counterpart to update_reviews. See #408.
 
 
 def _review_payload(**overrides) -> dict:
@@ -3397,9 +3281,6 @@ class TestRequestedReviewers:
         assert result["requested_teams"] == []
 
 
-# delete_release(delete_tag=True) against a released tag. See #404.
-
-
 class TestDeleteReleaseWithTag:
     @pytest.mark.anyio
     async def test_the_release_goes_before_the_tag(self, gi: GitHubIntegration):
@@ -3439,9 +3320,6 @@ class TestDeleteReleaseWithTag:
         with pytest.raises(GitHubValidationError, match="force=True"):
             await gi.delete_tag("o", "r", "v1.0.0")
         assert gi._http.request.call_count == 1
-
-
-# milestone sentinel — one encoding across both tools. See #403.
 
 
 class TestMilestoneSentinel:
@@ -3498,8 +3376,6 @@ class TestMilestoneSentinel:
         assert len({str(p.annotation) for p in shapes.values()}) == 1, shapes
         assert {p.default for p in shapes.values()} == {None}
 
-
-# Pagination metadata across the list tools. See #405.
 
 _NEXT_LINK = '<https://api.github.com/repositories/1/tags?page=2>; rel="next", ' '<...?page=83>; rel="last"'
 
