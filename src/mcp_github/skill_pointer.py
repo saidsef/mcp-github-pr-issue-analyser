@@ -83,7 +83,7 @@ class SkillPointer(Transform):
         if skill is None:
             return tool
         line = pointer(skill)
-        reads = tool.annotations is not None and bool(tool.annotations.read_only_hint)
+        reads = bool(tool.annotations and tool.annotations.read_only_hint)
         if not tool.description:
             description = line
         elif reads:

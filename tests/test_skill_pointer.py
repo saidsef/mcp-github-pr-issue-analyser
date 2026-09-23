@@ -101,7 +101,7 @@ class TestTheServedToolList:
 
     @pytest.mark.anyio
     async def test_a_writing_tool_leads_with_the_pointer(self):
-        """Nothing a client already read is lost, and the pointer comes first."""
+        """The original text survives, and the pointer comes first."""
         description = (await _tools())["github_delete_tag"].description or ""
 
         assert description.startswith(pointer("release-management") + " Deletes a tag.")
