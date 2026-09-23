@@ -60,14 +60,16 @@ def skill_owners() -> dict[str, str]:
 
 
 def pointer(skill: str) -> str:
-    """The line appended to a tool's description. Names the tool rather than the
+    """The line carried on a tool's description. Names the tool rather than the
     skill:// URI, since every client has tools and only some read resources."""
-    return f"Workflow and conventions: github_get_skill('{skill}')."
+    return f"Read github_get_skill('{skill}') before calling this tool."
 
 
 class SkillPointer(Transform):
-    """Appends the documenting skill to each tool's description and records it under
-    the skill key of the tool's meta. Server-level transforms run after the providers
+    """Names the documenting skill on each tool's description and records it under
+    the skill key of the tool's meta. A tool that writes leads with the pointer,
+    since a footer under a long schema is what a client skims past, and a tool that
+    only reads keeps it at the end. Server-level transforms run after the providers
     are aggregated, so the tools FastMCP registers for itself are covered too."""
 
     def __init__(self) -> None:
@@ -81,9 +83,16 @@ class SkillPointer(Transform):
         if skill is None:
             return tool
         line = pointer(skill)
+        reads = tool.annotations is not None and bool(tool.annotations.read_only_hint)
+        if not tool.description:
+            description = line
+        elif reads:
+            description = f"{tool.description}\n\n{line}"
+        else:
+            description = f"{line} {tool.description}"
         return tool.model_copy(
             update={
-                "description": f"{tool.description}\n\n{line}" if tool.description else line,
+                "description": description,
                 "meta": {**(tool.meta or {}), "skill": f"skill://{skill}/SKILL.md"},
             }
         )

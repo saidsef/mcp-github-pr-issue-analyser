@@ -2969,7 +2969,7 @@ class TestErrorDetail:
 
     @staticmethod
     async def _merge(gi: GitHubIntegration) -> None:
-        checks = {"pr_number": 42, "head_sha": None, "overall": "passing", "check_runs": [], "commit_statuses": [], "truncated": False}
+        checks = {"pr_number": 42, "overall": "passing", "check_runs": [], "commit_statuses": [], "truncated": False}
         with patch.object(GitHubIntegration, "get_pr_status_checks", new_callable=AsyncMock, return_value=checks):
             await gi.merge_pr("owner", "repo", 42, commit_title="fix(auth): retry a refused token")
 

@@ -211,8 +211,8 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Skills
 Workflow guidance ships with the server. Every tool a skill documents names that skill
-at the end of its own description, so github_get_skill can be called without listing
-first. Call github_list_skills for the set, and github_get_skill to read one, which
+in its own description, ahead of the text on a tool that writes, so github_get_skill can
+be called without listing first. Call github_list_skills for the set, and github_get_skill to read one, which
 needs nothing but tool support. The same content is served as MCP resources under the
 skill:// URI scheme, for a client that reads resources:
 - skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status

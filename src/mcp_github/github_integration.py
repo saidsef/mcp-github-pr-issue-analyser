@@ -173,7 +173,6 @@ class DiffResult(TypedDict):
 
 class StatusChecksResult(TypedDict):
     pr_number: int
-    head_sha: str | None
     overall: str
     check_runs: list[dict[str, Any]]
     commit_statuses: list[dict[str, Any]]
@@ -186,9 +185,6 @@ CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))
 ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))
 DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))
 FILE_MAX_BYTES = int(getenv("GITHUB_FILE_MAX_BYTES", "131072"))
-MERGE_COMMIT_TITLE_PATTERN = getenv(
-    "GITHUB_MERGE_COMMIT_TITLE_PATTERN", r"^(feat|fix|chore|docs|refactor|test|perf|ci|build)\([a-z0-9/]+\): \S"
-)
 MAX_MILESTONE_PAGES = 5
 MAX_STATUS_CHECKS_SUITE_PAGES = 5
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5
@@ -212,6 +208,7 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 
 _OpenClosed = Literal["open", "closed"]
 _MergeMethod = Literal["merge", "squash", "rebase"]
+_COMMIT_TITLE = re.compile(r"^(feat|fix|chore|docs|refactor|test|perf|ci|build)\([a-z0-9/]+\): \S")
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
 _Side = Literal["LEFT", "RIGHT"]
@@ -474,20 +471,6 @@ def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
         "repository": (content.get("repository") or {}).get("nameWithOwner"),
         "fields": _project_field_values(node),
     }
-
-
-def _check_commit_title(title: str | None) -> None:
-    """Refuses a missing or malformed merge subject before GitHub is asked. The
-    shape comes from GITHUB_MERGE_COMMIT_TITLE_PATTERN, and an empty pattern
-    checks presence only."""
-    if not title or not title.strip():
-        raise GitHubValidationError(
-            f"Supply commit_title as <type>(<scope>): summary. {pointer('pr-management')}"
-        )
-    if MERGE_COMMIT_TITLE_PATTERN and not re.match(MERGE_COMMIT_TITLE_PATTERN, title):
-        raise GitHubValidationError(
-            f"commit_title {title!r} does not match {MERGE_COMMIT_TITLE_PATTERN!r}. {pointer('pr-management')}"
-        )
 
 
 class GitHubIntegration(ActivityMixin, SkillsMixin):
@@ -1198,28 +1181,22 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_name: str,
         pr_number: int,
         commit_title: Annotated[str | None, "Subject of the merge commit, as <type>(<scope>): summary"] = None,
-        commit_message: Annotated[str | None, "Body of the merge commit"] = None,
+        commit_message: str | None = None,
         merge_method: _MergeMethod = "squash",
-        force: Annotated[bool, "Merge although the checks are not passing"] = False,
     ) -> dict[str, Any]:
-        """Merges a pull request whose checks pass. The checks are read here, and the
-        head they were read against goes with the merge, so a push made in
-        between is refused by GitHub. A PR whose checks are failing, pending or
-        absent is refused unless force is set. commit_title is required, since a
-        squash without one takes its subject from a branch commit."""
-        _check_commit_title(commit_title)
-        checks = await self.get_pr_status_checks(repo_owner, repo_name, pr_number)
-        if checks["overall"] != "passing" and not force:
-            raise GitHubValidationError(
-                f"PR #{pr_number} checks are {checks['overall']}, not passing. "
-                f"Wait for them, or pass force=True to merge regardless. {pointer('pr-management')}"
-            )
+        """Merges a pull request. Refused without a commit_title in the
+        <type>(<scope>): summary shape, since a squash without one takes its subject
+        from a branch commit, and refused while the PR's checks are anything but
+        passing, since a merge cannot be undone."""
+        if not commit_title or not _COMMIT_TITLE.match(commit_title):
+            raise GitHubValidationError(f"commit_title must read <type>(<scope>): summary. {pointer('pr-management')}")
+        overall = (await self.get_pr_status_checks(repo_owner, repo_name, pr_number))["overall"]
+        if overall != "passing":
+            raise GitHubValidationError(f"PR #{pr_number} checks are {overall}, not passing. {pointer('pr-management')}")
         url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
         payload: dict[str, Any] = {"merge_method": merge_method, "commit_title": commit_title}
         if commit_message is not None:
             payload["commit_message"] = commit_message
-        if checks["head_sha"]:
-            payload["sha"] = checks["head_sha"]
         return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
 
     @_write(idempotent=True)
@@ -2053,7 +2030,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             commit_statuses: list[dict[str, Any]] = []
             n_suites = 0
             truncated = False
-            head_sha: str | None = None
             suites_after: str | None = None
             token = self._resolve_token()
 
@@ -2074,7 +2050,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
 
                 if suites_after is None:
-                    head_sha = head_target.get("oid")
                     commit_statuses = self._extract_commit_statuses(head_target)
 
                 suites_page = head_target.get("checkSuites") or {}
@@ -2116,7 +2091,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             )
             return {
                 "pr_number": pr_number,
-                "head_sha": head_sha,
                 "overall": overall,
                 "check_runs": check_runs,
                 "commit_statuses": commit_statuses,

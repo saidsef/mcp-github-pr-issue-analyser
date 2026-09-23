@@ -93,7 +93,6 @@ query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
       headRef {
         target {
           ... on Commit {
-            oid
             checkSuites(first: 50, after: $suitesAfter) {
               pageInfo {
                 hasNextPage

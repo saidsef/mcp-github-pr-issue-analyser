@@ -35,7 +35,6 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
 | `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
-| `GITHUB_MERGE_COMMIT_TITLE_PATTERN` | No, default `^(feat\|fix\|chore\|docs\|refactor\|test\|perf\|ci\|build)\([a-z0-9/]+\): \S` | Regular expression `commit_title` must match for `github_merge_pr` to proceed. Set it empty to require a title without checking its shape |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
@@ -166,11 +165,16 @@ server publishes it two ways, and every client reaches at least one of them.
 | `github_list_skills` and `github_get_skill` tools | Tool support only | The name, description and full text of every skill |
 | `skill://<name>/SKILL.md` resources | `resources/list` and `resources/read` | The same text, plus a `skill://<name>/_manifest` per skill |
 
-Each tool also names the skill that documents it. The description ends with
-`Workflow and conventions: github_get_skill('pr-review').` and the same skill
-appears in the tool's `_meta` as `skill://pr-review/SKILL.md`. A client reads that
-alongside the tool it is about to call, so reaching the guidance needs neither the
-server instructions nor a prior `github_list_skills`.
+Each tool also names the skill that documents it. The description carries
+`Read github_get_skill('pr-review') before calling this tool.`, leading on a tool
+that writes and trailing on one that reads, and the same skill appears in the
+tool's `_meta` as `skill://pr-review/SKILL.md`. A client reads that alongside the
+tool it is about to call, so reaching the guidance needs neither the server
+instructions nor a prior `github_list_skills`.
+
+`github_merge_pr` goes further and refuses a call the `pr-management` skill would
+not allow: one without a `commit_title` in the `<type>(<scope>): summary` shape,
+or one on a PR whose checks are not passing. The refusal names the skill.
 
 The mapping is read at startup from the `` `tool_name` `` headings in each SKILL.md,
 so a tool is claimed in one place and the pointer cannot disagree with the skill.

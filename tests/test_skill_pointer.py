@@ -59,7 +59,7 @@ class TestTheOwnershipMap:
 
     def test_the_pointer_names_the_tool_a_client_can_call(self):
         """A skill:// URI reaches only a client that reads resources."""
-        assert pointer("pr-review") == "Workflow and conventions: github_get_skill('pr-review')."
+        assert pointer("pr-review") == "Read github_get_skill('pr-review') before calling this tool."
 
 
 class TestTheServedToolList:
@@ -100,12 +100,18 @@ class TestTheServedToolList:
             assert pointer("interactive-ui") in (tools[name].description or ""), name
 
     @pytest.mark.anyio
-    async def test_the_original_description_is_kept(self):
-        """The pointer is appended, so nothing a client already read is lost."""
+    async def test_a_writing_tool_leads_with_the_pointer(self):
+        """Nothing a client already read is lost, and the pointer comes first."""
         description = (await _tools())["github_delete_tag"].description or ""
 
-        assert description.startswith("Deletes a tag.")
-        assert description.endswith(pointer("release-management"))
+        assert description.startswith(pointer("release-management") + " Deletes a tag.")
+
+    @pytest.mark.anyio
+    async def test_a_reading_tool_ends_with_the_pointer(self):
+        description = (await _tools())["github_get_pr_diff"].description or ""
+
+        assert not description.startswith(pointer("pr-analysis"))
+        assert description.endswith(pointer("pr-analysis"))
 
     @pytest.mark.anyio
     async def test_the_skill_uri_rides_along_in_meta(self):

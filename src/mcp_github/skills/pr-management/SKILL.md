@@ -39,8 +39,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 1. Confirm the review decision is an approval
 2. **Ask the user in chat and get an explicit yes before calling `github_merge_pr`. The tool does not prompt and the merge cannot be undone**
-3. Call `github_merge_pr` with a `commit_title` in the Title Convention. The tool reads the checks itself and refuses unless `overall` is `passing`, so a separate `github_get_pr_status_checks` call is not needed
-4. Pass `force=True` only when the user has accepted merging over checks that are failing, pending or absent
+3. Call `github_merge_pr` with a `commit_title` in the Title Convention. The tool reads the checks itself and refuses unless `overall` is `passing`
 
 ## Tool Parameters
 
@@ -134,20 +133,14 @@ be fixed locally.
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
 | `pr_number` | int | - | Pull request number |
-| `commit_title` | str | - | Merge commit title in the Title Convention. Required, a call without one is refused |
+| `commit_title` | str | - | Merge commit title in the Title Convention. A call without one is refused |
 | `commit_message` | str \| None | `None` | Merge commit body |
 | `merge_method` | str | `squash` | One of `merge`, `squash`, `rebase` |
-| `force` | bool | `False` | Merge although the checks are failing, pending or absent |
 
-Two things are checked before GitHub is asked, and each refusal is a
-`VALIDATION_ERROR` naming this skill. `commit_title` must be present and match
-the pattern in `GITHUB_MERGE_COMMIT_TITLE_PATTERN`, which defaults to the Title
-Convention. The PR's checks are read as `github_get_pr_status_checks` reads them,
-and anything other than `passing` refuses the merge unless `force` is set. A
-repository with no checks reads as `unknown`, so merging there needs `force`.
-
-The head commit the checks were read against goes to GitHub with the merge, so
-a push made in between is refused with a 409 rather than merged unchecked.
+Two refusals happen before GitHub is asked, each a `VALIDATION_ERROR` naming this
+skill: a `commit_title` missing or off the Title Convention, and checks that read
+as anything other than `passing`. A repository with no checks reads as `unknown`,
+which is not a pass.
 
 ## Title Convention
 
@@ -232,7 +225,7 @@ Two hundred and fifty words across all five sections is the ceiling.
 - Write PR bodies to the PR Body template above, and cut a section rather than padding it
 - Link the issue with `Fixes #N.` under Related Issues, so merging closes it
 - Assign every PR with `github_set_assignees` as you open it, so it has an owner from the start
-- Let `github_merge_pr` gate on the checks itself, and reach for `force=True` only with the user's explicit agreement
+- Let `github_merge_pr` gate on the checks itself. `unknown` is not a pass
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
