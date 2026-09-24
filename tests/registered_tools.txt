@@ -1,6 +1,6 @@
 # Every tool this repository registers, one per line.
 # A name removed from here breaks clients holding a cached tool list.
-# Regenerate with: uv run python tests/test_tool_registry.py
+# Regenerate with: uv run python -m tests.test_tool_registry
 github_add_inline_pr_comment
 github_add_pr_comments
 github_add_to_project

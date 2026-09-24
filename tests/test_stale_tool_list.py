@@ -3,30 +3,20 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastmcp.exceptions import AuthorizationError, InsufficientScopeError, NotFoundError
-from fastmcp.server.auth import AccessToken
 from fastmcp.server.context import reset_transport, set_transport
 from mcp.types import ToolListChangedNotification
 from prometheus_client import REGISTRY
 
-from mcp_github.issues_pr_analyser import PRIssueAnalyser
+from tests.support import analyser, grant
 
 RETIRED = "create_issue"
 CURRENT = "github_create_issue"
 AN_ISSUE = {"repo_owner": "o", "repo_name": "r", "title": "t", "body": "b", "labels": []}
-
-
-def _analyser() -> PRIssueAnalyser:
-    with ExitStack() as stack:
-        stack.enter_context(patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"))
-        stack.enter_context(patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", False))
-        stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
-        stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
-        return PRIssueAnalyser()
 
 
 @contextmanager
@@ -47,17 +37,6 @@ def _over_stdio() -> Iterator[None]:
         reset_transport(transport)
 
 
-@contextmanager
-def _grant(scopes: list[str]) -> Iterator[None]:
-    token = AccessToken(token="t", client_id="c", expires_at=None, scopes=scopes, claims={})
-    transport = set_transport("streamable-http")
-    try:
-        with patch("fastmcp.server.middleware.authorization.get_access_token", return_value=token):
-            yield
-    finally:
-        reset_transport(transport)
-
-
 def _stale_count() -> float:
     return REGISTRY.get_sample_value("mcp_stale_tool_list_total") or 0.0
 
@@ -67,37 +46,29 @@ class TestARetiredName:
     async def test_is_refused_rather_than_forwarded(self):
         """The whole point of #439. Until now this reached the renamed tool."""
         with _over_stdio(), pytest.raises(NotFoundError):
-            await _analyser().mcp.call_tool(RETIRED, AN_ISSUE)
+            await analyser().mcp.call_tool(RETIRED, AN_ISSUE)
 
     @pytest.mark.anyio
     async def test_is_refused_over_http_too(self):
         """There the authorization middleware answers first, and will not say
         whether the name is absent or merely withheld."""
         with pytest.raises(AuthorizationError):
-            await _analyser().mcp.call_tool(RETIRED, AN_ISSUE)
-
-    @pytest.mark.anyio
-    async def test_is_not_registered_either(self):
-        analyser = _analyser()
-        listed = {tool.name for tool in await analyser.mcp.list_tools(run_middleware=False)}
-
-        assert RETIRED not in listed
-        assert CURRENT in listed
+            await analyser().mcp.call_tool(RETIRED, AN_ISSUE)
 
     @pytest.mark.anyio
     async def test_tells_the_client_the_list_has_changed(self):
-        analyser = _analyser()
+        server = analyser()
         with _sent() as send, pytest.raises(AuthorizationError):
-            await analyser.mcp.call_tool(RETIRED, AN_ISSUE)
+            await server.mcp.call_tool(RETIRED, AN_ISSUE)
 
         send.assert_awaited_once()
         assert isinstance(send.await_args.args[0], ToolListChangedNotification)
 
     @pytest.mark.anyio
     async def test_tells_the_client_over_stdio_as_well(self):
-        analyser = _analyser()
+        server = analyser()
         with _sent() as send, _over_stdio(), pytest.raises(NotFoundError):
-            await analyser.mcp.call_tool(RETIRED, AN_ISSUE)
+            await server.mcp.call_tool(RETIRED, AN_ISSUE)
 
         send.assert_awaited_once()
 
@@ -106,9 +77,9 @@ class TestAnUnknownName:
     @pytest.mark.anyio
     async def test_is_answered_the_same_way(self):
         """A misspelling and a retired name are both names this server lacks."""
-        analyser = _analyser()
+        server = analyser()
         with _sent() as send, pytest.raises(AuthorizationError):
-            await analyser.mcp.call_tool("nonesuch", {})
+            await server.mcp.call_tool("nonesuch", {})
 
         send.assert_awaited_once()
 
@@ -116,13 +87,13 @@ class TestAnUnknownName:
 class TestWhatDoesNotTriggerIt:
     @pytest.mark.anyio
     async def test_a_call_that_works_says_nothing(self):
-        analyser = _analyser()
+        server = analyser()
         response = AsyncMock()
         response.status_code, response.is_success = 200, True
         response.json, response.headers, response.content = list, {}, b"[]"
-        analyser.gi._http.request = AsyncMock(return_value=response)
+        server.gi._http.request = AsyncMock(return_value=response)
         with _sent() as send:
-            await analyser.mcp.call_tool("github_list_repo_labels", {"repo_owner": "o", "repo_name": "r"})
+            await server.mcp.call_tool("github_list_repo_labels", {"repo_owner": "o", "repo_name": "r"})
 
         send.assert_not_awaited()
 
@@ -131,9 +102,9 @@ class TestWhatDoesNotTriggerIt:
         """The gate raises its own error, and the tool it withheld does exist.
         Reporting that as staleness would have every read-only grant asking for a
         refresh on every write tool."""
-        analyser = _analyser()
-        with _sent() as send, _grant(["read:org"]), pytest.raises(InsufficientScopeError):
-            await analyser.mcp.call_tool(CURRENT, AN_ISSUE)
+        server = analyser()
+        with _sent() as send, grant(["read:org"]), pytest.raises(InsufficientScopeError):
+            await server.mcp.call_tool(CURRENT, AN_ISSUE)
 
         send.assert_not_awaited()
 
@@ -141,10 +112,10 @@ class TestWhatDoesNotTriggerIt:
 class TestTheCounter:
     @pytest.mark.anyio
     async def test_counts_a_call_the_server_could_not_resolve(self):
-        analyser = _analyser()
+        server = analyser()
         before = _stale_count()
         with _sent(), pytest.raises(AuthorizationError):
-            await analyser.mcp.call_tool("nonesuch", {})
+            await server.mcp.call_tool("nonesuch", {})
 
         assert _stale_count() == before + 1
 

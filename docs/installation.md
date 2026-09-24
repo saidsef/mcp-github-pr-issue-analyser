@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.14
 - A GitHub personal access token with `repo` scope, **or** a GitHub OAuth App (client ID, secret and a public base URL)
 
 ## Run from source
@@ -101,8 +101,8 @@ curl http://localhost:8081/
 {
   "status": "ok",
   "service": "GitHub PR and Issue Analyser",
-  "version": "31.0.5",
-  "tools": 48
+  "version": "43.1.0",
+  "tools": 52
 }
 ```
 

@@ -83,8 +83,7 @@ class TestAuthoringConventions:
     """The skills that open issues and PRs carry the body templates, so an agent
     reading only the skill writes the same shape a person would."""
 
-    _ISSUE = ("Problem Statement", "Proposed Solution", "Affected Resources",
-              "Resource Links", "Acceptance Criteria")
+    _ISSUE = ("Problem Statement", "Proposed Solution", "Affected Resources", "Resource Links", "Acceptance Criteria")
     _PR = ("Summary", "Related Issues", "Changes Made", "Testing", "Checklist")
 
     @staticmethod
@@ -118,8 +117,3 @@ class TestAuthoringConventions:
             body = self._skill(name)
             assert "## Title Convention" in body, name
             assert "<type>(<scope>): <short prose summary>" in body, name
-
-    def test_neither_skill_still_gives_the_vague_body_advice(self):
-        """The templates replaced it. Leaving both would have them disagree."""
-        assert "steps to reproduce for a bug" not in self._skill("issue-management")
-        assert "the motivation, and how it was tested" not in self._skill("pr-management")

@@ -30,13 +30,13 @@ and `github_list_repos` is a plain read.
 |---|---|---|---|
 | `owner` | str | `""` | User or organisation. Omit for the caller's own |
 | `sort` | str | `updated` | One of `updated`, `pushed`, `created`, `full_name` |
-| `per_page` | int | `30` | Results per page, 1 to 100 |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `{"total": int, "repos": [...]}`, each entry carrying `name`, `owner`,
-`description`, `default_branch`, `private`, `fork`, `archived`, `pushed_at`
-and `html_url`. `count` is the page returned, not everything the owner has, and
-`has_more` says whether to ask for the next one.
+Returns `{"count": int, "has_more": bool, "repos": [...]}`, each entry carrying
+`name`, `owner`, `description`, `default_branch`, `private`, `fork`, `archived`,
+`pushed_at` and `html_url`. `count` is the page returned, not everything the
+owner has, and `has_more` says whether to ask for the next one.
 
 You do not say whether the owner is a person or an organisation, because the
 tool reads the account type and picks the endpoint itself. That matters:

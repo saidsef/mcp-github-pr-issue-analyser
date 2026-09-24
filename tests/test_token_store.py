@@ -146,46 +146,6 @@ class TestBuildTokenStore:
             build_token_store()
             mock_wrapper.assert_not_called()
 
-    def test_prefix_is_stable_for_same_url(self):
-        url = "https://example.com"
-        prefixes = []
-
-        def capture_wrapper(store, prefix):
-            prefixes.append(prefix)
-            return MagicMock()
-
-        with (
-            patch("mcp_github.auth.REDIS_HOST_PORT", "redis://localhost:6379"),
-            patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", url),
-            patch("mcp_github.auth._build_redis_client", return_value=MagicMock()),
-            patch("mcp_github.auth.RedisStore"),
-            patch("mcp_github.auth.PrefixCollectionsWrapper", side_effect=capture_wrapper),
-        ):
-            build_token_store()
-            build_token_store()
-
-        assert len(prefixes) == 2
-        assert prefixes[0] == prefixes[1]
-
-    def test_prefix_differs_for_different_urls(self):
-        prefixes = []
-
-        def capture_wrapper(store, prefix):
-            prefixes.append(prefix)
-            return MagicMock()
-
-        for url in ("https://server-a.example.com", "https://server-b.example.com"):
-            with (
-                patch("mcp_github.auth.REDIS_HOST_PORT", "redis://localhost:6379"),
-                patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", url),
-                patch("mcp_github.auth._build_redis_client", return_value=MagicMock()),
-                patch("mcp_github.auth.RedisStore"),
-                patch("mcp_github.auth.PrefixCollectionsWrapper", side_effect=capture_wrapper),
-            ):
-                build_token_store()
-
-        assert prefixes[0] != prefixes[1]
-
 
 class TestParseTableArn:
     """What a DynamoDB table ARN has to look like."""

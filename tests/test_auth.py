@@ -92,4 +92,3 @@ class TestResolveToken:
     def test_no_credential_at_all_resolves_to_nothing(self):
         with patch("mcp_github.auth.get_access_token", return_value=None):
             assert resolve_token(None, oauth_mode=False) == ""
-

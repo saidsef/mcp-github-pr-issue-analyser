@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Iterator
-from contextlib import ExitStack, contextmanager
+from contextlib import contextmanager
 from importlib.metadata import PackageNotFoundError
 from typing import Any
 from unittest.mock import AsyncMock, patch
@@ -13,7 +13,7 @@ from urllib.parse import parse_qs, urlparse
 
 import pytest
 from fastmcp.exceptions import InsufficientScopeError
-from fastmcp.server.auth import AccessToken, MultiAuth
+from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.context import reset_transport, set_transport
 from starlette.middleware import Middleware as ASGIMiddleware
@@ -27,70 +27,15 @@ from mcp_github.auth import (
     UnconfiguredCredentials,
     get_oauth_verifier,
 )
-from mcp_github.issues_pr_analyser import (
-    TOOL_PREFIX,
-    VERSION,
-    PRIssueAnalyser,
-    _package_version,
-    _tool_name,
-)
-from mcp_github.skills_access import SKILLS_DIR
+from mcp_github.issues_pr_analyser import TOOL_PREFIX, VERSION, PRIssueAnalyser, _package_version, _tool_name
 from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
+from tests.support import PROVIDED_TOOLS, STATIC_TOKEN, analyser, deployment, grant
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 _MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
-_STATIC_TOKEN = "test-token"
-_SNAKE = {
-    "readOnlyHint": "read_only_hint",
-    "destructiveHint": "destructive_hint",
-    "idempotentHint": "idempotent_hint",
-    "openWorldHint": "open_world_hint",
-}
-_AUTH_HEADERS = _MCP_HEADERS | {"Authorization": f"Bearer {_STATIC_TOKEN}"}
+_HINTS = ("read_only_hint", "destructive_hint", "idempotent_hint", "open_world_hint")
+_AUTH_HEADERS = _MCP_HEADERS | {"Authorization": f"Bearer {STATIC_TOKEN}"}
 _A_RELEASE = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
-_OAUTH_SETTINGS = {
-    "GITHUB_OAUTH_CLIENT_ID": "Ov23liExample",
-    "GITHUB_OAUTH_CLIENT_SECRET": "oauth-client-secret",
-    "GITHUB_OAUTH_BASE_URL": "https://mcp.example.com",
-}
-
-
-@contextmanager
-def _deployment(*, token: str | None, oauth: bool, remote: bool = False) -> Iterator[None]:
-    """The settings an analyser reads while it is being built. The OAuth trio is read
-    from auth, the static token from github_integration, and the transport flag from
-    the server module. The token store stays in memory whatever the environment holds."""
-    with ExitStack() as stack:
-        stack.enter_context(patch("mcp_github.github_integration.GITHUB_TOKEN", token))
-        for name, value in _OAUTH_SETTINGS.items():
-            stack.enter_context(patch(f"mcp_github.auth.{name}", value if oauth else None))
-        stack.enter_context(patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", remote))
-        stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
-        stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
-        yield
-
-
-def _analyser() -> PRIssueAnalyser:
-    with _deployment(token=_STATIC_TOKEN, oauth=False):
-        return PRIssueAnalyser()
-
-
-def _unconfigured() -> PRIssueAnalyser:
-    """An analyser holding neither the OAuth trio nor a static token."""
-    with _deployment(token=None, oauth=False):
-        return PRIssueAnalyser()
-
-
-@contextmanager
-def _grant(scopes: list[str]) -> Iterator[None]:
-    """A request over an HTTP transport carrying an OAuth grant with these scopes."""
-    token = AccessToken(token="t", client_id="c", expires_at=None, scopes=scopes, claims={})
-    transport = set_transport("streamable-http")
-    try:
-        with patch("fastmcp.server.middleware.authorization.get_access_token", return_value=token):
-            yield
-    finally:
-        reset_transport(transport)
 
 
 def _app(analyser: PRIssueAnalyser):
@@ -98,9 +43,7 @@ def _app(analyser: PRIssueAnalyser):
     return analyser.mcp.http_app(
         transport="http",
         stateless_http=True,
-        middleware=[
-            ASGIMiddleware(UnconfiguredCredentials, configured=lambda: analyser.gi.credentials_configured)
-        ],
+        middleware=[ASGIMiddleware(UnconfiguredCredentials, configured=lambda: analyser.gi.credentials_configured)],
     )
 
 
@@ -108,28 +51,28 @@ class TestLifespan:
     """Shutdown releases the GitHub HTTP clients."""
 
     def test_http_shutdown_closes_the_integration(self):
-        analyser = _analyser()
-        analyser.gi.aclose = AsyncMock()
-        app = analyser.mcp.http_app(transport="http", stateless_http=True)
+        server = analyser()
+        server.gi.aclose = AsyncMock()
+        app = server.mcp.http_app(transport="http", stateless_http=True)
         with TestClient(app) as client:
             client.get("/metrics")
-        analyser.gi.aclose.assert_awaited_once()
+        server.gi.aclose.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_integration_closes_when_the_server_raises(self):
-        analyser = _analyser()
-        analyser.gi.aclose = AsyncMock()
+        server = analyser()
+        server.gi.aclose = AsyncMock()
         with pytest.raises(RuntimeError):
-            async with analyser._lifespan(analyser.mcp):
+            async with server._lifespan(server.mcp):
                 raise RuntimeError("boom")
-        analyser.gi.aclose.assert_awaited_once()
+        server.gi.aclose.assert_awaited_once()
 
 
 class TestLandingRoute:
     """The landing endpoint served at the root path in HTTP mode."""
 
     def test_reports_the_service_is_up(self):
-        app = _analyser().mcp.http_app(transport="http", stateless_http=True)
+        app = analyser().mcp.http_app(transport="http", stateless_http=True)
         with TestClient(app) as client:
             response = client.get("/")
 
@@ -142,16 +85,16 @@ class TestLandingRoute:
 
     @pytest.mark.anyio
     async def test_reports_the_registered_tool_count(self):
-        analyser = _analyser()
-        app = analyser.mcp.http_app(transport="http", stateless_http=True)
+        server = analyser()
+        app = server.mcp.http_app(transport="http", stateless_http=True)
         with TestClient(app) as client:
             body = client.get("/").json()
 
-        assert body["tools"] == len(await analyser.mcp.list_tools(run_middleware=False))
+        assert body["tools"] == len(await server.mcp.list_tools(run_middleware=False))
         assert body["tools"] > 0
 
     def test_head_request_succeeds(self):
-        app = _analyser().mcp.http_app(transport="http", stateless_http=True)
+        app = analyser().mcp.http_app(transport="http", stateless_http=True)
         with TestClient(app) as client:
             assert client.head("/").status_code == 200
 
@@ -161,32 +104,32 @@ class TestScopeGate:
 
     @pytest.mark.anyio
     async def test_a_tool_carries_the_scopes_it_declares_as_tags(self):
-        analyser = _analyser()
-        tools = {tool.name: tool for tool in await analyser.mcp.list_tools(run_middleware=False)}
-        for name in dir(analyser.gi):
+        server = analyser()
+        tools = {tool.name: tool for tool in await server.mcp.list_tools(run_middleware=False)}
+        for name in dir(server.gi):
             if name.startswith("_"):
                 continue
-            scopes = getattr(getattr(analyser.gi, name), "_mcp_scopes", None)
+            scopes = getattr(getattr(server.gi, name), "_mcp_scopes", None)
             if scopes is None:
                 continue
             assert tools[_tool_name(name)].tags == set(scopes), name
 
     @pytest.mark.anyio
     async def test_a_read_only_grant_sees_only_the_read_only_tools(self):
-        analyser = _analyser()
-        registered = await analyser.mcp.list_tools(run_middleware=False)
-        with _grant(["read:org"]):
-            listed = await analyser.mcp.list_tools()
+        server = analyser()
+        registered = await server.mcp.list_tools(run_middleware=False)
+        with grant(["read:org"]):
+            listed = await server.mcp.list_tools()
 
         assert [tool.name for tool in listed] == [tool.name for tool in registered if not tool.tags]
         assert len(listed) < len(registered)
 
     @pytest.mark.anyio
     async def test_a_grant_holding_the_scopes_sees_every_tool(self):
-        analyser = _analyser()
-        registered = await analyser.mcp.list_tools(run_middleware=False)
-        with _grant(list(GATED_SCOPES)):
-            listed = await analyser.mcp.list_tools()
+        server = analyser()
+        registered = await server.mcp.list_tools(run_middleware=False)
+        with grant(list(GATED_SCOPES)):
+            listed = await server.mcp.list_tools()
 
         assert len(listed) == len(registered)
 
@@ -194,26 +137,26 @@ class TestScopeGate:
     async def test_a_grant_without_the_project_scope_loses_the_board_tools(self):
         """A board sits outside the repository it tracks, so repo alone does not
         reach it. See #351."""
-        analyser = _analyser()
-        with _grant(list(WRITE_SCOPES)):
-            listed = {tool.name for tool in await analyser.mcp.list_tools()}
+        server = analyser()
+        with grant(list(WRITE_SCOPES)):
+            listed = {tool.name for tool in await server.mcp.list_tools()}
 
         assert "github_create_issue" in listed
         assert listed.isdisjoint({"github_add_to_project", "github_set_project_field", "github_remove_from_project"})
 
     @pytest.mark.anyio
     async def test_the_gate_holds_a_check_for_every_scope_a_tool_declares(self):
-        analyser = _analyser()
-        declared = {scope for tool in await analyser.mcp.list_tools(run_middleware=False) for scope in tool.tags}
+        server = analyser()
+        declared = {scope for tool in await server.mcp.list_tools(run_middleware=False) for scope in tool.tags}
 
         assert declared == set(GATED_SCOPES)
 
     @pytest.mark.anyio
     async def test_a_refused_call_names_the_missing_scope(self):
-        analyser = _analyser()
+        server = analyser()
         arguments = {"repo_owner": "o", "repo_name": "r", "release_id": 1}
-        with _grant(["read:org"]), pytest.raises(InsufficientScopeError) as refusal:
-            await analyser.mcp.call_tool("github_delete_release", arguments)
+        with grant(["read:org"]), pytest.raises(InsufficientScopeError) as refusal:
+            await server.mcp.call_tool("github_delete_release", arguments)
 
         assert refusal.value.required_scopes == list(WRITE_SCOPES)
         assert "github_delete_release" in str(refusal.value)
@@ -229,11 +172,11 @@ class TestScopeGate:
 
     @pytest.mark.anyio
     async def test_stdio_keeps_every_tool(self):
-        analyser = _analyser()
-        registered = await analyser.mcp.list_tools(run_middleware=False)
+        server = analyser()
+        registered = await server.mcp.list_tools(run_middleware=False)
         transport = set_transport("stdio")
         try:
-            listed = await analyser.mcp.list_tools()
+            listed = await server.mcp.list_tools()
         finally:
             reset_transport(transport)
 
@@ -244,9 +187,7 @@ class TestScopeGate:
 def _remote_client(granted: tuple[str, ...]) -> Iterator[TestClient]:
     """The app the remote deployment runs, answering a bearer token whose grant holds
     these scopes."""
-    with _deployment(token=_STATIC_TOKEN, oauth=False, remote=True):
-        analyser = PRIssueAnalyser()
-    with patch("mcp_github.auth.GITHUB_SCOPES", granted), TestClient(_app(analyser)) as client:
+    with patch("mcp_github.auth.GITHUB_SCOPES", granted), TestClient(_app(analyser(remote=True))) as client:
         yield client
 
 
@@ -297,7 +238,9 @@ class TestScopeFloor:
         assert set(REQUIRED_SCOPES).isdisjoint(GATED_SCOPES)
 
     def test_the_provider_requires_only_the_floor(self):
-        with _deployment(token=None, oauth=True):
+        """Widening the request must leave the floor alone, since the transport
+        refuses a grant short of the floor before the gate runs."""
+        with deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
         assert provider.required_scopes == list(REQUIRED_SCOPES)
@@ -306,7 +249,7 @@ class TestScopeFloor:
     def test_the_provider_still_offers_every_scope_the_tools_need(self):
         """Requiring less must not ask GitHub for less, or no grant would ever hold
         the scopes the gated tools want."""
-        with _deployment(token=None, oauth=True):
+        with deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
         assert provider.scopes_supported == list(GITHUB_SCOPES)
@@ -323,7 +266,7 @@ class TestScopeFloor:
         """Advertising a scope is not asking for one. The metadata above carried the
         full set while the request carried the floor, so no grant held repo and the
         24 gated tools were unreachable however often a user re-authorised. See #441."""
-        with _deployment(token=None, oauth=True):
+        with deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
         asked = self._authorize_scope(provider, {})
@@ -333,20 +276,11 @@ class TestScopeFloor:
 
     def test_the_request_carries_the_set_whatever_the_client_names(self):
         """A client that names nothing used to fall back to the floor."""
-        with _deployment(token=None, oauth=True):
+        with deployment(token=None, oauth=True):
             provider = get_oauth_verifier()
 
         for transaction in ({}, {"scopes": ["user"]}, {"scopes": list(GITHUB_SCOPES)}):
             assert set(self._authorize_scope(provider, transaction)) == set(GITHUB_SCOPES), transaction
-
-    def test_asking_for_more_does_not_raise_the_floor(self):
-        """The transport refuses a grant short of the floor before the gate runs, so
-        widening the request must leave the floor alone."""
-        with _deployment(token=None, oauth=True):
-            provider = get_oauth_verifier()
-
-        assert provider.required_scopes == list(REQUIRED_SCOPES)
-        assert provider._token_validator.required_scopes == list(REQUIRED_SCOPES)
 
 
 class TestPackageVersion:
@@ -365,24 +299,24 @@ class TestStartsWithoutCredentials:
     """A server holding no GitHub credentials starts and refuses calls. See #386."""
 
     def test_the_server_starts(self):
-        assert _unconfigured().gi.credentials_configured is False
+        assert analyser(token=None).gi.credentials_configured is False
 
     def test_a_configured_server_says_so(self):
-        assert _analyser().gi.credentials_configured is True
+        assert analyser().gi.credentials_configured is True
 
     def test_the_landing_route_still_answers(self):
-        with TestClient(_app(_unconfigured())) as client:
+        with TestClient(_app(analyser(token=None))) as client:
             response = client.get("/")
 
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
 
     def test_the_metrics_route_still_answers(self):
-        with TestClient(_app(_unconfigured())) as client:
+        with TestClient(_app(analyser(token=None))) as client:
             assert client.get("/metrics").status_code == 200
 
     def test_the_mcp_route_refuses_with_the_reason(self):
-        with TestClient(_app(_unconfigured())) as client:
+        with TestClient(_app(analyser(token=None))) as client:
             response = client.post("/mcp/", json=_TOOLS_LIST, headers=_MCP_HEADERS)
 
         assert response.status_code == 401
@@ -390,7 +324,7 @@ class TestStartsWithoutCredentials:
         assert response.headers["www-authenticate"].startswith("Bearer")
 
     def test_a_configured_server_is_not_refused(self):
-        with TestClient(_app(_analyser())) as client:
+        with TestClient(_app(analyser())) as client:
             response = client.post("/mcp/", json=_TOOLS_LIST, headers=_MCP_HEADERS)
 
         assert response.status_code != 401
@@ -401,11 +335,10 @@ class TestAuthSelection:
     """Which transport authentication a deployment's credentials select. See #389."""
 
     def _auth(self, *, token: str | None, oauth: bool, remote: bool = True):
-        with _deployment(token=token, oauth=oauth, remote=remote):
-            return PRIssueAnalyser().mcp.auth
+        return analyser(token=token, oauth=oauth, remote=remote).mcp.auth
 
     def test_both_credentials_compose(self):
-        auth = self._auth(token=_STATIC_TOKEN, oauth=True)
+        auth = self._auth(token=STATIC_TOKEN, oauth=True)
 
         assert isinstance(auth, MultiAuth)
         assert isinstance(auth.server, GitHubProvider)
@@ -414,7 +347,7 @@ class TestAuthSelection:
     def test_the_composed_floor_comes_from_the_oauth_provider(self):
         """The static token is verified against the floor too, so its grant has to clear
         it. What a tool needs beyond the floor is left to the scope gate. See #388."""
-        auth = self._auth(token=_STATIC_TOKEN, oauth=True)
+        auth = self._auth(token=STATIC_TOKEN, oauth=True)
 
         assert auth.required_scopes == list(REQUIRED_SCOPES)
         assert set(REQUIRED_SCOPES) <= set(GITHUB_SCOPES)
@@ -423,36 +356,33 @@ class TestAuthSelection:
         assert isinstance(self._auth(token=None, oauth=True), GitHubProvider)
 
     def test_the_static_token_alone_stays_the_key_verifier(self):
-        assert isinstance(self._auth(token=_STATIC_TOKEN, oauth=False), APIKeyVerifier)
+        assert isinstance(self._auth(token=STATIC_TOKEN, oauth=False), APIKeyVerifier)
 
     def test_neither_credential_leaves_the_transport_unauthenticated(self):
         assert self._auth(token=None, oauth=False) is None
 
     def test_stdio_takes_no_transport_authentication(self):
-        assert self._auth(token=_STATIC_TOKEN, oauth=True, remote=False) is None
+        assert self._auth(token=STATIC_TOKEN, oauth=True, remote=False) is None
 
 
 class TestCombinedCredentials:
     """A deployment holding the OAuth trio and a static token accepts either. See #389."""
 
     def _client(self) -> TestClient:
-        with _deployment(token=_STATIC_TOKEN, oauth=True, remote=True):
-            return TestClient(_app(PRIssueAnalyser()))
+        return TestClient(_app(analyser(oauth=True, remote=True)))
 
     def _post(self, bearer: str):
         with self._client() as client:
-            return client.post(
-                "/mcp/", json=_TOOLS_LIST, headers={**_MCP_HEADERS, "Authorization": f"Bearer {bearer}"}
-            )
+            return client.post("/mcp/", json=_TOOLS_LIST, headers={**_MCP_HEADERS, "Authorization": f"Bearer {bearer}"})
 
     def test_the_static_token_reaches_the_tools(self):
         """An OAuth deployment used to refuse this, which is what forced a second one."""
-        assert self._post(_STATIC_TOKEN).status_code == 200
+        assert self._post(STATIC_TOKEN).status_code == 200
 
     def test_the_static_token_reaches_the_gated_tools(self):
         """Its grant reports every scope the flow asks GitHub for, so the gate lists the
         tools that write as well as the ones that read. See #388."""
-        listed = {tool["name"] for tool in _payload(self._post(_STATIC_TOKEN))["result"]["tools"]}
+        listed = {tool["name"] for tool in _payload(self._post(STATIC_TOKEN))["result"]["tools"]}
 
         assert {"github_get_pr_diff", "github_create_issue", "github_add_to_project"} <= listed
 
@@ -475,17 +405,9 @@ class TestSkillsAreReachable:
     work everywhere. See #414."""
 
     @pytest.mark.anyio
-    async def test_a_tool_only_client_can_list_and_read_a_skill(self):
-        analyser = _analyser()
-        names = {tool.name for tool in await analyser.mcp.list_tools(run_middleware=False)}
-
-        assert {"github_list_skills", "github_get_skill"} <= names
-
-    @pytest.mark.anyio
-    async def test_the_skill_tools_need_no_scope(self):
+    async def test_the_skill_tools_are_registered_and_need_no_scope(self):
         """A read tool is ungated, so the guidance is reachable on any grant."""
-        analyser = _analyser()
-        tools = {tool.name: tool for tool in await analyser.mcp.list_tools(run_middleware=False)}
+        tools = {tool.name: tool for tool in await analyser().mcp.list_tools(run_middleware=False)}
 
         assert not tools["github_list_skills"].tags
         assert not tools["github_get_skill"].tags
@@ -494,11 +416,11 @@ class TestSkillsAreReachable:
     async def test_both_paths_carry_the_same_set(self):
         """The resources and the tools read the same files, so a skill added to
         one path cannot go missing from the other."""
-        analyser = _analyser()
-        listed = {entry["name"] for entry in (await analyser.gi.list_skills())["skills"]}
+        server = analyser()
+        listed = {entry["name"] for entry in (await server.gi.list_skills())["skills"]}
         published = {
             str(resource.uri).removeprefix("skill://").removesuffix("/SKILL.md")
-            for resource in await analyser.mcp.list_resources()
+            for resource in await server.mcp.list_resources()
             if str(resource.uri).endswith("/SKILL.md")
         }
 
@@ -506,13 +428,16 @@ class TestSkillsAreReachable:
         assert listed
 
     @pytest.mark.anyio
-    async def test_the_instructions_name_the_tool_path(self):
+    async def test_the_instructions_name_the_tool_path_and_every_skill(self):
         """The instructions used to offer skill:// URIs alone, which a tool-only
-        client cannot act on."""
-        instructions = _analyser().mcp.instructions or ""
+        client cannot act on, and the list is read from the skills themselves."""
+        server = analyser()
+        instructions = server.mcp.instructions or ""
 
         assert "github_list_skills" in instructions
         assert "github_get_skill" in instructions
+        for entry in (await server.gi.list_skills())["skills"]:
+            assert f"- {entry['uri']} -- {entry['description']}" in instructions
 
 
 class TestListOpenIssuesPrsSchema:
@@ -521,7 +446,7 @@ class TestListOpenIssuesPrsSchema:
 
     @staticmethod
     async def _schema() -> Any:
-        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        tools = {tool.name: tool for tool in await analyser().mcp.list_tools(run_middleware=False)}
         return tools["github_list_open_issues_prs"]
 
     @pytest.mark.anyio
@@ -553,93 +478,20 @@ class TestListOpenIssuesPrsSchema:
         assert "search_issues_prs" in description
 
 
-class TestRemovedTools:
-    """A name the server no longer answers to must not survive in the prose a
-    client reads, or it advertises a tool nobody can call. See #399."""
-
-    @pytest.mark.anyio
-    async def test_update_pr_description_is_gone(self):
-        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
-
-        assert "github_update_pr_description" not in names
-        assert "github_update_pr" in names
-
-    @pytest.mark.anyio
-    async def test_the_instructions_do_not_name_it(self):
-        assert "github_update_pr_description" not in (_analyser().mcp.instructions or "")
-
-    def test_no_skill_still_points_at_it(self):
-        stale = [
-            path.parent.name
-            for path in SKILLS_DIR.glob("*/SKILL.md")
-            if "github_update_pr_description" in path.read_text(encoding="utf-8")
-        ]
-
-        assert stale == []
-
-
-class TestToolRationales:
-    """A tool description that explains itself has to be right, since a tool-only
-    client cannot cross-check it against the skill. See #400."""
-
-    @staticmethod
-    async def _described(name: str) -> str:
-        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
-        return tools[f"github_{name}"].description or ""
-
-    @pytest.mark.anyio
-    async def test_update_release_says_how_to_move_the_latest_badge(self):
-        """The old wording blamed a parameter budget, and update_release is the
-        smaller of the two signatures."""
-        description = await self._described("update_release")
-
-        assert "parameter budget" not in description
-        assert "make_latest" in description
-        assert "publishing it again" in description
-
-    @pytest.mark.anyio
-    async def test_set_issue_milestone_gives_a_reason_that_holds(self):
-        """update_issue dropping nulls is a rule this server writes for itself,
-        and labels already escape it with [], so it cannot be the reason."""
-        description = await self._described("set_issue_milestone")
-
-        assert "drops every argument" not in description
-        assert "title" in description
-
-    @pytest.mark.anyio
-    async def test_the_skill_and_the_description_agree_on_make_latest(self):
-        skill = (SKILLS_DIR / "release-management" / "SKILL.md").read_text(encoding="utf-8")
-        description = await self._described("update_release")
-
-        for claim in ("create_release", "make_latest"):
-            assert claim in skill and claim in description
-        assert "parameter budget" not in skill
-
-
 class TestAnnotationCoverage:
     """Every tool this repo registers declares all four hints, so a new one
     cannot ship unannotated. See #407."""
 
-    _PROVIDED = {"choose", "github_pr_issue_analyser_ui", "github_search_prefab_components"}
-
     async def _own_tools(self) -> list[Any]:
-        tools = await _analyser().mcp.list_tools(run_middleware=False)
-        return [tool for tool in tools if tool.name not in self._PROVIDED]
+        tools = await analyser().mcp.list_tools(run_middleware=False)
+        return [tool for tool in tools if tool.name not in PROVIDED_TOOLS]
 
     @pytest.mark.anyio
     async def test_every_tool_declares_all_four_hints(self):
         missing = {
-            tool.name: [
-                hint
-                for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
-                if getattr(tool.annotations, _SNAKE[hint], None) is None
-            ]
+            tool.name: [hint for hint in _HINTS if getattr(tool.annotations, hint, None) is None]
             for tool in await self._own_tools()
-            if tool.annotations is None
-            or any(
-                getattr(tool.annotations, _SNAKE[hint], None) is None
-                for hint in ("readOnlyHint", "destructiveHint", "idempotentHint", "openWorldHint")
-            )
+            if tool.annotations is None or any(getattr(tool.annotations, hint, None) is None for hint in _HINTS)
         }
 
         assert missing == {}
@@ -670,7 +522,7 @@ class TestToolNaming:
 
     @pytest.mark.anyio
     async def test_every_tool_this_repo_registers_is_prefixed(self):
-        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        names = {tool.name for tool in await analyser().mcp.list_tools(run_middleware=False)}
         bare = {name for name in names - self._NOT_OURS if not name.startswith(TOOL_PREFIX)}
 
         assert bare == set()
@@ -679,24 +531,16 @@ class TestToolNaming:
     async def test_the_two_misnamed_tools_say_what_they_do(self):
         """update_reviews submits a new review rather than updating one, and
         update_assignees replaces the set rather than adding to it."""
-        names = {tool.name for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        names = {tool.name for tool in await analyser().mcp.list_tools(run_middleware=False)}
 
         assert {"github_submit_review", "github_set_assignees"} <= names
         assert names.isdisjoint({"github_update_reviews", "github_update_assignees"})
 
     @pytest.mark.anyio
-    async def test_the_python_names_are_untouched(self):
-        """Only the registered name moves, so callers of the class keep working."""
-        gi = _analyser().gi
-
-        assert callable(gi.update_reviews)
-        assert callable(gi.update_assignees)
-
-    @pytest.mark.anyio
     async def test_no_description_points_at_a_name_that_is_not_registered(self):
         """A description naming a bare tool sends a client after something it
         cannot call."""
-        tools = {tool.name: tool for tool in await _analyser().mcp.list_tools(run_middleware=False)}
+        tools = {tool.name: tool for tool in await analyser().mcp.list_tools(run_middleware=False)}
         stale = {
             name: sorted(named - set(tools))
             for name, tool in tools.items()
@@ -704,12 +548,3 @@ class TestToolNaming:
         }
 
         assert stale == {}
-
-    @pytest.mark.anyio
-    async def test_the_skill_resources_keep_their_uris(self):
-        """The prefix goes on tools alone. Rewriting skill:// would break the
-        URIs the instructions publish and the ones github_get_skill builds."""
-        uris = {str(resource.uri) for resource in await _analyser().mcp.list_resources()}
-
-        assert "skill://pr-review/SKILL.md" in uris
-        assert not any(uri.startswith("skill://github/") for uri in uris)

@@ -26,7 +26,6 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from importlib.metadata import PackageNotFoundError, version
 from os import getenv
-from pathlib import Path
 from time import perf_counter
 from typing import Any
 
@@ -60,6 +59,7 @@ from .auth import (
 )
 from .github_integration import GitHubIntegration as GI
 from .skill_pointer import SkillPointer
+from .skills_access import SKILLS_DIR, _description, _skill_paths
 from .tool_annotations import GATED_SCOPES
 
 logger = logging.getLogger(__name__)
@@ -97,6 +97,7 @@ def _tool_name(method_name: str) -> str:
     """The name a Python method is registered under."""
     return f"{TOOL_PREFIX}{_TOOL_NAMES.get(method_name, method_name)}"
 
+
 try:
     ProcessCollector(registry=REGISTRY)
     PlatformCollector(registry=REGISTRY)
@@ -131,7 +132,7 @@ class StaleToolList(Middleware):
             return await call_next(context)
         except InsufficientScopeError:
             raise
-        except (NotFoundError, AuthorizationError):
+        except NotFoundError, AuthorizationError:
             STALE_TOOL_LIST.inc()
             logger.info(f"No tool named {getattr(context.message, 'name', '')}; asking the client to re-read the list")
             await self._ask_for_a_refresh(context)
@@ -195,7 +196,6 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 2. Appropriate permissions and GitHub API key is set
 
 ## Best Practices
-- Use all tools available for a comprehensive understanding of the PR and issue landscape.
 - Use github_get_skill to read the guidance covering a task before starting it, since it carries constraints the tool schemas do not
 - Use github_list_repos when you do not already know the repository name, rather than guessing at one
 - Use github_get_pr_diff (preferred) and github_get_pr_content for detailed PR analysis
@@ -207,7 +207,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use github_set_issue_milestone to file an issue under a milestone after it exists, since github_update_issue cannot clear one
 - Use github_create_tag and github_create_release for release management
 - Use github_get_project_fields before github_set_project_field, since option names differ per board
-- Always maintain a professional, clear and concise tone
+- Keep a professional and concise tone
 
 ## Skills
 Workflow guidance ships with the server. Every tool a skill documents names that skill
@@ -215,16 +215,29 @@ at the end of its own description, so github_get_skill can be called without lis
 first. Call github_list_skills for the set, and github_get_skill to read one, which
 needs nothing but tool support. The same content is served as MCP resources under the
 skill:// URI scheme, for a client that reads resources:
-- skill://pr-analysis/SKILL.md -- fetch a PR's metadata, diff, linked issues and CI status
-- skill://pr-review/SKILL.md -- post inline comments and submit review decisions
-- skill://pr-management/SKILL.md -- create, update, assign, refresh and merge PRs
-- skill://issue-management/SKILL.md -- create, update, list and search issues and PRs, list labels, and run milestones
-- skill://release-management/SKILL.md -- tag commits, publish releases, and correct or withdraw what is published
-- skill://project-boards/SKILL.md -- place issues on a project board, set their fields, and read a board
-- skill://user-activity/SKILL.md -- find repositories, and look up user profiles, contributions and star growth
-- skill://error-handling/SKILL.md -- read the error codes and decide whether to retry
-- skill://interactive-ui/SKILL.md -- ask the user to choose, or render data as a UI panel
 """
+
+
+def _instructions() -> str:
+    """The server instructions, ending in the skill list read from each SKILL.md
+    front matter, so the list cannot drift from the skills that ship."""
+    skills = (
+        f"- skill://{path.parent.name}/SKILL.md -- {_description(path.read_text(encoding='utf-8'))}"
+        for path in _skill_paths()
+    )
+    return _MCP_INSTRUCTIONS + "\n".join(skills) + "\n"
+
+
+def _transport_auth(gi: GI) -> AuthProvider | None:
+    """The transport's authentication. Where both credentials are configured the
+    OAuth provider owns the routes and the metadata while the static token is
+    verified beside it, so either kind of caller reaches the server. See #389."""
+    if not MCP_ENABLE_REMOTE:
+        return None
+    oauth = gi._oauth_verifier if gi._oauth_mode else None
+    if oauth is not None and gi.verifier is not None:
+        return MultiAuth(server=oauth, verifiers=[gi.verifier])
+    return oauth or gi.verifier
 
 
 class PRIssueAnalyser:
@@ -232,22 +245,10 @@ class PRIssueAnalyser:
 
     def __init__(self):
         self.gi = GI()
-
-        def _select_auth() -> AuthProvider | None:
-            """The transport's authentication. Where both credentials are configured the
-            OAuth provider owns the routes and the metadata while the static token is
-            verified beside it, so either kind of caller reaches the server. See #389."""
-            if not MCP_ENABLE_REMOTE:
-                return None
-            oauth = self.gi._oauth_verifier if self.gi._oauth_mode else None
-            if oauth is not None and self.gi.verifier is not None:
-                return MultiAuth(server=oauth, verifiers=[self.gi.verifier])
-            return oauth or self.gi.verifier
-
         self.mcp = FastMCP(
             name="GitHub PR and Issue Analyser",
-            auth=_select_auth(),
-            instructions=_MCP_INSTRUCTIONS,
+            auth=_transport_auth(self.gi),
+            instructions=_instructions(),
             lifespan=self._lifespan,
         )
         self.mcp.add_provider(Choice(name="github_pr_issue_analyser"))
@@ -289,21 +290,21 @@ class PRIssueAnalyser:
             await self.gi.aclose()
             await aclose_token_store()
 
-    def register_tools(self, methods: Any = None) -> None:
-        if methods is None:
-            methods = self.gi
-        for name in dir(methods):
+    def register_tools(self) -> None:
+        """Registers every annotated public method on the integration as a tool, then
+        the skills as resources and the pointer each tool carries to its skill."""
+        for name in dir(self.gi):
             if name.startswith("_"):
                 continue
-            method = getattr(methods, name)
-            if inspect.isroutine(method):
-                annotations = getattr(method, "_mcp_annotations", None)
-                if annotations is not None:
-                    task = getattr(method, "_mcp_task", False)
-                    scopes: set[str] = set(getattr(method, "_mcp_scopes", ()))
-                    registered = _tool_name(name)
-                    self.mcp.tool(registered, annotations=annotations, task=task, tags=scopes or None)(method)
-        self.mcp.add_provider(SkillsDirectoryProvider(Path(__file__).parent / "skills"))
+            method = getattr(self.gi, name)
+            annotations = getattr(method, "_mcp_annotations", None)
+            if not inspect.isroutine(method) or annotations is None:
+                continue
+            scopes: set[str] = set(getattr(method, "_mcp_scopes", ()))
+            self.mcp.tool(
+                _tool_name(name), annotations=annotations, task=getattr(method, "_mcp_task", False), tags=scopes or None
+            )(method)
+        self.mcp.add_provider(SkillsDirectoryProvider(SKILLS_DIR))
         self.mcp.add_transform(SkillPointer())
 
     def run(self) -> None:

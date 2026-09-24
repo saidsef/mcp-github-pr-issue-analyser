@@ -23,7 +23,7 @@ it, as above. An authentication failure, and anything a GraphQL-backed step
 raised, arrive wrapped once more and open with the tool name instead:
 
 ```
-Error calling tool 'get_pr_content': [AUTH_FAILED] HTTP 401: PR #1: Authentication failed. Check your GitHub token. GitHub said: Bad credentials
+Error calling tool 'github_get_pr_content': [AUTH_FAILED] HTTP 401: PR #1: Authentication failed. Check your GitHub token. GitHub said: Bad credentials
 ```
 
 Search the message for the code rather than reading it off the front.
@@ -46,7 +46,7 @@ one. The other is `NOT_FOUND` where the tool raised it against its own result,
 as `github_search_user` does for a name nobody holds:
 
 ```
-Error calling tool 'search_user': [NOT_FOUND] HTTP 404: User 'nobody' not found
+Error calling tool 'github_search_user': [NOT_FOUND] HTTP 404: User 'nobody' not found
 ```
 
 A failure the step met on a REST call is labelled like any other, and the
@@ -54,7 +54,7 @@ original code stays in the text. `github_get_repo_stars_since` on a name nobody 
 reports the same missing account under a different code:
 
 ```
-Error calling tool 'get_repo_stars_since': [GITHUB_API_ERROR] Failed to fetch repo stars: [NOT_FOUND] HTTP 404: repos for nobody: Resource not found GitHub said: Not Found
+Error calling tool 'github_get_repo_stars_since': [GITHUB_API_ERROR] Failed to fetch repo stars: [NOT_FOUND] HTTP 404: repos for nobody: Resource not found GitHub said: Not Found
 ```
 
 Read the innermost code in a message that carries two. A rate limit met inside
