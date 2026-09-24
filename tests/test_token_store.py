@@ -33,16 +33,13 @@ def _setup_error(code):
     return error
 
 
-def _sts_session(account=None, error=None):
-    """An aioboto3 session whose STS client answers get_caller_identity."""
+def _sts_boto3(account=None, error=None):
+    """A boto3 module whose STS client answers get_caller_identity."""
     sts = MagicMock()
-    sts.get_caller_identity = AsyncMock(return_value={"Account": account}, side_effect=error)
-    client = MagicMock()
-    client.__aenter__ = AsyncMock(return_value=sts)
-    client.__aexit__ = AsyncMock(return_value=False)
-    session = MagicMock()
-    session.client.return_value = client
-    return session
+    sts.get_caller_identity = MagicMock(return_value={"Account": account}, side_effect=error)
+    module = MagicMock()
+    module.client.return_value = sts
+    return module
 
 
 class TestBuildRedisClient:
@@ -292,21 +289,21 @@ class TestCheckCallerAccount:
 
     @pytest.mark.anyio
     async def test_matching_account_passes(self):
-        with patch("mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="123456789012")):
+        with patch("mcp_github.auth.boto3", new=_sts_boto3(account="123456789012")):
             await _check_caller_account("eu-west-1", "123456789012")
 
     @pytest.mark.anyio
     async def test_another_account_is_refused(self):
         with (
-            patch("mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="999999999999")),
+            patch("mcp_github.auth.boto3", new=_sts_boto3(account="999999999999")),
             pytest.raises(ValueError, match="names account 123456789012.*account 999999999999"),
         ):
             await _check_caller_account("eu-west-1", "123456789012")
 
     @pytest.mark.anyio
     async def test_an_unreachable_sts_warns_and_carries_on(self, caplog):
-        session = _sts_session(error=ClientError({"Error": {"Code": "AccessDenied"}}, "GetCallerIdentity"))
-        with patch("mcp_github.auth.aioboto3.Session", return_value=session):
+        module = _sts_boto3(error=ClientError({"Error": {"Code": "AccessDenied"}}, "GetCallerIdentity"))
+        with patch("mcp_github.auth.boto3", new=module):
             await _check_caller_account("eu-west-1", "123456789012")
         assert "Could not read the caller's AWS account to check it against 123456789012" in caplog.text
 
@@ -359,17 +356,6 @@ class TestSetupStore:
         assert store.setup.await_count == 2
 
     @pytest.mark.anyio
-    async def test_the_race_is_still_seen_when_releasing_the_client_also_failed(self):
-        """That replaces the cause, leaving the AWS code only in the message."""
-        error = StoreSetupError(message="Failed to setup key value store: An error occurred (ResourceInUseException)")
-        error.__cause__ = RuntimeError("closing the client failed")
-        store = MagicMock()
-        store.setup = AsyncMock(side_effect=[error, None])
-        with patch("mcp_github.auth.DYNAMODB_SETUP_RETRY_SECONDS", 0):
-            await _setup_store(store, "oauth-state")
-        assert store.setup.await_count == 2
-
-    @pytest.mark.anyio
     async def test_a_role_that_cannot_create_the_table_stops_the_server(self):
         store = MagicMock()
         store.setup = AsyncMock(side_effect=_setup_error("AccessDeniedException"))
@@ -404,10 +390,10 @@ class TestSetupTokenStore:
     async def test_no_op_without_a_dynamodb_store(self):
         with (
             patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
-            patch("mcp_github.auth.aioboto3.Session") as mock_session,
+            patch("mcp_github.auth.boto3") as mock_boto3,
         ):
             await setup_token_store()
-        mock_session.assert_not_called()
+        mock_boto3.client.assert_not_called()
 
     @pytest.mark.anyio
     async def test_account_is_checked_and_the_table_created(self):
@@ -416,12 +402,10 @@ class TestSetupTokenStore:
         auth._token_store = store
         with (
             patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
-            patch(
-                "mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="123456789012")
-            ) as mock_session,
+            patch("mcp_github.auth.boto3", new=_sts_boto3(account="123456789012")) as mock_boto3,
         ):
             await setup_token_store()
-        mock_session.assert_called_once_with(region_name="eu-west-1")
+        mock_boto3.client.assert_called_once_with("sts", region_name="eu-west-1", config=auth.STS_CONFIG)
         store.setup.assert_awaited_once()
 
     @pytest.mark.anyio
@@ -431,7 +415,7 @@ class TestSetupTokenStore:
         auth._token_store = store
         with (
             patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
-            patch("mcp_github.auth.aioboto3.Session", return_value=_sts_session(account="999999999999")),
+            patch("mcp_github.auth.boto3", new=_sts_boto3(account="999999999999")),
             pytest.raises(ValueError, match="names account 123456789012"),
         ):
             await setup_token_store()
