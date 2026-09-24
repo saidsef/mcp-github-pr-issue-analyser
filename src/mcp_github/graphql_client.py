@@ -31,7 +31,8 @@ from .exceptions import GitHubAPIError, GitHubAuthError, GitHubNotFoundError, Gi
 
 logger = logging.getLogger(__name__)
 
-GRAPHQL_URL = "https://api.github.com/graphql"
+API = "https://api.github.com"
+GRAPHQL_URL = f"{API}/graphql"
 
 
 def _auth_hint(err_type: str) -> str:

@@ -45,7 +45,7 @@ from .exceptions import (
     GitHubRateLimitError,
     GitHubValidationError,
 )
-from .graphql_client import GRAPHQL_URL, handle_graphql_errors
+from .graphql_client import API, GRAPHQL_URL, handle_graphql_errors
 from .graphql_queries import (
     ADD_PROJECT_ITEM_MUTATION,
     CHECK_SUITE_RUNS_QUERY,
@@ -210,7 +210,35 @@ _RepoSort = Literal["updated", "pushed", "created", "full_name"]
 _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
 
+_FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
+_PENDING_STATUSES = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
+
 logger = logging.getLogger(__name__)
+
+
+def _repo(owner: str, name: str) -> str:
+    """The REST base for one repository, which nearly every tool builds on."""
+    return f"{API}/repos/{owner}/{name}"
+
+
+def _supplied(**fields: Any) -> dict[str, Any]:
+    """The fields given a value, so an update sends only what the caller means to change."""
+    return {name: value for name, value in fields.items() if value is not None}
+
+
+def _changes(**fields: Any) -> dict[str, Any]:
+    """As _supplied, refusing a call that names nothing to change rather than sending an empty PATCH."""
+    payload = _supplied(**fields)
+    if not payload:
+        *rest, last = fields
+        named = " or ".join(part for part in (", ".join(rest), last) if part)
+        raise GitHubValidationError(f"Supply at least one of {named} to update.")
+    return payload
+
+
+def _with_mcp_label(labels: list[str], mcp_label: bool) -> list[str]:
+    """The label set to write, with the tracking label appended once when it is wanted."""
+    return [*labels, "mcp"] if mcp_label and "mcp" not in labels else list(labels)
 
 
 def _timeout() -> httpx.Timeout:
@@ -469,6 +497,55 @@ def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
+    """Trim a GraphQL check-run node to the check_runs contract."""
+    return {
+        "name": run["name"],
+        "status": run["status"],
+        "conclusion": run.get("conclusion"),
+        "details_url": run.get("detailsUrl"),
+        "suite_app": app_name,
+    }
+
+
+def _check_runs(head_target: dict[str, Any]) -> list[dict[str, Any]]:
+    """Every run across a commit's check suites, each naming the app its suite belongs to."""
+    return [
+        _run_dict(run, (suite.get("app") or {}).get("name", "unknown"))
+        for suite in (head_target.get("checkSuites") or {}).get("nodes", [])
+        for run in (suite.get("checkRuns") or {}).get("nodes", [])
+    ]
+
+
+def _commit_statuses(head_target: dict[str, Any]) -> list[dict[str, Any]]:
+    """The legacy commit status contexts on a commit."""
+    return [
+        {
+            "context": ctx["context"],
+            "state": ctx["state"],
+            "description": ctx.get("description"),
+            "target_url": ctx.get("targetUrl"),
+        }
+        for ctx in (head_target.get("status") or {}).get("contexts", [])
+    ]
+
+
+def _overall(check_runs: list[dict[str, Any]], commit_statuses: list[dict[str, Any]], truncated: bool) -> str:
+    """One word for the state of a commit's checks. A failure or a pending run is
+    authoritative. A clean read that was cut short is unknown rather than passing,
+    since the pages not read could hold the failure."""
+    if not check_runs and not commit_statuses:
+        return "unknown"
+    legacy = {ctx["state"] for ctx in commit_statuses}
+    conclusions = {run["conclusion"] for run in check_runs if run["conclusion"]}
+    if conclusions & _FAILING_CONCLUSIONS or legacy & {"FAILURE", "ERROR"}:
+        return "failing"
+    statuses = {run["status"] for run in check_runs if run["status"] != "COMPLETED"}
+    if statuses & _PENDING_STATUSES or "PENDING" in legacy:
+        return "pending"
+    return "unknown" if truncated else "passing"
+
+
 class GitHubIntegration(ActivityMixin, SkillsMixin):
     def __init__(self):
         """Initialises the GitHubIntegration instance."""
@@ -581,11 +658,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             reset_timestamp=_reset_timestamp(response),
         )
 
-    def _raise_for_status(self, response: httpx.Response, context: str = "") -> None:
-        """Raise the appropriate exception if the response indicates an error."""
-        if not response.is_success:
-            self._handle_response_error(response, context)
-
     def _get_headers(self):
         """Constructs the HTTP headers required for GitHub API requests."""
         token = self._resolve_token()
@@ -631,7 +703,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             if response.status_code in allow_status:
                 logger.info(f"Expected {response.status_code} {ctx}")
                 return response
-            self._raise_for_status(response, context)
+            if not response.is_success:
+                self._handle_response_error(response, context)
             if key and (etag := response.headers.get("ETag")):
                 self._remember_etag(key, etag, response.content, response.headers.get("Link", ""))
             logger.info(f"Success {method.upper()} {ctx}")
@@ -648,6 +721,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         while len(self._etags) >= ETAG_CACHE_ENTRIES:
             self._etags.pop(next(iter(self._etags)))
         self._etags[key] = (etag, content, link)
+
+    async def _pr(self, repo_owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
+        """The pull request as GitHub serves it, for the tools that read one field off it."""
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
+        return (await self._request("GET", url, context=f"PR #{pr_number}")).json()
 
     @_read_only
     async def get_pr_diff(
@@ -678,14 +756,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     @_read_only
     async def get_pr_content(self, repo_owner: str, repo_name: str, pr_number: int) -> PRContent:
         """Fetches the content/details of a specific pull request."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        data = (await self._request("GET", url, context=f"PR #{pr_number}")).json()
-        return _pr_content(data)
+        return _pr_content(await self._pr(repo_owner, repo_name, pr_number))
 
     @_write
     async def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
         """Adds a comment to a specific pull request."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{pr_number}/comments"
+        url = f"{_repo(repo_owner, repo_name)}/issues/{pr_number}/comments"
         data = (await self._request("POST", url, context=f"PR #{pr_number} comment", json={"body": comment})).json()
         return _comment_result(data)
 
@@ -699,9 +775,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         line: int,
         comment_body: str,
         side: Annotated[_Side, "LEFT for a line the PR deletes, RIGHT for one it adds or leaves as context"] = "RIGHT",
-        start_line: Annotated[
-            int | None, "First line of a range ending at line. Omit to comment on line alone"
-        ] = None,
+        start_line: Annotated[int | None, "First line of a range ending at line. Omit to comment on line alone"] = None,
         start_side: Annotated[_Side | None, "Side start_line sits on. Omit to match side"] = None,
     ) -> CommentData:
         """Adds an inline review comment to a line, or to a range of lines, in a
@@ -710,12 +784,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         in the diff. A deleted line exists only on side LEFT."""
         if start_line is not None and start_line >= line:
             raise GitHubValidationError(f"start_line {start_line} must come before line {line} on {path}.")
-        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        pr_data = (await self._request("GET", pr_url, context=f"PR #{pr_number}")).json()
-        commit_id = pr_data.get("head", {}).get("sha")
+        commit_id = ((await self._pr(repo_owner, repo_name, pr_number)).get("head") or {}).get("sha")
         if not commit_id:
             raise ToolError(f"Could not retrieve head SHA for PR #{pr_number}")
-        review_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments"
+        review_url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/comments"
         payload: dict[str, Any] = {
             "body": comment_body,
             "commit_id": commit_id,
@@ -744,12 +816,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Lists the comments on a pull request. Inline comments carry the file
         and line they sit on, so a second review can tell what it already said."""
-        segment = _COMMENT_SEGMENTS[kind]
-        url = (
-            f"https://api.github.com/repos/{repo_owner}/{repo_name}/{segment}/{pr_number}/comments"
-            f"?per_page={per_page}&page={page}"
+        url = f"{_repo(repo_owner, repo_name)}/{_COMMENT_SEGMENTS[kind]}/{pr_number}/comments"
+        response = await self._request(
+            "GET", url, context=f"{kind} comments on PR #{pr_number}", params={"per_page": per_page, "page": page}
         )
-        response = await self._request("GET", url, context=f"{kind} comments on PR #{pr_number}")
         trim = _review_comment_result if kind == "inline" else _comment_result
         comments = [trim(comment) for comment in response.json()]
         return {**_page(response, comments), "kind": kind, "comments": comments}
@@ -766,7 +836,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Rewrites a comment already posted. Conversation and review comments
         have separate id spaces, so the kind has to match where the id came from."""
         segment = _COMMENT_SEGMENTS[kind]
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/{segment}/comments/{comment_id}"
+        url = f"{_repo(repo_owner, repo_name)}/{segment}/comments/{comment_id}"
         data = (await self._request("PATCH", url, context=f"{kind} comment {comment_id}", json={"body": body})).json()
         return _comment_result(data)
 
@@ -780,20 +850,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         body: str,
     ) -> ReviewCommentData:
         """Replies on an existing review thread rather than starting a new one."""
-        url = (
-            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/comments/{comment_id}/replies"
-        )
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/comments/{comment_id}/replies"
         data = (await self._request("POST", url, context=f"reply to comment {comment_id}", json={"body": body})).json()
         return _review_comment_result(data)
 
-    async def _replace_labels(
-        self, repo_owner: str, repo_name: str, number: int, labels: list[str]
-    ) -> dict[str, Any]:
+    async def _replace_labels(self, repo_owner: str, repo_name: str, number: int, labels: list[str]) -> dict[str, Any]:
         """Replaces the label set on an issue or a pull request, and returns the
         issue payload GitHub answers with. Labels hang off the issues endpoint,
         which serves pull requests too, so they cannot ride along with a pull
         request payload."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{number}"
+        url = f"{_repo(repo_owner, repo_name)}/issues/{number}"
         return (await self._request("PATCH", url, context=f"#{number} labels", json={"labels": labels})).json()
 
     @_write(idempotent=True)
@@ -815,13 +881,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Updates an existing pull request. Only the fields supplied are sent, the
         rest keep their current values, so a title can change without restating the body.
         Labels take a second call, since the pull request payload carries none."""
-        fields: dict[str, Any] = {"title": title, "body": body, "state": state, "base": base}
-        payload = {name: value for name, value in fields.items() if value is not None}
+        payload = _supplied(title=title, body=body, state=state, base=base)
         if not payload and labels is None:
             raise GitHubValidationError("Supply at least one of title, body, state, base or labels to update.")
         data: dict[str, Any] = {}
         if payload:
-            url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
+            url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
             data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
         if labels is not None:
             data = await self._replace_labels(repo_owner, repo_name, pr_number, labels)
@@ -837,8 +902,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Moves a pull request between draft and ready for review. REST accepts
         draft only when the pull request is created, so this goes through GraphQL."""
-        pr_url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}"
-        node_id = (await self._request("GET", pr_url, context=f"PR #{pr_number}")).json().get("node_id")
+        node_id = (await self._pr(repo_owner, repo_name, pr_number)).get("node_id")
         if not node_id:
             raise ToolError(f"Could not retrieve the node id for PR #{pr_number}")
         mutation, field = (
@@ -870,14 +934,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "Labels to apply, with the 'mcp' tracking label appended unless mcp_label is False. "
             "Omit to leave the pull request unlabelled",
         ] = None,
-        mcp_label: Annotated[
-            bool, "Append the 'mcp' tracking label to labels. Pass False to opt out"
-        ] = True,
+        mcp_label: Annotated[bool, "Append the 'mcp' tracking label to labels. Pass False to opt out"] = True,
     ) -> dict[str, Any]:
         """Creates a new pull request. Labels are applied in a second call, since
         the create endpoint takes none, and they come back under labels so a set
         the token could not write is visible."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls"
+        url = f"{_repo(repo_owner, repo_name)}/pulls"
         data = (
             await self._request(
                 "POST",
@@ -893,10 +955,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "title": data.get("title"),
         }
         if labels is not None and result["pr_number"] is not None:
-            final_labels = (
-                [*labels, "mcp"] if mcp_label and "mcp" not in labels else list(labels)
+            labelled = await self._replace_labels(
+                repo_owner, repo_name, result["pr_number"], _with_mcp_label(labels, mcp_label)
             )
-            labelled = await self._replace_labels(repo_owner, repo_name, result["pr_number"], final_labels)
             result["labels"] = [label["name"] for label in labelled.get("labels", [])]
         return result
 
@@ -925,7 +986,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             search_target = f"{repo_owner}/{repo_name}"
         else:
             search_target = repo_owner
-        url = f"https://api.github.com/search/issues?q=is:{issue}+is:open+{filtering}:{search_target}&per_page={per_page}&page={page}"
+        url = f"{API}/search/issues?q=is:{issue}+is:open+{filtering}:{search_target}&per_page={per_page}&page={page}"
         response = await self._request("GET", url, context=f"list open {issue}s for {search_target}")
         data = response.json()
         items = [_search_item(item) for item in data["items"]]
@@ -947,10 +1008,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         items are reachable and any qualifier GitHub search accepts works."""
         if not query.strip():
             raise GitHubValidationError("Supply a search query.")
-        url = (
-            "https://api.github.com/search/issues"
-            f"?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
-        )
+        url = f"{API}/search/issues?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
         response = await self._request("GET", url, context=f"search issues and PRs for {query!r}")
         data = response.json()
         items = [_search_item(item) for item in data["items"]]
@@ -970,8 +1028,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists the labels defined in a repository."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/labels?per_page={per_page}&page={page}"
-        response = await self._request("GET", url, context=f"labels for {repo_owner}/{repo_name}")
+        url = f"{_repo(repo_owner, repo_name)}/labels"
+        response = await self._request(
+            "GET", url, context=f"labels for {repo_owner}/{repo_name}", params={"per_page": per_page, "page": page}
+        )
         labels = [_pick(label, "name", "description", "color") for label in response.json()]
         return {**_page(response, labels), "labels": labels}
 
@@ -979,7 +1039,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """The milestone with this title, open or closed, or None. GitHub addresses
         a milestone by number while people think in titles, so every tool that
         takes a title comes through here."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
+        url = f"{_repo(repo_owner, repo_name)}/milestones"
         for page in range(1, MAX_MILESTONE_PAGES + 1):
             batch = (
                 await self._request(
@@ -1006,9 +1066,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     async def _account_kind(self, owner: str) -> str:
         """User or Organization. The two repo endpoints are not interchangeable,
         so the account type has to be read rather than guessed at."""
-        response = await self._request(
-            "GET", f"https://api.github.com/users/{owner}", context=f"account {owner}", allow_status=(404,)
-        )
+        response = await self._request("GET", f"{API}/users/{owner}", context=f"account {owner}", allow_status=(404,))
         if response.status_code == 404:
             raise GitHubNotFoundError(f"No user or organisation named '{owner}'")
         return response.json().get("type", "User")
@@ -1034,7 +1092,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             path = f"users/{owner}/repos"
         response = await self._request(
             "GET",
-            f"https://api.github.com/{path}",
+            f"{API}/{path}",
             context=f"repos for {owner or 'the authenticated user'}",
             params={"sort": sort, "per_page": per_page, "page": page},
         )
@@ -1051,7 +1109,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists a repository's milestones with the count of issues in each."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
+        url = f"{_repo(repo_owner, repo_name)}/milestones"
         response = await self._request(
             "GET",
             url,
@@ -1074,7 +1132,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Opens a milestone. A title the repository already uses fails, since
         titles are unique per repository. Edit the existing one with
         github_update_milestone."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones"
+        url = f"{_repo(repo_owner, repo_name)}/milestones"
         payload: dict[str, Any] = {"title": title, "state": state, "description": description}
         if due_on:
             payload["due_on"] = due_on
@@ -1094,17 +1152,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Changes a milestone in place. Only the fields supplied are sent, so
         closing one leaves its title and due date alone."""
-        fields: dict[str, Any] = {
-            "title": new_title,
-            "description": description,
-            "due_on": due_on,
-            "state": state,
-        }
-        payload = {name: value for name, value in fields.items() if value is not None}
-        if not payload:
-            raise GitHubValidationError("Supply at least one of new_title, description, due_on or state.")
+        payload = _changes(new_title=new_title, description=description, due_on=due_on, state=state)
+        payload = {("title" if name == "new_title" else name): value for name, value in payload.items()}
         number = await self._milestone_number(repo_owner, repo_name, title)
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/milestones/{number}"
+        url = f"{_repo(repo_owner, repo_name)}/milestones/{number}"
         data = (await self._request("PATCH", url, context=f"milestone {title}", json=payload)).json()
         return _pick(data, *_MILESTONE_FIELDS)
 
@@ -1120,7 +1171,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         rather than the number GitHub wants, and looks it up, which is the work
         github_update_issue is kept clear of. Omit the title to clear the milestone."""
         number = await self._milestone_number(repo_owner, repo_name, milestone) if milestone else None
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
         data = (
             await self._request("PATCH", url, context=f"issue #{issue_number} milestone", json={"milestone": number})
         ).json()
@@ -1131,7 +1182,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Fetches a single issue by number, with its body, labels, assignees and
         milestone. Reads straight from the issue rather than the search index, so
         it sees a write immediately. See #358."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
         data = (await self._request("GET", url, context=f"issue #{issue_number}")).json()
         if "pull_request" in data:
             raise GitHubValidationError(f"#{issue_number} is a pull request. Use github_get_pr_content instead.")
@@ -1150,19 +1201,15 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "Omit to leave the issue unlabelled",
         ] = None,
         milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null for no milestone"] = None,
-        mcp_label: Annotated[
-            bool, "Append the 'mcp' tracking label to labels. Pass False to opt out"
-        ] = True,
+        mcp_label: Annotated[bool, "Append the 'mcp' tracking label to labels. Pass False to opt out"] = True,
     ) -> IssueData:
         """Creates a new issue. The update tools replace the label set as given
         and never re-add 'mcp'; only the create tools append it, and only when
         mcp_label is left enabled."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues"
+        url = f"{_repo(repo_owner, repo_name)}/issues"
         payload: dict[str, Any] = {"title": title, "body": body}
         if labels is not None:
-            payload["labels"] = (
-                [*labels, "mcp"] if mcp_label and "mcp" not in labels else list(labels)
-            )
+            payload["labels"] = _with_mcp_label(labels, mcp_label)
         if milestone:
             payload["milestone"] = await self._milestone_number(repo_owner, repo_name, milestone)
         data = (
@@ -1181,12 +1228,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
     ) -> dict[str, Any]:
         """Merges a specific pull request."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/merge"
-        payload: dict[str, Any] = {"merge_method": merge_method}
-        if commit_title is not None:
-            payload["commit_title"] = commit_title
-        if commit_message is not None:
-            payload["commit_message"] = commit_message
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/merge"
+        payload = {"merge_method": merge_method, **_supplied(commit_title=commit_title, commit_message=commit_message)}
         return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
 
     @_write(idempotent=True)
@@ -1202,10 +1245,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Updates the pull request branch with the latest upstream changes. Read
         head_sha from github_get_pr_content and pass it as expected_head_sha to be refused
         rather than to overwrite a push that landed since."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/update-branch"
-        payload: dict[str, Any] = {}
-        if expected_head_sha is not None:
-            payload["expected_head_sha"] = expected_head_sha
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/update-branch"
+        payload = _supplied(expected_head_sha=expected_head_sha)
         return (await self._request("PUT", url, context=f"PR #{pr_number} update branch", json=payload)).json()
 
     @_write(idempotent=True)
@@ -1221,24 +1262,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "Replacement label set. Omit to keep the current labels, pass [] to strip them all. "
             "The 'mcp' tracking label is not re-added here",
         ] = None,
-        state: Annotated[
-            _OpenClosed | None, "Omit to leave the issue in whichever state it is already in"
-        ] = None,
+        state: Annotated[_OpenClosed | None, "Omit to leave the issue in whichever state it is already in"] = None,
     ) -> IssueData:
         """Updates an existing issue. Only the fields supplied are sent, the rest keep their current values."""
-        fields: dict[str, Any] = {"title": title, "body": body, "labels": labels, "state": state}
-        payload = {name: value for name, value in fields.items() if value is not None}
-        if not payload:
-            raise GitHubValidationError("Supply at least one of title, body, labels or state to update.")
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
-        data = (
-            await self._request(
-                "PATCH",
-                url,
-                context=f"issue #{issue_number}",
-                json=payload,
-            )
-        ).json()
+        payload = _changes(title=title, body=body, labels=labels, state=state)
+        url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
+        data = (await self._request("PATCH", url, context=f"issue #{issue_number}", json=payload)).json()
         return _issue_result(data)
 
     @_read_only
@@ -1255,11 +1284,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         what was said on lines and in the thread, not whether anyone approved.
         Read requested_reviewers from github_get_pr_content to tell nobody has reviewed
         from nobody having been asked. See #408."""
-        url = (
-            f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
-            f"?per_page={per_page}&page={page}"
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/reviews"
+        response = await self._request(
+            "GET", url, context=f"reviews on PR #{pr_number}", params={"per_page": per_page, "page": page}
         )
-        response = await self._request("GET", url, context=f"reviews on PR #{pr_number}")
         reviews = [_review_result(review) for review in response.json()]
         return {**_page(response, reviews), "reviews": reviews}
 
@@ -1273,7 +1301,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         body: str | None = None,
     ) -> dict[str, Any]:
         """Submits a review for a specific pull request."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/pulls/{pr_number}/reviews"
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/reviews"
         data = (
             await self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event})
         ).json()
@@ -1284,7 +1312,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
     ) -> dict[str, Any]:
         """Updates the assignees for a specific issue or pull request."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/issues/{issue_number}"
+        url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
         data = (
             await self._request(
                 "PATCH", url, context=f"issue/PR #{issue_number} assignees", json={"assignees": assignees}
@@ -1322,13 +1350,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         belongs to github_list_repository_tree. See #409."""
         if offset < 0 or limit < 0:
             raise GitHubValidationError("offset and limit cannot be negative.")
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/contents/{quote(path.lstrip('/'))}"
+        url = f"{_repo(repo_owner, repo_name)}/contents/{quote(path.lstrip('/'))}"
         if ref:
             url += f"?ref={quote(ref, safe='')}"
         where = f"{path} at {ref or 'the default branch'}"
-        response = await self._request(
-            "GET", url, context=where, headers={"Accept": "application/vnd.github.raw"}
-        )
+        response = await self._request("GET", url, context=where, headers={"Accept": "application/vnd.github.raw"})
         if response.headers.get("content-type", "").startswith("application/json"):
             raise GitHubValidationError(f"{path} is a directory. Call github_list_repository_tree to list it.")
         content = response.content
@@ -1359,7 +1385,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         entry carries path, mode, type, size and sha. truncated is True where the
         tree exceeded GitHub's cap, which no amount of paging widens. See #409."""
         target = f"{ref or 'HEAD'}:{path.strip('/')}" if path.strip("/") else (ref or "HEAD")
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/trees/{quote(target, safe='')}"
+        url = f"{_repo(repo_owner, repo_name)}/git/trees/{quote(target, safe='')}"
         if recursive:
             url += "?recursive=1"
         where = f"{path or 'the root'} at {ref or 'the default branch'}"
@@ -1385,7 +1411,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Fetches the SHA of the newest commit on ref, or on the default branch when
         ref is omitted. Returns None if the repository has no commits. The answer is
         a reading rather than a pin, so a push landing afterwards moves it."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/commits?per_page=1"
+        url = f"{_repo(repo_owner, repo_name)}/commits?per_page=1"
         if ref:
             url += f"&sha={quote(ref, safe='')}"
         where = f"{ref or 'default branch'} of {repo_owner}/{repo_name}"
@@ -1408,7 +1434,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> dict[str, Any]:
         """Creates a new tag. With a message it is an annotated tag, which stores
         the message; without one it is a lightweight ref."""
-        base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        base = _repo(repo_owner, repo_name)
         target = sha or await self.get_latest_sha(repo_owner, repo_name)
         if not target:
             raise GitHubNotFoundError(f"No commits found in {repo_owner}/{repo_name}; cannot create tag {tag_name}")
@@ -1455,7 +1481,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         The update path sends the title, notes, draft and prerelease only, so
         make_latest and generate_release_notes are dropped and the generated
         changelog from the first publish is replaced by body alone."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases"
+        url = f"{_repo(repo_owner, repo_name)}/releases"
         response = await self._request(
             "POST",
             url,
@@ -1496,10 +1522,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """The release published for a tag, or None when the tag carries none.
         GitHub serves published releases here, so a draft naming the tag reads as
         none and neither the delete_tag guard nor delete_release sees it."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/tags/{tag_name}"
-        response = await self._request(
-            "GET", url, context=f"release for tag {tag_name}", allow_status=(404,)
-        )
+        url = f"{_repo(repo_owner, repo_name)}/releases/tags/{tag_name}"
+        response = await self._request("GET", url, context=f"release for tag {tag_name}", allow_status=(404,))
         return None if response.status_code == 404 else response.json()
 
     async def _require_release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any]:
@@ -1518,8 +1542,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists a repository's releases, newest first."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases?per_page={per_page}&page={page}"
-        response = await self._request("GET", url, context=f"releases for {repo_owner}/{repo_name}")
+        url = f"{_repo(repo_owner, repo_name)}/releases"
+        response = await self._request(
+            "GET", url, context=f"releases for {repo_owner}/{repo_name}", params={"per_page": per_page, "page": page}
+        )
         releases = [_pick(release, *_RELEASE_FIELDS) for release in response.json()]
         return {**_page(response, releases), "releases": releases}
 
@@ -1533,7 +1559,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         """Fetches one release, by tag or the latest published one."""
         if tag_name:
             return _pick(await self._require_release_by_tag(repo_owner, repo_name, tag_name), *_RELEASE_FIELDS)
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/latest"
+        url = f"{_repo(repo_owner, repo_name)}/releases/latest"
         data = (await self._request("GET", url, context=f"latest release for {repo_owner}/{repo_name}")).json()
         return _pick(data, *_RELEASE_FIELDS)
 
@@ -1554,12 +1580,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         since publishing again falls through to here and this tool does not send
         it. Move the latest badge by deleting the release and publishing it again,
         or in the GitHub UI."""
-        fields: dict[str, Any] = {"name": name, "body": body, "draft": draft, "prerelease": prerelease}
-        payload = {key: value for key, value in fields.items() if value is not None}
-        if not payload:
-            raise GitHubValidationError("Supply at least one field to update on the release.")
+        payload = _changes(name=name, body=body, draft=draft, prerelease=prerelease)
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/releases/{release['id']}"
+        url = f"{_repo(repo_owner, repo_name)}/releases/{release['id']}"
         data = (await self._request("PATCH", url, context=f"release {tag_name}", json=payload)).json()
         return _pick(data, *_RELEASE_FIELDS)
 
@@ -1581,7 +1604,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         release goes first, so the dangling release that guard protects against
         cannot be what is left behind. See #404."""
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
-        base = f"https://api.github.com/repos/{repo_owner}/{repo_name}"
+        base = _repo(repo_owner, repo_name)
         await self._request("DELETE", f"{base}/releases/{release['id']}", context=f"delete release {tag_name}")
         if delete_tag:
             await self._delete_tag_ref(repo_owner, repo_name, tag_name)
@@ -1601,14 +1624,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         page: int = 1,
     ) -> dict[str, Any]:
         """Lists a repository's tags and the commit each points at."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/tags?per_page={per_page}&page={page}"
-        response = await self._request("GET", url, context=f"tags for {repo_owner}/{repo_name}")
+        url = f"{_repo(repo_owner, repo_name)}/tags"
+        response = await self._request(
+            "GET", url, context=f"tags for {repo_owner}/{repo_name}", params={"per_page": per_page, "page": page}
+        )
         tags = [{"name": tag["name"], "sha": (tag.get("commit") or {}).get("sha")} for tag in response.json()]
         return {**_page(response, tags), "tags": tags}
 
     async def _delete_tag_ref(self, repo_owner: str, repo_name: str, tag_name: str) -> None:
         """Removes the tag ref itself."""
-        url = f"https://api.github.com/repos/{repo_owner}/{repo_name}/git/refs/tags/{tag_name}"
+        url = f"{_repo(repo_owner, repo_name)}/git/refs/tags/{tag_name}"
         await self._request("DELETE", url, context=f"delete tag {tag_name}")
 
     @_destructive
@@ -1812,7 +1837,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             )
         except httpx.HTTPError as e:
             raise GitHubAPIError(f"GraphQL request failed: {e}") from e
-        self._raise_for_status(response, "GraphQL query")
+        if not response.is_success:
+            self._handle_response_error(response, "GraphQL query")
         data = response.json()
         if "errors" in data:
             handle_graphql_errors(data["errors"])
@@ -1825,7 +1851,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         error already says what to fix, and relabelling it buries that."""
         try:
             yield
-        except (GitHubNotFoundError, GitHubAuthError):
+        except GitHubNotFoundError, GitHubAuthError:
             raise
         except Exception as e:
             logger.error(f"Error during {action}: {e}")
@@ -1903,73 +1929,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             logger.info(f"Found {len(linked_issues)} linked issue(s) for PR #{pr_number}")
             return {"pr_number": pr_number, "linked_issues": linked_issues}
 
-    @staticmethod
-    def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
-        """Trim a GraphQL check-run node to the check_runs contract."""
-        return {
-            "name": run["name"],
-            "status": run["status"],
-            "conclusion": run.get("conclusion"),
-            "details_url": run.get("detailsUrl"),
-            "suite_app": app_name,
-        }
-
-    def _flatten_check_runs(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
-        """Flatten check suites into a single list of check run dicts."""
-        check_runs: list[dict[str, Any]] = []
-        for suite in (head_target.get("checkSuites") or {}).get("nodes", []):
-            app_name = (suite.get("app") or {}).get("name", "unknown")
-            for run in (suite.get("checkRuns") or {}).get("nodes", []):
-                check_runs.append(self._run_dict(run, app_name))
-        return check_runs
-
-    def _extract_commit_statuses(self, head_target: dict[str, Any]) -> list[dict[str, Any]]:
-        """Extract legacy commit status contexts from a HEAD commit target."""
-        commit_status = head_target.get("status") or {}
-        return [
-            {
-                "context": ctx["context"],
-                "state": ctx["state"],
-                "description": ctx.get("description"),
-                "target_url": ctx.get("targetUrl"),
-            }
-            for ctx in commit_status.get("contexts", [])
-        ]
-
-    def _has_failing_checks(self, check_runs: list[dict[str, Any]], legacy: set[str]) -> bool:
-        failing = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
-        conclusions = {r["conclusion"] for r in check_runs if r["conclusion"]}
-        return bool(conclusions & failing) or "FAILURE" in legacy or "ERROR" in legacy
-
-    def _has_pending_checks(self, check_runs: list[dict[str, Any]], legacy: set[str]) -> bool:
-        pending = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
-        in_progress = {r["status"] for r in check_runs if r["status"] != "COMPLETED"}
-        return bool(in_progress & pending) or "PENDING" in legacy
-
-    def _derive_overall(
-        self,
-        check_runs: list[dict[str, Any]],
-        commit_statuses: list[dict[str, Any]],
-        truncated: bool = False,
-    ) -> str:
-        """Derive a single overall status string from check runs and commit statuses.
-
-        When truncated is True and no failure or pending signal is observed,
-        return 'unknown' rather than 'passing' — the missed pages could
-        contain a failing run. Failure and pending signals stay authoritative.
-
-        """
-        if not check_runs and not commit_statuses:
-            return "unknown"
-        legacy = {ctx["state"] for ctx in commit_statuses}
-        if self._has_failing_checks(check_runs, legacy):
-            return "failing"
-        if self._has_pending_checks(check_runs, legacy):
-            return "pending"
-        if truncated:
-            return "unknown"
-        return "passing"
-
     async def _drain_suite_runs(
         self, suite_id: str, app_name: str, after: str | None, token: str
     ) -> tuple[list[dict[str, Any]], bool]:
@@ -1988,7 +1947,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             node = result.get("node") or {}
             run_conn = node.get("checkRuns") or {}
             for run in run_conn.get("nodes") or []:
-                runs.append(self._run_dict(run, app_name))
+                runs.append(_run_dict(run, app_name))
             page_info = run_conn.get("pageInfo") or {}
             if not page_info.get("hasNextPage"):
                 return runs, False
@@ -2040,12 +1999,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
 
                 if suites_after is None:
-                    commit_statuses = self._extract_commit_statuses(head_target)
+                    commit_statuses = _commit_statuses(head_target)
 
                 suites_page = head_target.get("checkSuites") or {}
                 suites_nodes = suites_page.get("nodes") or []
                 n_suites += len(suites_nodes)
-                check_runs.extend(self._flatten_check_runs(head_target))
+                check_runs.extend(_check_runs(head_target))
 
                 for suite in suites_nodes:
                     runs_page = (suite.get("checkRuns") or {}).get("pageInfo") or {}
@@ -2074,10 +2033,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                     f"Found {n_suites} check suites, "
                     f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses{trailer}"
                 )
-            overall = self._derive_overall(check_runs, commit_statuses, truncated=truncated)
+            overall = _overall(check_runs, commit_statuses, truncated)
             logger.info(
-                f"Status checks for PR #{pr_number}: overall={overall}, "
-                f"runs={len(check_runs)}, truncated={truncated}"
+                f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}, truncated={truncated}"
             )
             return {
                 "pr_number": pr_number,

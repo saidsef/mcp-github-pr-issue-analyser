@@ -30,6 +30,7 @@ import httpx
 from fastmcp import Context
 
 from .exceptions import GitHubNotFoundError
+from .graphql_client import API
 from .graphql_queries import USER_CONTRIBUTIONS_QUERY
 from .tool_annotations import _read_only
 
@@ -144,21 +145,14 @@ class ActivityMixin:
     """User activity tools, mixed into GitHubIntegration."""
 
     if TYPE_CHECKING:
-        _http: httpx.AsyncClient
 
-        async def _request(
-            self, method: str, url: str, *, context: str = ..., headers: dict[str, str] | None = ..., **kwargs: Any
-        ) -> httpx.Response: ...
+        async def _request(self, method: str, url: str, *, context: str = ..., **kwargs: Any) -> httpx.Response: ...
 
         async def _execute_graphql(
             self, query: str, variables: dict[str, Any], *, token: str | None = ...
         ) -> dict[str, Any]: ...
 
         def _guard(self, action: str) -> AbstractAsyncContextManager[None]: ...
-
-        def _get_headers(self) -> dict[str, str]: ...
-
-        def _raise_for_status(self, response: httpx.Response, context: str = ...) -> None: ...
 
     def _filtered_contributions(
         self, collection: dict[str, Any], key: str, org: str, repo: str
@@ -307,7 +301,7 @@ class ActivityMixin:
         for page in range(1, MAX_HISTORY_PAGES + 1):
             resp = await self._request(
                 "GET",
-                f"https://api.github.com/repos/{owner}/{repo_name}/stargazers/history",
+                f"{API}/repos/{owner}/{repo_name}/stargazers/history",
                 context=f"star history {owner}/{repo_name} p{page}",
                 params={"page": page},
             )
@@ -330,7 +324,7 @@ class ActivityMixin:
         for page in range(1, MAX_REPO_PAGES + 1):
             resp = await self._request(
                 "GET",
-                f"https://api.github.com/users/{username}/repos",
+                f"{API}/users/{username}/repos",
                 context=f"repos for {username}",
                 params={"per_page": 100, "type": "public", "sort": "updated", "page": page},
             )

@@ -8,7 +8,7 @@ Please note we have a code of conduct, please follow it in all your interactions
 
 1. Ensure any install or build dependencies are removed before the end of the layer when doing a build.
 2. Update the relevant page under `docs/` with details of changes to the interface, this includes new environment variables, exposed ports, useful file locations and container parameters. The README is a landing page only.
-3. Increase the version numbers is managed by the GitHub Actions CI workflow `tagging.yml`
+3. The `tag_release.yml` workflow tags and releases every push to `main`, so do not bump a version by hand
 4. You may merge the Pull Request in once you have the sign-off of from the project team, or if you do not have permission to do that, you may request a reviewer to merge it for you.
 
 ## Development Setup
@@ -50,7 +50,7 @@ When the change is intended, regenerate the snapshot and check the diff says wha
 you meant:
 
 ```shell
-uv run python tests/test_tool_registry.py
+uv run python -m tests.test_tool_registry
 ```
 
 A rename is breaking for any client already connected, since it holds a cached
@@ -68,7 +68,7 @@ ruff check .
 # Auto-fix issues
 ruff check . --fix
 
-# Format code
+# Format code, which CI checks with ruff format --check
 ruff format .
 ```
 
@@ -79,10 +79,6 @@ Run type checking with pyright:
 ```shell
 uv run pyright src/mcp_github/
 ```
-
-## Benchmark
-
-If you are working on a feature that is likely to impact performance, consider running benchmarks and comparing the results before and after your change.
 
 ## Code of Conduct
 

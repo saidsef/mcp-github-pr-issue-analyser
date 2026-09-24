@@ -110,12 +110,14 @@ Every tool above names the skill that documents it, at the end of its own descri
 
 | Resource | Covers |
 |----------|--------|
-| `skill://pr-analysis/SKILL.md` | Fetch a PR's metadata, diff, linked issues and CI status |
-| `skill://pr-review/SKILL.md` | Post inline comments and submit review decisions |
-| `skill://pr-management/SKILL.md` | Create, update, assign, refresh and merge PRs |
-| `skill://issue-management/SKILL.md` | Create, update, list and search issues and PRs, list labels, and run milestones |
-| `skill://release-management/SKILL.md` | Tag commits, publish releases, and correct or withdraw what is published |
-| `skill://project-boards/SKILL.md` | Place issues on a project board, set their fields, and read a board |
-| `skill://user-activity/SKILL.md` | Find repositories, and look up user profiles, contributions and star growth |
-| `skill://error-handling/SKILL.md` | Read the error codes and decide whether to retry |
-| `skill://interactive-ui/SKILL.md` | Ask the user to choose, or render data as a UI panel |
+| `skill://pr-analysis/SKILL.md` | Analyse a GitHub pull request by fetching its metadata, diff, linked issues and CI status |
+| `skill://pr-review/SKILL.md` | Review a GitHub pull request by posting inline code comments and submitting a review decision |
+| `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, refresh the branch and merge |
+| `skill://issue-management/SKILL.md` | Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates |
+| `skill://release-management/SKILL.md` | Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there |
+| `skill://project-boards/SKILL.md` | Put issues and pull requests on a GitHub project board, set their fields, read what is on a board, and take items off it |
+| `skill://user-activity/SKILL.md` | Find a user's or organisation's repositories, and look up a profile, contribution history, and which repos gained stars recently |
+| `skill://error-handling/SKILL.md` | Read the error codes these tools raise and decide whether to retry, fix the call, or stop |
+| `skill://interactive-ui/SKILL.md` | Ask the user to pick an option, or render GitHub data as an interactive UI panel |
+
+The descriptions are the front matter of each SKILL.md, which is also what the server instructions and `github_list_skills` report.

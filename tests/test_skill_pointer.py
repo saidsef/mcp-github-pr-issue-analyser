@@ -6,33 +6,22 @@ a reformatted heading or a tool moved between skills from quietly emptying it.
 
 from __future__ import annotations
 
-from contextlib import ExitStack
+import re
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 from fastmcp import Client
 
 from mcp_github.skill_pointer import _TOOL_HEADING, pointer, skill_owners
 from mcp_github.skills_access import SKILLS_DIR, SkillsMixin
+from tests.support import PROVIDED_TOOLS, analyser
 
 NO_SKILL = {"github_get_skill", "github_list_skills"}
 
 
-def _analyser() -> Any:
-    from mcp_github.issues_pr_analyser import PRIssueAnalyser
-
-    with ExitStack() as stack:
-        stack.enter_context(patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"))
-        stack.enter_context(patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", False))
-        stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
-        stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
-        return PRIssueAnalyser()
-
-
 async def _tools() -> dict[str, Any]:
     """The served tool list, the scope gate aside, so every tool is seen."""
-    tools = await _analyser().mcp.list_tools(run_middleware=False)
+    tools = await analyser().mcp.list_tools(run_middleware=False)
     return {tool.name: tool for tool in tools}
 
 
@@ -60,6 +49,18 @@ class TestTheOwnershipMap:
     def test_the_pointer_names_the_tool_a_client_can_call(self):
         """A skill:// URI reaches only a client that reads resources."""
         assert pointer("pr-review") == "Workflow and conventions: github_get_skill('pr-review')."
+
+    @pytest.mark.anyio
+    async def test_every_tool_a_skill_names_is_registered(self):
+        """A skill naming a tool the server lacks sends a client after something it
+        cannot call, which is what a rename or a removal leaves behind."""
+        named = {
+            name
+            for path in SKILLS_DIR.glob("*/SKILL.md")
+            for name in re.findall(r"github_[a-z_]+", path.read_text(encoding="utf-8"))
+        }
+
+        assert named <= set(await _tools())
 
 
 class TestTheServedToolList:
@@ -96,7 +97,7 @@ class TestTheServedToolList:
         this repo, which is why the pointer is a transform and not a description."""
         tools = await _tools()
 
-        for name in ("choose", "github_pr_issue_analyser_ui", "github_search_prefab_components"):
+        for name in PROVIDED_TOOLS:
             assert pointer("interactive-ui") in (tools[name].description or ""), name
 
     @pytest.mark.anyio
@@ -149,7 +150,7 @@ class TestThePointerResolves:
     async def test_a_pointed_tool_still_dispatches(self):
         """The transform rewrites the listing, and a tool that no longer resolved
         by name would be a listing nobody could act on."""
-        async with Client(_analyser().mcp) as client:
+        async with Client(analyser().mcp) as client:
             result = await client.call_tool("github_list_skills", {})
 
         assert (result.structured_content or {})["total"] == len(list(SKILLS_DIR.glob("*/SKILL.md")))

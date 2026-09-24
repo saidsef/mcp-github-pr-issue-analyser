@@ -56,14 +56,15 @@ Open pull requests, keep them current, and merge them once they are ready.
 | `base` | str | - | Target branch name, e.g. `main` |
 | `draft` | bool | `False` | Open as a draft PR |
 | `labels` | list[str] \| None | `None` | Labels to apply. Omit to leave the PR unlabelled |
+| `mcp_label` | bool | `True` | Append the `mcp` tracking label to `labels`. Pass `False` to opt out |
 
 Returns `pr_url`, `pr_number`, `status` and `title`, plus `labels` whenever a
 label set was passed.
 
 The create endpoint takes no labels, so a set passed here is applied in a second
 call against the issues endpoint, and `mcp` is appended as it is for
-`github_create_issue`. Read the returned `labels` back, since writing them needs push
-access on the repository.
+`github_create_issue` unless `mcp_label` is `False`. Read the returned `labels`
+back, since writing them needs push access on the repository.
 
 ### `github_update_pr`
 

@@ -11,7 +11,7 @@ then read, correct or withdraw what has already been published.
 
 - `repo_owner` and `repo_name` for the target repository
 - The default branch must be releasable: CI passing, every intended PR merged
-- GitHub token with `contents: write` access
+- GitHub token with `repo` write access
 
 ## Workflow
 
@@ -83,8 +83,10 @@ Fails with a not-found error if the repository has no commits.
 | `prerelease` | bool | `False` | Mark as a pre-release |
 | `generate_release_notes` | bool | `True` | Append GitHub's auto-generated notes to `body` |
 | `make_latest` | str | `"true"` | One of `"true"`, `"false"`, `"legacy"`, as strings not booleans |
+| `if_exists` | str | `"fail"` | `fail` when the tag already carries a release, or `update` to overwrite its title and notes |
 
-Returns `id`, `tag_name`, `name`, `html_url`, `draft`, `prerelease`, `body`.
+Returns `id`, `tag_name`, `name`, `html_url`, `draft`, `prerelease`, `body` and
+`updated`, which is `True` where the update path ran.
 
 `generate_release_notes=True` appends GitHub's merged-PR list to your `body`
 rather than replacing it, so a hand-written `What Changed` section will be
@@ -106,11 +108,11 @@ again. Reach for `github_update_release` when you only mean to correct something
 |---|---|---|---|
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
-| `per_page` | int | `30` | Results per page, 1 to 100 |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
-Returns `count`, `has_more` and `releases`, newest first, each trimmed to the same fields
-`github_create_release` returns. Drafts appear only for a token that can see them.
+Returns `count`, `has_more` and `releases`, newest first, each trimmed to the fields
+`github_get_release` returns. Drafts appear only for a token that can see them.
 
 ### `github_get_release`
 
@@ -150,7 +152,7 @@ deleting the release and publishing it again, or setting it in the GitHub UI.
 |---|---|---|---|
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
-| `per_page` | int | `30` | Results per page, 1 to 100 |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
 | `page` | int | `1` | Page number |
 
 Returns `count`, `has_more` and `tags`, each a `name` and the `sha` it points at.

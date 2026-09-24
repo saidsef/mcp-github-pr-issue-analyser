@@ -66,18 +66,20 @@ defines.
 | `repo_name` | str | - | Repository name |
 | `title` | str | - | Issue title, see Title Convention |
 | `body` | str | - | Issue description in Markdown |
-| `labels` | list[str] | - | Labels to apply. Required, pass `[]` for none |
+| `labels` | list[str] \| None | `None` | Labels to apply. Omit to leave the issue unlabelled |
 | `milestone` | str \| None | `None` | Milestone title to file it under. Omit or pass null for no milestone |
+| `mcp_label` | bool | `True` | Append the `mcp` tracking label to `labels`. Pass `False` to opt out |
 
 Returns `IssueData` with `number`, `title`, `body`, `state`, `author`,
 `labels`, `assignees`, `milestone`, `html_url`, `created_at`, `updated_at`.
 
 `milestone` is a title, not a number, and the milestone has to exist already.
 
-`labels` has no default and must be supplied. Whatever you pass, `mcp` is
-appended, so `[]` yields `["mcp"]`. Setting labels needs push access on the
-repository, and GitHub drops them silently rather than erroring when the token
-lacks it, so read the returned `labels` back if they matter.
+Whenever `labels` is passed, `mcp` is appended unless `mcp_label` is `False`,
+so `[]` yields `["mcp"]`. Omitting `labels` sends none and leaves the issue
+unlabelled. Setting labels needs push access on the repository, and GitHub
+drops them silently rather than erroring when the token lacks it, so read the
+returned `labels` back if they matter.
 
 ### `github_update_issue`
 
@@ -86,10 +88,10 @@ lacks it, so read the returned `labels` back if they matter.
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
 | `issue_number` | int | - | Issue number |
-| `title` | str | none | Replacement title. Omit to leave it alone |
-| `body` | str | none | Replacement body in Markdown. Omit to leave it alone |
-| `labels` | list[str] | none | Replacement label set. Omit to keep the current labels |
-| `state` | str | none | `open` or `closed`. Omit to leave the state alone |
+| `title` | str \| None | `None` | Replacement title. Omit to leave it alone |
+| `body` | str \| None | `None` | Replacement body in Markdown. Omit to leave it alone |
+| `labels` | list[str] \| None | `None` | Replacement label set. Omit to keep the current labels |
+| `state` | str \| None | `None` | `open` or `closed`. Omit to leave the state alone |
 
 Returns `IssueData`.
 

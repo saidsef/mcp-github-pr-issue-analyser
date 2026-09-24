@@ -6,13 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from mcp_github import auth
-from mcp_github.auth import (
-    GITHUB_SCOPES,
-    REQUIRED_SCOPES,
-    APIKeyVerifier,
-    oauth_configured,
-    resolve_token,
-)
+from mcp_github.auth import GITHUB_SCOPES, REQUIRED_SCOPES, APIKeyVerifier, oauth_configured, resolve_token
 
 
 class TestOAuthConfigured:
@@ -92,4 +86,3 @@ class TestResolveToken:
     def test_no_credential_at_all_resolves_to_nothing(self):
         with patch("mcp_github.auth.get_access_token", return_value=None):
             assert resolve_token(None, oauth_mode=False) == ""
-

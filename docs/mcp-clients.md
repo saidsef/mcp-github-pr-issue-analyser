@@ -76,7 +76,7 @@ These three share the `mcpServers` schema, so one config works for all of them.
 }
 ```
 
-No token goes in the file. On first use the client registers itself with the server and opens GitHub's consent screen. Approve the `repo`, `read:org` and `user` scopes.
+No token goes in the file. On first use the client registers itself with the server and opens GitHub's consent screen. Approve the `repo`, `read:org`, `user` and `project` scopes.
 </details>
 
 ## Claude Code CLI
@@ -148,7 +148,7 @@ Then authenticate:
 codex mcp login github_prs_issues
 ```
 
-Codex registers itself through dynamic client registration and opens GitHub's consent screen. Approve the `repo`, `read:org` and `user` scopes.
+Codex registers itself through dynamic client registration and opens GitHub's consent screen. Approve the `repo`, `read:org`, `user` and `project` scopes.
 </details>
 
 ## VS Code

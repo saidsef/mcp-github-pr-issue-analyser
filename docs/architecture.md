@@ -19,12 +19,9 @@
 3. `PRIssueAnalyser` routes the call to a registered tool. Tools are discovered from the MCP annotations on the integration's public methods, so adding an annotated method registers a tool. Every call passes through the metrics middleware.
 4. `GitHubIntegration` issues the API request over an async HTTP client bounded by `GITHUB_API_TIMEOUT`. Diffs, comments, merges, issues, labels, tags and releases go over REST v3. User search, activity, PR linked issues, PR status checks and star growth go over GraphQL v4.
 
-## Tool categories
+## Tools
 
-1. **PR management** - fetch diffs, content, linked issues and CI status, create, review, merge and update
-2. **Issue tracking** - create, update, list and assign, list repository labels
-3. **Release management** - tags and releases
-4. **User search** - profile lookup, contribution activity and star growth via GraphQL
+[Tools](./tools.md) lists every tool the server registers, grouped by what it acts on, and the skill that documents each group.
 
 ## Auth layer
 

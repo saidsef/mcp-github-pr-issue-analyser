@@ -54,7 +54,7 @@ The pages below are also published on [Read the Docs](https://mcp-github-pr-issu
 
 ## Requirements
 
-Python 3.12+, and a GitHub personal access token with `repo` scope or a GitHub OAuth App.
+Python 3.14, and a GitHub personal access token with `repo` scope or a GitHub OAuth App.
 
 ## Source
 

@@ -4,37 +4,27 @@ A client caches the tool list when it connects, so a name that disappears breaks
 callers that are already running. Nothing noticed when #430 renamed all 49 tools,
 because no test reads the list as a whole. This one does.
 
-Run this file to regenerate the snapshot after a deliberate rename:
+Run this module to regenerate the snapshot after a deliberate rename:
 
-    uv run python tests/test_tool_registry.py
+    uv run python -m tests.test_tool_registry
 """
 
 from __future__ import annotations
 
 import asyncio
-from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import patch
 
 import pytest
 
-SNAPSHOT = Path(__file__).parent / "registered_tools.txt"
+from tests.support import PROVIDED_TOOLS, analyser
 
-PROVIDED = {"choose", "github_pr_issue_analyser_ui", "github_search_prefab_components"}
+SNAPSHOT = Path(__file__).parent / "registered_tools.txt"
 
 
 async def _registered() -> set[str]:
     """Every tool name the server registers, the provider tools aside."""
-    from mcp_github.issues_pr_analyser import PRIssueAnalyser
-
-    with ExitStack() as stack:
-        stack.enter_context(patch("mcp_github.github_integration.GITHUB_TOKEN", "test-token"))
-        stack.enter_context(patch("mcp_github.issues_pr_analyser.MCP_ENABLE_REMOTE", False))
-        stack.enter_context(patch("mcp_github.auth.REDIS_HOST_PORT", None))
-        stack.enter_context(patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None))
-        analyser = PRIssueAnalyser()
-    tools = await analyser.mcp.list_tools(run_middleware=False)
-    return {tool.name for tool in tools} - PROVIDED
+    tools = await analyser().mcp.list_tools(run_middleware=False)
+    return {tool.name for tool in tools} - PROVIDED_TOOLS
 
 
 def gone_missing(recorded: set[str], registered: set[str]) -> list[str]:
@@ -76,7 +66,7 @@ class TestRegisteredTools:
         assert gone == [], (
             f"these tools are no longer registered: {', '.join(gone)}. "
             "If that was deliberate, regenerate the snapshot with "
-            "`uv run python tests/test_tool_registry.py` and make sure the previous "
+            "`uv run python -m tests.test_tool_registry` and make sure the previous "
             "name still reaches the tool it was renamed to, per #435."
         )
 
@@ -103,7 +93,7 @@ def write_snapshot() -> None:
     header = (
         "# Every tool this repository registers, one per line.\n"
         "# A name removed from here breaks clients holding a cached tool list.\n"
-        "# Regenerate with: uv run python tests/test_tool_registry.py\n"
+        "# Regenerate with: uv run python -m tests.test_tool_registry\n"
     )
     SNAPSHOT.write_text(header + "\n".join(names) + "\n", encoding="utf-8")
     print(f"wrote {len(names)} tool names to {SNAPSHOT.name}")

@@ -36,9 +36,7 @@ GATED_SCOPES: tuple[str, ...] = WRITE_SCOPES + PROJECT_SCOPES
 
 
 def _annotate(*, ro: bool = False, destructive: bool = False) -> Any:
-    def deco(
-        fn: Any = None, *, task: bool = False, idempotent: bool = False, scopes: tuple[str, ...] = ()
-    ) -> Any:
+    def deco(fn: Any = None, *, task: bool = False, idempotent: bool = False, scopes: tuple[str, ...] = ()) -> Any:
         def apply(f: Any) -> Any:
             f._mcp_annotations = ToolAnnotations(
                 read_only_hint=ro,

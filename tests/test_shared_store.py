@@ -40,9 +40,11 @@ class TestSharedStore:
     async def test_one_backend_client_is_built_and_released(self):
         """Two reads used to build two clients and release only the second."""
         store = MagicMock(close=AsyncMock())
-        with patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN), patch(
-            "mcp_github.auth.GITHUB_OAUTH_BASE_URL", None
-        ), patch("mcp_github.auth.DynamoDBStore", return_value=store) as build:
+        with (
+            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", TABLE_ARN),
+            patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
+            patch("mcp_github.auth.DynamoDBStore", return_value=store) as build,
+        ):
             get_token_store()
             get_token_store()
 

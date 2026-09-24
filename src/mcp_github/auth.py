@@ -304,8 +304,10 @@ def get_oauth_verifier() -> GitHubProvider:
         client_storage=get_token_store(),
     )
     provider.update_default_scopes(list(GITHUB_SCOPES))
-    provider._extra_authorize_params = {**getattr(provider, "_extra_authorize_params", {}),
-                                        "scope": " ".join(GITHUB_SCOPES)}
+    provider._extra_authorize_params = {
+        **getattr(provider, "_extra_authorize_params", {}),
+        "scope": " ".join(GITHUB_SCOPES),
+    }
     return provider
 
 
