@@ -6,13 +6,7 @@ from unittest.mock import patch
 import pytest
 
 from mcp_github import auth
-from mcp_github.auth import (
-    GITHUB_SCOPES,
-    REQUIRED_SCOPES,
-    APIKeyVerifier,
-    oauth_configured,
-    resolve_token,
-)
+from mcp_github.auth import GITHUB_SCOPES, REQUIRED_SCOPES, APIKeyVerifier, oauth_configured, resolve_token
 
 
 class TestOAuthConfigured:
