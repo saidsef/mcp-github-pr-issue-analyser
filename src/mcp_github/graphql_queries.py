@@ -280,6 +280,24 @@ mutation($pullRequestId: ID!) {
 }
 """
 
+
+def _owner_query(variables: str, selection: str) -> str:
+    """Wrap a selection in the repositoryOwner shell. A board's owner may be a
+    person or an organisation, and GraphQL needs the selection under both."""
+    return f"""
+query({variables}) {{
+  repositoryOwner(login: $owner) {{
+    ... on Organization {{
+      {selection}
+    }}
+    ... on User {{
+      {selection}
+    }}
+  }}
+}}
+"""
+
+
 _PROJECT_FIELDS_FRAGMENT = """
 fragment ProjectFields on ProjectV2 {
   id
@@ -312,27 +330,11 @@ fragment ProjectFields on ProjectV2 {
 }
 """
 
-PROJECT_QUERY = (
-    _PROJECT_FIELDS_FRAGMENT
-    + """
-query($owner: String!, $number: Int!) {
-  repositoryOwner(login: $owner) {
-    ... on Organization {
-      projectV2(number: $number) {
-        ...ProjectFields
-      }
-    }
-    ... on User {
-      projectV2(number: $number) {
-        ...ProjectFields
-      }
-    }
-  }
-}
-"""
+PROJECT_QUERY = _PROJECT_FIELDS_FRAGMENT + _owner_query(
+    "$owner: String!, $number: Int!", "projectV2(number: $number) { ...ProjectFields }"
 )
 
-PROJECTS_QUERY = """
+_PROJECT_PAGE_FRAGMENT = """
 fragment ProjectPage on ProjectV2Connection {
   totalCount
   pageInfo {
@@ -346,22 +348,11 @@ fragment ProjectPage on ProjectV2Connection {
     url
   }
 }
-
-query($owner: String!, $first: Int!, $after: String) {
-  repositoryOwner(login: $owner) {
-    ... on Organization {
-      projectsV2(first: $first, after: $after) {
-        ...ProjectPage
-      }
-    }
-    ... on User {
-      projectsV2(first: $first, after: $after) {
-        ...ProjectPage
-      }
-    }
-  }
-}
 """
+
+PROJECTS_QUERY = _PROJECT_PAGE_FRAGMENT + _owner_query(
+    "$owner: String!, $first: Int!, $after: String", "projectsV2(first: $first, after: $after) { ...ProjectPage }"
+)
 
 ISSUE_PROJECT_ITEMS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!) {
@@ -402,7 +393,7 @@ query($owner: String!, $repo: String!, $number: Int!) {
 }
 """
 
-PROJECT_ITEMS_QUERY = """
+_ITEM_PAGE_FRAGMENT = """
 fragment ItemPage on ProjectV2 {
   id
   number
@@ -487,22 +478,11 @@ fragment ItemPage on ProjectV2 {
     }
   }
 }
-
-query($owner: String!, $number: Int!, $first: Int!, $after: String) {
-  repositoryOwner(login: $owner) {
-    ... on Organization {
-      projectV2(number: $number) {
-        ...ItemPage
-      }
-    }
-    ... on User {
-      projectV2(number: $number) {
-        ...ItemPage
-      }
-    }
-  }
-}
 """
+
+PROJECT_ITEMS_QUERY = _ITEM_PAGE_FRAGMENT + _owner_query(
+    "$owner: String!, $number: Int!, $first: Int!, $after: String", "projectV2(number: $number) { ...ItemPage }"
+)
 
 ADD_PROJECT_ITEM_MUTATION = """
 mutation($projectId: ID!, $contentId: ID!) {
