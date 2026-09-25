@@ -1,5 +1,5 @@
 ---
-description: Put issues and pull requests on a GitHub project board, set their fields, read what is on a board, and take items off it
+description: Find the GitHub project boards an owner has, put issues and pull requests on one, set their fields, read what is on a board, and take items off it
 ---
 
 # Project Boards
@@ -9,7 +9,9 @@ fields say, and where an issue sits.
 
 ## Prerequisites
 
-- `project_owner` and `project_number`, both readable from the board's URL:
+- `project_owner`, the user or organisation login that owns the board
+- `project_number`, which `github_list_projects` reports for every board the owner
+  has. It is also the last part of the board's URL:
   `https://github.com/users/OWNER/projects/NUMBER` or
   `https://github.com/orgs/OWNER/projects/NUMBER`
 - `repo_owner`, `repo_name` and `issue_number` for the issue or pull request
@@ -22,6 +24,14 @@ holding issues from several repositories is the common case, so read
 `project_owner` off the board URL rather than assuming it matches `repo_owner`.
 
 ## Workflow
+
+### Finding a board
+
+1. Call `github_list_projects` with the owner's login. A person and an
+   organisation are both served by the same call
+2. Pick the board by `title` and take its `number`. A `state` of `closed` marks a
+   board no longer in use, so prefer an open one unless the user names it
+3. Pass the owner and number to any of the tools below
 
 ### Filing an issue and placing it
 
@@ -47,6 +57,26 @@ holding issues from several repositories is the common case, so read
    be recovered**
 
 ## Tool Parameters
+
+### `github_list_projects`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `project_owner` | str | - | User or organisation whose boards to list |
+| `per_page` | int | `50` | Boards per page, 1 to 100 |
+| `after` | str \| None | `None` | `next_cursor` from a previous call |
+
+Returns `project_owner`, `total`, `count`, `has_more`, `projects` and `next_cursor`.
+Each board carries `number`, `title`, `state` and `url`. `state` is `open` or
+`closed`.
+
+`total` is the number of boards the owner has, so a count is answerable from the
+first call. `next_cursor` is a cursor when there is another page and `None` when
+there is not, so pass it back as `after` until `has_more` comes back false.
+
+An owner that does not exist is refused by name. An owner that exists but shows
+no boards may hold some the token cannot see: a fine-grained token without a
+Projects grant reads as an empty list rather than an error.
 
 ### `github_get_project_fields`
 
@@ -150,7 +180,8 @@ removed. An item on a different board does not count.
 
 | Message | Means |
 |---|---|
-| `No project #N for 'owner'` | Wrong owner or number, or the token cannot see Projects. The two are indistinguishable from the API |
+| `No user or organisation named 'X'` | The login passed to `github_list_projects` is not an account on GitHub |
+| `No project #N for 'owner'` | Wrong owner or number, or the token cannot see Projects. The two are indistinguishable from the API. `github_list_projects` shows which numbers the owner has |
 | `The token is missing a scope this query needs` | The token reaches the repository but not Projects. Grant `read:project` or `project` |
 | `No field named 'X' on this project` | The message lists the fields that are there. Pick one of those |
 | `No option named 'X' on field 'Y'` | The message lists the options that field accepts |
@@ -161,6 +192,8 @@ removed. An item on a different board does not count.
 
 - Read the board with `github_get_project_fields` before writing to it, so the option
   names come from the board rather than from a guess
+- Find a board with `github_list_projects` rather than guessing its number, since a
+  wrong number reads the same as a board the token cannot see
 - Take `project_owner` from the board URL, not from the repository
 - Use `github_set_project_field` alone to file and place an issue in one step, since it
   adds the card itself

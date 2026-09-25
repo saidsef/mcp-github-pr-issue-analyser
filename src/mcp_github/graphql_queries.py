@@ -332,6 +332,37 @@ query($owner: String!, $number: Int!) {
 """
 )
 
+PROJECTS_QUERY = """
+fragment ProjectPage on ProjectV2Connection {
+  totalCount
+  pageInfo {
+    hasNextPage
+    endCursor
+  }
+  nodes {
+    number
+    title
+    closed
+    url
+  }
+}
+
+query($owner: String!, $first: Int!, $after: String) {
+  repositoryOwner(login: $owner) {
+    ... on Organization {
+      projectsV2(first: $first, after: $after) {
+        ...ProjectPage
+      }
+    }
+    ... on User {
+      projectsV2(first: $first, after: $after) {
+        ...ProjectPage
+      }
+    }
+  }
+}
+"""
+
 ISSUE_PROJECT_ITEMS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!) {
   repository(owner: $owner, name: $repo) {

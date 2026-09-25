@@ -6,9 +6,9 @@ The server registers every public method on the GitHub integration that carries 
 
 Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and returns `count` with `has_more`. `count` is the number of items in the reply, never the size of the result set. `has_more` comes from GitHub's `Link` header, so paging stops on a fact rather than on a guess from a full page.
 
-`total` appears only where GitHub reports a genuine count: `github_list_open_issues_prs` and `github_search_issues_prs` report the matches found, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
+`total` appears only where GitHub reports a genuine count: `github_list_open_issues_prs` and `github_search_issues_prs` report the matches found, `github_list_projects` reports the boards an owner has, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
 
-`github_list_project_items` reads a GraphQL connection, which pages by cursor, so it takes `after` and returns `next_cursor` in place of `page`.
+`github_list_projects` and `github_list_project_items` read GraphQL connections, which page by cursor, so they take `after` and return `next_cursor` in place of `page`. Both report `total`, since the connection carries a count.
 
 ## Pull requests
 
@@ -74,6 +74,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 | Tool | Kind | Description |
 |------|------|-------------|
+| `github_list_projects` | read | The boards a user or organisation owns, each with the number the other board tools take |
 | `github_get_project_fields` | read | A board's fields and the options each single-select one accepts |
 | `github_list_project_items` | read | What is on a board, each card with its field values |
 | `github_add_to_project` | write | Put an issue or pull request on a board |

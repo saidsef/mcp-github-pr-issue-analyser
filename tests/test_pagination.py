@@ -107,6 +107,7 @@ class TestPaginationMetadata:
             "list_releases",
             "list_tags",
             "list_project_items",
+            "list_projects",
         ]
         defaults = {
             name: _inspect.signature(getattr(GitHubIntegration, name)).parameters["per_page"].default for name in names
