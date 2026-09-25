@@ -30,7 +30,7 @@ from os import getenv
 from typing import Any
 from urllib.parse import urlparse
 
-import aioboto3
+import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 from fastmcp.server.auth import AccessToken, TokenVerifier
@@ -39,12 +39,13 @@ from fastmcp.server.auth.providers.github import GitHubProvider
 from fastmcp.server.dependencies import get_access_token
 from key_value.aio.errors import StoreSetupError
 from key_value.aio.protocols import AsyncKeyValue
-from key_value.aio.stores.dynamodb import DynamoDBStore
 from key_value.aio.stores.memory import MemoryStore
 from key_value.aio.stores.redis import RedisStore
 from key_value.aio.wrappers.prefix_collections import PrefixCollectionsWrapper
 from redis.asyncio import Redis as AsyncRedis
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+from .dynamodb_store import DynamoDBStore
 
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
@@ -173,11 +174,9 @@ async def _check_caller_account(region: str, account: str) -> None:
     """Refuse an ARN naming an account the credentials do not reach. The credentials
     decide which account is reached, so an ARN naming another one otherwise resolves
     to a same-named table in the caller's own and nothing says so."""
-    session = aioboto3.Session(region_name=region)
     try:
-        sts_client: Any = session.client(service_name="sts", config=STS_CONFIG)
-        async with sts_client as sts:
-            caller = (await sts.get_caller_identity()).get("Account")
+        sts: Any = await asyncio.to_thread(boto3.client, "sts", region_name=region, config=STS_CONFIG)
+        caller = (await asyncio.to_thread(sts.get_caller_identity)).get("Account")
     except Exception as error:
         logger.warning("Could not read the caller's AWS account to check it against %s: %s", account, error)
         return
@@ -193,15 +192,6 @@ def _aws_error_code(error: BaseException) -> str | None:
     return None
 
 
-def _worth_retrying(error: StoreSetupError) -> bool:
-    """A failure while releasing the client replaces the cause with the release's own,
-    and the AWS code then survives only in the message the library formatted."""
-    code = _aws_error_code(error)
-    if code is not None:
-        return code in DYNAMODB_SETUP_RETRY_CODES
-    return any(retryable in str(error) for retryable in DYNAMODB_SETUP_RETRY_CODES)
-
-
 async def _setup_store(store: DynamoDBStore, table_name: str) -> None:
     """Create the table if it is missing. Replicas starting together all try, and
     every one but the winner is refused, so wait for the table the winner is making
@@ -210,7 +200,7 @@ async def _setup_store(store: DynamoDBStore, table_name: str) -> None:
         try:
             await store.setup()
         except StoreSetupError as error:
-            if not _worth_retrying(error) or attempt == DYNAMODB_SETUP_ATTEMPTS:
+            if _aws_error_code(error) not in DYNAMODB_SETUP_RETRY_CODES or attempt == DYNAMODB_SETUP_ATTEMPTS:
                 raise
             logger.warning("DynamoDB table %s is not ready yet, waiting for it: %s", table_name, error)
             await asyncio.sleep(DYNAMODB_SETUP_RETRY_SECONDS)

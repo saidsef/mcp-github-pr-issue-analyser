@@ -22,15 +22,18 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastmcp-slim[server,apps]>=4.0.3",
+    "fastmcp-slim[server,apps]>=4.0.8",
     # FastMCP 4 moved background tasks out of core into the tasks extension,
     # which ships as its own package rather than an extra.
-    "fastmcp-tasks>=4.0.3",
+    "fastmcp-tasks>=4.0.8",
+    "boto3>=1.43.101",
+    "botocore>=1.43.101",
     "httpx>=0.28.1",
     "prometheus-client>=0.26.0",
+    "pydantic>=2.14.0b2",
     # auth.py imports the stores directly, so ask for the package by name with
     # the extra RedisStore needs rather than relying on fastmcp pulling it. #312
-    "py-key-value-aio[dynamodb,redis]>=0.4.5",
+    "py-key-value-aio[redis]>=0.4.6",
     "redis>=8.1.0",
 ]
 
@@ -80,8 +83,8 @@ metadata = false
 dev = [
     "pyright>=1.1.414",
     "pytest>=9.1.1",
-    "ruff>=0.16.7",
-    "uv>=0.12.13",
+    "ruff>=0.16.8",
+    "uv>=0.12.18",
 ]
 
 [tool.ruff]
