@@ -28,6 +28,7 @@ github_list_open_issues_prs
 github_list_pr_comments
 github_list_pr_reviews
 github_list_project_items
+github_list_projects
 github_list_releases
 github_list_repo_labels
 github_list_repos

@@ -206,6 +206,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use the labels parameter on github_create_pr and github_update_pr to label a pull request, since GitHub keeps PR labels on the issues endpoint
 - Use github_set_issue_milestone to file an issue under a milestone after it exists, since github_update_issue cannot clear one
 - Use github_create_tag and github_create_release for release management
+- Use github_list_projects to find a board's number from its owner's login, since every other board tool takes one
 - Use github_get_project_fields before github_set_project_field, since option names differ per board
 - Keep a professional and concise tone
 

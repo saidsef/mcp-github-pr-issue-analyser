@@ -57,6 +57,7 @@ from .graphql_queries import (
     PR_STATUS_CHECKS_QUERY,
     PROJECT_ITEMS_QUERY,
     PROJECT_QUERY,
+    PROJECTS_QUERY,
     SEARCH_USER_QUERY,
     SET_PROJECT_FIELD_MUTATION,
 )
@@ -480,6 +481,17 @@ def _project_field_values(node: dict[str, Any]) -> dict[str, Any]:
         if held:
             values[name] = value[held]
     return values
+
+
+def _project_summary(node: dict[str, Any]) -> dict[str, Any]:
+    """One board as the listing reports it. The number is what every other
+    board tool takes, and state says whether the board is still in use."""
+    return {
+        "number": node.get("number"),
+        "title": node.get("title"),
+        "state": "closed" if node.get("closed") else "open",
+        "url": node.get("url"),
+    }
 
 
 def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
@@ -1684,6 +1696,37 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         if not item_id:
             raise GitHubAPIError("Adding the item to the project returned no item id")
         return item_id
+
+    @_read_only
+    async def list_projects(
+        self,
+        project_owner: Annotated[str, "User or organisation whose boards to list"],
+        per_page: Annotated[int, "Number of boards per page (1-100)"] = 50,
+        after: Annotated[str | None, "next_cursor from a previous call, to read the following page"] = None,
+    ) -> dict[str, Any]:
+        """Lists the Projects (v2) boards a user or organisation owns, with the
+        number each other board tool takes, so a board can be found without
+        reading its URL. The account type is resolved by GitHub, so one login
+        serves for a person and an organisation alike. Pages by cursor: pass
+        next_cursor back as after until has_more comes back false. See #465."""
+        async with self._guard("list projects"):
+            result = await self._execute_graphql(
+                PROJECTS_QUERY, {"owner": project_owner, "first": per_page, "after": after}
+            )
+        owner = result.get("repositoryOwner")
+        if owner is None:
+            raise GitHubNotFoundError(f"No user or organisation named '{project_owner}'")
+        connection = owner.get("projectsV2") or {}
+        page = connection.get("pageInfo") or {}
+        projects = [_project_summary(node) for node in connection.get("nodes") or [] if node]
+        return {
+            "project_owner": project_owner,
+            "total": connection.get("totalCount"),
+            "count": len(projects),
+            "has_more": bool(page.get("hasNextPage")),
+            "projects": projects,
+            "next_cursor": page.get("endCursor") if page.get("hasNextPage") else None,
+        }
 
     @_read_only
     async def get_project_fields(

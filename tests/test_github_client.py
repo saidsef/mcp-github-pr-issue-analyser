@@ -39,6 +39,7 @@ _READ = {
     "list_pr_comments",
     "list_pr_reviews",
     "list_project_items",
+    "list_projects",
     "list_releases",
     "list_repo_labels",
     "list_repos",

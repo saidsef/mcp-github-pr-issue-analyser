@@ -279,6 +279,76 @@ class TestListProjectItems:
         assert item["fields"] == {}
 
 
+class TestListProjects:
+    @staticmethod
+    def _boards(nodes: list[dict], has_next: bool = False) -> dict:
+        return {
+            "repositoryOwner": {
+                "projectsV2": {
+                    "totalCount": len(nodes),
+                    "pageInfo": {"hasNextPage": has_next, "endCursor": "cur"},
+                    "nodes": nodes,
+                }
+            }
+        }
+
+    @pytest.mark.anyio
+    async def test_each_board_reports_its_number_title_state_and_url(self, gi: GitHubIntegration):
+        nodes = [
+            {"number": 4, "title": "Backlog", "closed": False, "url": "https://github.com/users/o/projects/4"},
+            {"number": 2, "title": "Old", "closed": True, "url": "https://github.com/users/o/projects/2"},
+        ]
+        gi._execute_graphql = AsyncMock(return_value=self._boards(nodes))
+        result = await gi.list_projects("o")
+        query, variables = gi._execute_graphql.call_args.args
+        assert "repositoryOwner" in query
+        assert variables == {"owner": "o", "first": 50, "after": None}
+        assert result["projects"] == [
+            {"number": 4, "title": "Backlog", "state": "open", "url": "https://github.com/users/o/projects/4"},
+            {"number": 2, "title": "Old", "state": "closed", "url": "https://github.com/users/o/projects/2"},
+        ]
+        assert result["project_owner"] == "o"
+        assert result["total"] == 2
+        assert result["count"] == 2
+
+    @pytest.mark.anyio
+    async def test_paging_arguments_reach_the_query(self, gi: GitHubIntegration):
+        gi._execute_graphql = AsyncMock(return_value=self._boards([]))
+        await gi.list_projects("o", per_page=10, after="prev")
+        assert gi._execute_graphql.call_args.args[1] == {"owner": "o", "first": 10, "after": "prev"}
+
+    @pytest.mark.anyio
+    async def test_a_cursor_comes_back_only_when_there_is_another_page(self, gi: GitHubIntegration):
+        gi._execute_graphql = AsyncMock(return_value=self._boards([], has_next=True))
+        result = await gi.list_projects("o")
+        assert result["has_more"] is True
+        assert result["next_cursor"] == "cur"
+        gi._execute_graphql = AsyncMock(return_value=self._boards([]))
+        result = await gi.list_projects("o")
+        assert result["has_more"] is False
+        assert result["next_cursor"] is None
+
+    @pytest.mark.anyio
+    async def test_an_unknown_owner_is_named(self, gi: GitHubIntegration):
+        gi._execute_graphql = AsyncMock(return_value={"repositoryOwner": None})
+        with pytest.raises(GitHubNotFoundError, match="No user or organisation named 'nobody'"):
+            await gi.list_projects("nobody")
+
+    @pytest.mark.anyio
+    async def test_an_owner_with_no_boards_is_an_empty_list(self, gi: GitHubIntegration):
+        gi._execute_graphql = AsyncMock(return_value=self._boards([]))
+        result = await gi.list_projects("o")
+        assert result["projects"] == []
+        assert result["total"] == 0
+
+    @pytest.mark.anyio
+    async def test_a_missing_scope_keeps_its_hint(self, gi: GitHubIntegration):
+        errors = [{"type": "INSUFFICIENT_SCOPES", "message": "The 'projectsV2' field requires ['read:project']."}]
+        gi._execute_graphql = AsyncMock(side_effect=lambda *_: handle_graphql_errors(errors))
+        with pytest.raises(GitHubAuthError, match="read:project"):
+            await gi.list_projects("o")
+
+
 class TestGraphQLScopeErrors:
     def test_a_missing_scope_is_an_auth_error_naming_the_scope(self):
         errors = [
