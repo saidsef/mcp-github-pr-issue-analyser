@@ -34,13 +34,13 @@ jobs:
       with:
         fetch-depth: 0
     - name: Initialise CodeQL
-      uses: github/codeql-action/init@v4.38.0
+      uses: github/codeql-action/init@v4.38.2
       with:
         languages: ${{ matrix.language }}
     - name: Autobuild
-      uses: github/codeql-action/autobuild@v4.38.0
+      uses: github/codeql-action/autobuild@v4.38.2
     - name: Perform CodeQL Analysis
-      uses: github/codeql-action/analyze@v4.38.0
+      uses: github/codeql-action/analyze@v4.38.2
 
   test:
     name: test
