@@ -440,6 +440,22 @@ class TestErrorDetail:
             gi._handle_response_error(response, "")
 
 
+class TestTypedCodes:
+    """A client matches on the bracketed code and never on the prose, so a failure
+    raised before or after the HTTP call carries one too. See #475."""
+
+    @pytest.mark.anyio
+    async def test_a_pr_without_a_head_sha_raises_the_api_code(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=mock_response(json_data={"number": 5}))
+        with pytest.raises(GitHubAPIError, match=r"\[GITHUB_API_ERROR\] Could not retrieve head SHA for PR #5"):
+            await gi.add_inline_pr_comment("o", "r", 5, "app.py", 3, "fix this")
+
+    @pytest.mark.anyio
+    async def test_a_missing_repo_name_raises_the_validation_code(self, gi: GitHubIntegration):
+        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] HTTP 422: repo_name is required"):
+            await gi.list_open_issues_prs("owner", filtering="repo")
+
+
 class TestMissingCredentials:
     """What a tool does when the server holds no GitHub credentials. See #386."""
 

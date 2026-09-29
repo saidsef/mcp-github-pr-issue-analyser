@@ -7,6 +7,7 @@ import pytest
 
 from mcp_github import auth
 from mcp_github.auth import GITHUB_SCOPES, REQUIRED_SCOPES, APIKeyVerifier, oauth_configured, resolve_token
+from mcp_github.exceptions import GitHubAuthError
 
 
 class TestOAuthConfigured:
@@ -85,10 +86,12 @@ class TestResolveToken:
         with patch("mcp_github.auth.get_access_token", return_value=None):
             assert resolve_token("pat", oauth_mode=True) == "pat"
 
-    def test_oauth_without_a_request_or_a_static_token_raises(self):
+    def test_oauth_without_a_request_or_a_static_token_raises_the_auth_code(self):
+        """The header builder calls this outside the request helper, so the exception
+        reaches the client as it is raised. See #475."""
         with (
             patch("mcp_github.auth.get_access_token", return_value=None),
-            pytest.raises(RuntimeError, match="no access token in request context"),
+            pytest.raises(GitHubAuthError, match=r"\[AUTH_FAILED\] HTTP 401: .*no access token in request context"),
         ):
             resolve_token(None, oauth_mode=True)
 

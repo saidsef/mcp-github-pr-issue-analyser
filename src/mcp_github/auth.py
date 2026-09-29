@@ -46,6 +46,7 @@ from redis.asyncio import Redis as AsyncRedis
 from starlette.types import ASGIApp, Receive, Scope, Send
 
 from .dynamodb_store import DynamoDBStore
+from .exceptions import GitHubAuthError
 
 GITHUB_OAUTH_CLIENT_ID = getenv("GITHUB_OAUTH_CLIENT_ID")
 GITHUB_OAUTH_CLIENT_SECRET = getenv("GITHUB_OAUTH_CLIENT_SECRET")
@@ -305,10 +306,13 @@ def resolve_token(github_token: str | None, oauth_mode: bool) -> str:
     """Return the token the current request arrived with, or the static one.
 
     A deployment may hold both credentials, so the request decides which token a
-    tool acts with rather than the configuration deciding for it. See #389."""
+    tool acts with rather than the configuration deciding for it. See #389.
+
+    The header builder calls this outside the request helper's exception handling,
+    so a bare RuntimeError would reach the client with no code. See #475."""
     access_token = get_access_token()
     if access_token is not None:
         return access_token.token
     if oauth_mode and not github_token:
-        raise RuntimeError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")
+        raise GitHubAuthError("OAuth2 mode: no access token in request context and no GITHUB_TOKEN fallback")
     return github_token or ""

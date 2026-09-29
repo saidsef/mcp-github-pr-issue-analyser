@@ -806,7 +806,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             raise GitHubValidationError(f"start_line {start_line} must come before line {line} on {path}.")
         commit_id = ((await self._pr(repo_owner, repo_name, pr_number)).get("head") or {}).get("sha")
         if not commit_id:
-            raise ToolError(f"Could not retrieve head SHA for PR #{pr_number}")
+            raise GitHubAPIError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/comments"
         payload: dict[str, Any] = {
             "body": comment_body,
@@ -924,7 +924,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         draft only when the pull request is created, so this goes through GraphQL."""
         node_id = (await self._pr(repo_owner, repo_name, pr_number)).get("node_id")
         if not node_id:
-            raise ToolError(f"Could not retrieve the node id for PR #{pr_number}")
+            raise GitHubAPIError(f"Could not retrieve the node id for PR #{pr_number}")
         mutation, field = (
             (CONVERT_PR_TO_DRAFT_MUTATION, "convertPullRequestToDraft")
             if draft
@@ -1002,7 +1002,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         those, and for any qualifier this tool does not expose."""
         if filtering == "repo":
             if not repo_name:
-                raise ToolError("repo_name is required when filtering='repo'")
+                raise GitHubValidationError("repo_name is required when filtering='repo'")
             search_target = f"{repo_owner}/{repo_name}"
         else:
             search_target = repo_owner
