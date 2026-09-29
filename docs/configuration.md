@@ -13,7 +13,7 @@ Four modes are supported. The active mode is selected automatically from environ
 
 In static-token HTTP mode, clients send `Authorization: Bearer <GITHUB_TOKEN>`, compared against the server's `GITHUB_TOKEN` in constant time. Every caller shares one identity and one rate limit.
 
-In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAuth2 flow, and requests the `repo`, `read:org`, `user` and `project` scopes. Each caller's own token is used for API calls, so audit trails and rate limits follow the individual user.
+In OAuth2 mode the server registers clients dynamically, proxies the GitHub OAuth2 flow, and requests the `repo`, `workflow`, `read:org`, `user` and `project` scopes. Each caller's own token is used for API calls, so audit trails and rate limits follow the individual user.
 
 Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines the two rather than one overriding the other. The OAuth provider serves the sign-in routes and the discovery metadata, and the static token is verified beside it, so a scheduled job that cannot run a browser flow reaches the same deployment as the people signing in. Each tool call acts with the token its own request carried. A bearer token matching neither credential is refused with `401 invalid_token`, and the refusal names neither.
 
@@ -21,7 +21,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `GITHUB_TOKEN` | Unless OAuth2 | GitHub PAT with `repo` scope, and the bearer token in HTTP mode. Set it alongside the OAuth2 settings to accept both credentials. Without it and without the OAuth2 settings the server still starts, and refuses every call with `[AUTH_FAILED]` |
+| `GITHUB_TOKEN` | Unless OAuth2 | GitHub PAT with the `repo` and `workflow` scopes, and the bearer token in HTTP mode. Set it alongside the OAuth2 settings to accept both credentials. Without it and without the OAuth2 settings the server still starts, and refuses every call with `[AUTH_FAILED]` |
 | `MCP_ENABLE_REMOTE` | No | `true`, `1`, `yes` or `on` enables HTTP mode, required for OAuth2. Anything else stays on stdio. Set to `true` in the published image |
 | `GITHUB_OAUTH_CLIENT_ID` | OAuth2 only | GitHub OAuth App client ID |
 | `GITHUB_OAUTH_CLIENT_SECRET` | OAuth2 only | GitHub OAuth App client secret |
@@ -191,7 +191,7 @@ The resources capability is declared on initialise as
 
 ## Personal access token scopes
 
-The PAT needs `repo` for private repositories. Reading org membership in user activity queries also needs `read:org`. The project board tools need `read:project` to read and `project` to write, which `repo` does not cover. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope, plus Projects read and write for the board tools.
+The PAT needs `repo` for private repositories. Merging a pull request that touches a file under `.github/workflows` needs `workflow` as well, which `repo` does not cover. Reading org membership in user activity queries also needs `read:org`. The project board tools need `read:project` to read and `project` to write, which `repo` does not cover. A fine-grained token works if it grants read and write on pull requests, issues, contents and metadata for the repositories in scope, plus Workflows read and write for a change under `.github/workflows`, and Projects read and write for the board tools.
 
 ## Scopes each tool needs
 
@@ -206,6 +206,8 @@ Every tool declares the scopes its work needs, and the server checks that declar
 
 The check runs when the tools are listed as well as when one is called. In OAuth2 mode a grant without `repo` sees only the read-only tools, and a call to any of the others is refused with `insufficient scope (required: repo)`. The refusal names the scope the grant lacks, so a client can re-authorise for it rather than reading a GitHub `403` raised from inside the call.
 
-Only `user` is required of every request. The scopes the gate checks are deliberately absent from that floor, because the transport answers `403` to a grant that falls short of it and the caller would lose the read-only tools along with the rest. The flow still asks GitHub for `repo`, `read:org`, `user` and `project`, and still advertises all four to clients, so a caller who accepts the server's default holds the scopes the gated tools want.
+Only `user` is required of every request. The scopes the gate checks are deliberately absent from that floor, because the transport answers `403` to a grant that falls short of it and the caller would lose the read-only tools along with the rest. The flow still asks GitHub for `repo`, `workflow`, `read:org`, `user` and `project`, and still advertises all five to clients, so a caller who accepts the server's default holds the scopes the gated tools want.
+
+The gate does not check `workflow`, so a grant issued before the server asked for it still reaches every tool. GitHub refuses the write itself, with a `403` naming the missing scope. A caller holding such a grant re-authorises once to merge a pull request that touches `.github/workflows`.
 
 stdio has no grant to check, so every tool stays listed. A static token reports every scope the flow asks for, so it reaches every tool whether it is the only credential or shares the deployment with OAuth2.

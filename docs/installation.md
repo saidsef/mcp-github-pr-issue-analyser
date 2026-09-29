@@ -3,7 +3,7 @@
 ## Requirements
 
 - Python 3.14
-- A GitHub personal access token with `repo` scope, **or** a GitHub OAuth App (client ID, secret and a public base URL)
+- A GitHub personal access token with the `repo` and `workflow` scopes, **or** a GitHub OAuth App (client ID, secret and a public base URL)
 
 ## Run from source
 

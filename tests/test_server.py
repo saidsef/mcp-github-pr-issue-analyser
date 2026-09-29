@@ -274,6 +274,16 @@ class TestScopeFloor:
         assert set(GATED_SCOPES) <= set(asked)
         assert set(asked) == set(GITHUB_SCOPES)
 
+    def test_the_authorisation_request_asks_for_the_workflow_scope(self):
+        """GitHub refuses a write to a file under .github/workflows without it, and a
+        bump to a workflow file is a pull request like any other. See #470."""
+        with deployment(token=None, oauth=True):
+            provider = get_oauth_verifier()
+
+        assert "workflow" in GITHUB_SCOPES
+        assert "workflow" in provider.scopes_supported
+        assert "workflow" in self._authorize_scope(provider, {})
+
     def test_the_request_carries_the_set_whatever_the_client_names(self):
         """A client that names nothing used to fall back to the floor."""
         with deployment(token=None, oauth=True):

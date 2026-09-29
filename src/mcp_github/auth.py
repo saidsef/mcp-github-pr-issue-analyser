@@ -61,7 +61,7 @@ DYNAMODB_SETUP_RETRY_SECONDS = 5.0
 
 MISSING_CREDENTIALS = "Missing GitHub OAuth credentials or GITHUB_TOKEN"
 
-GITHUB_SCOPES: tuple[str, ...] = ("repo", "read:org", "user", "project")
+GITHUB_SCOPES: tuple[str, ...] = ("repo", "workflow", "read:org", "user", "project")
 
 REQUIRED_SCOPES: tuple[str, ...] = ("user",)
 

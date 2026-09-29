@@ -54,6 +54,15 @@ class TestAPIKeyVerifier:
         assert set(REQUIRED_SCOPES) <= set(verified.scopes)
 
     @pytest.mark.anyio
+    async def test_the_grant_carries_the_workflow_scope(self):
+        """GitHub refuses a write to a file under .github/workflows without it, so a
+        pull request touching one could not be merged. See #470."""
+        verified = await APIKeyVerifier("pat").verify_token("pat")
+
+        assert verified is not None
+        assert "workflow" in verified.scopes
+
+    @pytest.mark.anyio
     async def test_any_other_token_is_refused(self):
         assert await APIKeyVerifier("pat").verify_token("other") is None
 
