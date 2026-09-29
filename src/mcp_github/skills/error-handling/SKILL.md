@@ -157,6 +157,38 @@ Large diffs and busy status-check queries are the usual causes, and the
 operator raises `GITHUB_API_TIMEOUT` for them. That no longer changes how long
 the server waits on a host it cannot reach.
 
+## Reporting a Server Fault
+
+Every route above hands the failure back as something the user fixes. A fault in
+this server fits none of them, and the shape of the message separates one from a
+refusal by GitHub. Three shapes point at the server.
+
+| Shape | Reading |
+|---|---|
+| `VALIDATION_ERROR` on a call whose arguments match the parameters the documenting skill lists | The server built the request body, so GitHub rejected a field the client never sent |
+| `GraphQL error: <message>` where the inner code repeats the outer `GITHUB_API_ERROR` | The GraphQL error type matched nothing the server maps, so the message names no cause the user controls |
+| A message carrying no bracketed code and none of the httpx text a timeout produces | The failure escaped the typed paths |
+
+The unmapped GraphQL type reads:
+
+```
+Error calling tool 'github_list_projects': [GITHUB_API_ERROR] Failed to list projects: [GITHUB_API_ERROR] GraphQL error: Something went wrong while executing your query.
+```
+
+Offer the user an issue in `saidsef/mcp-github-pr-issue-analyser` where the
+message takes one of those shapes. Ask first and file only on a yes, since the
+user owns the report and may know of an open one. File it with
+`github_create_issue` against that owner and repository, writing the title to
+the Title Convention and the body to the Issue Body template the
+`issue-management` skill carries. The verbatim `ToolError`, the tool name and
+the arguments you passed go in the Problem Statement as a fenced block.
+
+`github_create_issue` goes out on the same token and the same client as the call
+that failed, so two failures block the report. `AUTH_FAILED` leaves no working
+token to file with. An exhausted rate limit refuses the write as well. Report
+the fault to the user in the session and leave the filing until the token works
+or the limit resets.
+
 ## Best Practices
 
 - Match on the bracketed code, never on the prose after it, and search the whole message for it rather than reading it off the front
@@ -166,3 +198,4 @@ the server waits on a host it cannot reach.
 - Re-read the arguments on `VALIDATION_ERROR` rather than trying the call again
 - On `NOT_FOUND`, check the spelling of owner, repo and number before reporting the resource as absent
 - Report what failed and what the user needs to do, quoting the `GitHub said` text and not the whole exception
+- Offer the user an issue in `saidsef/mcp-github-pr-issue-analyser` where the message shape points at the server, and file it with `github_create_issue` only once the user agrees
