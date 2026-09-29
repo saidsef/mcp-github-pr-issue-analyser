@@ -11,6 +11,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 - `repo_owner` and `repo_name` for the target repository
 - The `head` branch must already be pushed before creating a PR
 - GitHub token with `repo` write access
+- The `workflow` scope on that token to merge a PR touching `.github/workflows`, which GitHub refuses without it
 
 ## Workflow
 

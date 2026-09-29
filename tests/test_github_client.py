@@ -19,7 +19,7 @@ from mcp_github.exceptions import (
 )
 from mcp_github.github_integration import CONNECT_TIMEOUT, TIMEOUT, GitHubIntegration, _timeout
 from mcp_github.tool_annotations import GATED_SCOPES, PROJECT_SCOPES, WRITE_SCOPES, _write
-from tests.support import mock_response
+from tests.support import deployment, mock_response
 
 _READ = {
     "get_issue",
@@ -277,6 +277,23 @@ _SAML_403 = {
     "documentation_url": "https://docs.github.com/rest",
 }
 
+_WORKFLOW_SCOPE_403 = {
+    "message": (
+        "refusing to allow an OAuth App to create or update workflow"
+        " `.github/workflows/charts.yml` without `workflow` scope"
+    ),
+    "documentation_url": "https://docs.github.com/rest",
+}
+
+
+def _refusing_oauth_client(body: dict) -> GitHubIntegration:
+    """A client in OAuth2 mode whose every request meets this 403."""
+    with deployment(token="test-token", oauth=True):
+        gi = GitHubIntegration()
+    gi._http = AsyncMock()
+    gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
+    return gi
+
 
 class TestErrorDetail:
     """GitHub explains a refusal in the response body, and the exception text is all
@@ -303,6 +320,36 @@ class TestErrorDetail:
         gi._http.request.return_value.json.side_effect = ValueError("not json")
         with pytest.raises(ToolError, match="Permission denied. Check your token permissions"):
             await gi.merge_pr("owner", "repo", 42)
+
+    @pytest.mark.anyio
+    async def test_a_missing_workflow_scope_leads_the_message(self, gi: GitHubIntegration):
+        """GitHub names the scope in the trailing clause of a long message, so the
+        refusal repeats it where a client reads the message first. See #470."""
+        gi._http.request = AsyncMock(
+            return_value=mock_response(
+                status_code=403, json_data=_WORKFLOW_SCOPE_403, text=json.dumps(_WORKFLOW_SCOPE_403)
+            )
+        )
+        with pytest.raises(ToolError, match=r"Refused\. The token is missing the `workflow` scope"):
+            await gi.merge_pr("owner", "repo", 42)
+
+    @pytest.mark.anyio
+    async def test_a_missing_workflow_scope_displaces_the_org_policy_guidance(self):
+        """The org third-party-access text explains a different 403, and a caller who
+        follows it changes nothing that matters here. See #470."""
+        oauth_gi = _refusing_oauth_client(_WORKFLOW_SCOPE_403)
+        with pytest.raises(ToolError) as refused:
+            await oauth_gi.merge_pr("owner", "repo", 42)
+
+        assert "`workflow` scope" in str(refused.value)
+        assert "OAuth App access policy" not in str(refused.value)
+
+    @pytest.mark.anyio
+    async def test_a_refusal_naming_no_scope_keeps_the_org_policy_guidance(self):
+        """SAML enforcement is the refusal that guidance was written for. See #470."""
+        oauth_gi = _refusing_oauth_client(_SAML_403)
+        with pytest.raises(ToolError, match="OAuth App access policy"):
+            await oauth_gi.merge_pr("owner", "repo", 42)
 
     def test_a_permission_403_is_not_read_as_a_rate_limit(self, gi: GitHubIntegration):
         response = mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))

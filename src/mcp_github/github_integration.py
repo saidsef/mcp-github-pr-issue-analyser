@@ -214,6 +214,12 @@ _IfExists = Literal["fail", "update"]
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 _PENDING_STATUSES = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
 
+_WORKFLOW_SCOPE_REFUSAL = "`workflow` scope"
+_WORKFLOW_SCOPE_GUIDANCE = (
+    " The token is missing the `workflow` scope, which GitHub requires for a write to a file under"
+    " .github/workflows. Re-authorise this server to grant it."
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -653,7 +659,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         error_text = response.text.lower()
         if "rate limit" not in error_text:
             msg = "Refused." if detail else "Permission denied. Check your token permissions."
-            if self._oauth_mode:
+            if _WORKFLOW_SCOPE_REFUSAL in error_text:
+                msg += _WORKFLOW_SCOPE_GUIDANCE
+            elif self._oauth_mode:
                 msg += (
                     " If accessing a private organisation repository, the org admin may need to"
                     " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
