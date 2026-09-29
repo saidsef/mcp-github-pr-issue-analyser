@@ -284,20 +284,22 @@ last.
 
 | Section | Holds |
 |---|---|
-| Problem Statement | What is wrong and what it costs, to someone who has not seen the code. Two or three sentences, or a table where the problem is a set of measurements |
+| Problem Statement | What is wrong and what it costs, to someone who has not seen the code. Two or three sentences, a table where the problem is a set of measurements, or a verbatim error, log excerpt or request payload in a fenced block, where the failure produced one |
 | Proposed Solution | One way it could be fixed, same length. Code belongs here as a sketch of fifteen lines at most, never a finished patch |
 | Affected Resources | The files, tools, services and docs that would change, as a list. Name things that exist, and say where a guess is a guess |
 | Resource Links | External links that help: upstream documentation, a spec, a release note. Cut the section when there is nothing useful |
 | Acceptance Criteria | What done looks like, as three to five outcomes of one line each |
 
-An issue describes work nobody has started, so it carries no account of how the
-problem was found. State the problem and the outcome wanted, and leave out the
-reasoning that led there. Acceptance criteria are goals rather than steps: one
-naming a specific function or flag is wrong the moment the work takes another
-route.
+An issue describes work nobody has started, so it carries no narrative account
+of how the problem was found. State the problem and the outcome wanted, and
+leave out the reasoning that led there. An artefact that reproduces the failure
+is evidence rather than backstory, so it stays. Acceptance criteria are goals
+rather than steps: one naming a specific function or flag is wrong the moment
+the work takes another route.
 
-Three hundred words across all five sections is the ceiling. A section with
-nothing true under it comes out rather than getting filled.
+Three hundred words across all five sections is the ceiling, and a fenced block
+does not count towards it. A section with nothing true under it comes out
+rather than getting filled.
 
 ## Title Convention
 

@@ -111,6 +111,15 @@ class TestAuthoringConventions:
             found = [body.index(f"## {heading}") for heading in headings]
             assert found == sorted(found), name
 
+    def test_the_issue_template_admits_a_fenced_artefact(self):
+        """A failure with a machine-readable cause reaches the issue verbatim. See #471."""
+        prose = " ".join(self._skill("issue-management").split())
+
+        assert "a verbatim error, log excerpt or request payload in a fenced block" in prose
+        assert "carries no narrative account of how the problem was found" in prose
+        assert "An artefact that reproduces the failure is evidence rather than backstory" in prose
+        assert "is the ceiling, and a fenced block does not count towards it" in prose
+
     def test_both_skills_title_the_same_way(self):
         """Issue titles, PR titles and commit subjects share one shape."""
         for name in ("issue-management", "pr-management"):
