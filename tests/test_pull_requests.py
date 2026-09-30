@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_github.exceptions import GitHubValidationError
+from mcp_github.exceptions import GitHubAPIError, GitHubValidationError
 from mcp_github.github_integration import GitHubIntegration
 from tests.support import CREATED_PR, label_payload, mock_response, pr_payload
 
@@ -315,9 +315,11 @@ class TestSetPRDraft:
         assert result["is_draft"] is True
 
     @pytest.mark.anyio
-    async def test_missing_node_id_is_an_error(self, gi: GitHubIntegration):
+    async def test_missing_node_id_raises_the_api_code(self, gi: GitHubIntegration):
+        """The PR fetch succeeded and the payload came back short, so the failure is a
+        GitHub API error rather than a validation one. See #475."""
         gi._http.request = AsyncMock(return_value=mock_response(json_data={"number": 5}))
         gi._execute_graphql = AsyncMock()
-        with pytest.raises(ToolError, match="node id"):
+        with pytest.raises(GitHubAPIError, match=r"\[GITHUB_API_ERROR\] Could not retrieve the node id for PR #5"):
             await gi.set_pr_draft("o", "r", 5, draft=False)
         gi._execute_graphql.assert_not_called()
