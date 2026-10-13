@@ -900,7 +900,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> PRContent:
         """Updates an existing pull request. Only the fields supplied are sent, the
         rest keep their current values, so a title can change without restating the body.
-        Labels take a second call, since the pull request payload carries none."""
+        Labels take a second call, since the pull request payload carries none. That
+        call answers with the issue, which has no head, base or reviewers, so a
+        labels-only update reads the pull request back."""
         payload = _supplied(title=title, body=body, state=state, base=base)
         if not payload and labels is None:
             raise GitHubValidationError("Supply at least one of title, body, state, base or labels to update.")
@@ -909,8 +911,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
             data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
         if labels is not None:
-            data = await self._replace_labels(repo_owner, repo_name, pr_number, labels)
-        return _pr_content(data)
+            await self._replace_labels(repo_owner, repo_name, pr_number, labels)
+        return _pr_content(data or await self._pr(repo_owner, repo_name, pr_number))
 
     @_write(idempotent=True)
     async def set_pr_draft(

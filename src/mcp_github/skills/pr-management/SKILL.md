@@ -88,7 +88,8 @@ reaches GitHub.
 `labels` replaces the whole set, so `[]` strips every label including `mcp`.
 Unlike `github_create_pr`, this tool does not re-add `mcp`. Labels go to the issues
 endpoint in a second call, and `PRContent` carries none of them, so read them
-back with `github_get_issue` if they matter.
+back with `github_get_issue` if they matter. A call that changes only `labels`
+reads the PR back afterwards, which costs one more request.
 
 Retargeting `base` recomputes the diff against the new branch, so the file list
 and the review comments' line anchors can both move.
