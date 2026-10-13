@@ -125,6 +125,10 @@ Returns `count`, `has_more` and `releases`, newest first, each trimmed to the fi
 The latest release is the newest non-draft, non-prerelease one, which is not
 always the highest version number. Pass `tag_name` when you mean a specific one.
 
+A draft is found by its tag as well, for a token with push access. GitHub serves
+only published releases by tag, so a draft costs a read of the release listing,
+and `github_update_release` and `github_delete_release` find drafts the same way.
+
 ### `github_update_release`
 
 | Parameter | Type | Default | Description |
@@ -194,8 +198,9 @@ Destructive and not reversible. A tag a release points at is refused unless
 fetch. Delete the release first instead, or call `github_delete_release` with
 `delete_tag=True` to do both in the right order.
 
-The check reads published releases, so a draft naming the tag is invisible to it
-and the tag is removed without complaint.
+The check covers drafts as well as published releases, so a draft naming the
+tag is refused the same way. Under `force`, `release_still_published` reads
+`True` for a draft too.
 
 ## Semantic Versioning Guide
 

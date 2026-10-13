@@ -63,7 +63,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_create_release` | write | Publish a release with a changelog, refusing a tag that already has one unless `if_exists="update"` |
 | `github_list_releases` | read | A repository's releases, newest first |
 | `github_get_release` | read | One release, by tag or the latest published |
-| `github_update_release` | write | Change a published release's title, notes, draft or prerelease state |
+| `github_update_release` | write | Change a release's title, notes, draft or prerelease state, a draft included |
 | `github_list_tags` | read | A repository's tags and the commit each points at |
 | `github_delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise, which skips the `github_delete_tag` force check |
 | `github_delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
