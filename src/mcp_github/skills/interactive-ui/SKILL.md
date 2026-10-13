@@ -31,17 +31,22 @@ The user clicks one option and the selection comes back into the conversation
 as a message. Nothing is returned to you directly, so treat the click as the
 user's next turn and carry on from it.
 
-This is the right way to get confirmation before anything irreversible. The
-merge step in the pr-management skill requires an explicit yes from the user,
-and `github_merge_pr` does not prompt on its own, so ask here first:
+This is the right way to get confirmation before anything irreversible, where
+a user is there to click. The merge step in the pr-management skill asks before
+`github_merge_pr`, which does not prompt on its own, and names any check that is
+not passing so the user can merge anyway:
 
 ```
 choose(
-  prompt="Merge PR #123 into main with a squash commit?",
-  options=["Merge it", "Not yet"],
+  prompt="Checks on PR #123 are failing (lint, test). Merge into main anyway with a squash commit?",
+  options=["Merge anyway", "Not yet"],
   title="Confirm merge",
 )
 ```
+
+A click on `Merge anyway` is the user's answer, so call `github_merge_pr` on it.
+An unattended run has nobody to click, and `choose` waits for one, so skip it
+there and follow the request that started the run.
 
 It also suits picking a target when a search returned several, such as which of
 four open PRs to review, or which release version to tag.
@@ -96,7 +101,7 @@ API lives in this tool, so call it rather than guessing at argument names.
 
 ## Best Practices
 
-- Ask with `choose` before calling `github_merge_pr`, and before anything else that cannot be undone
+- Ask with `choose` before calling `github_merge_pr`, and before anything else that cannot be undone, wherever a user can answer
 - Treat a `choose` click as the user's answer, since the tool returns nothing to you
 - Call `github_search_prefab_components` before writing Prefab code rather than guessing component arguments
 - Keep `PrefabApp` as the outermost context manager so the panel streams

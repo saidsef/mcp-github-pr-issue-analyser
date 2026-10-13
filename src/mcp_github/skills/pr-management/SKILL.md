@@ -38,10 +38,11 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Merging a PR
 
-1. Call `github_get_pr_status_checks` and require `overall == "passing"`, per the `pr-analysis` skill
-2. Confirm the review decision is an approval
-3. **Ask the user in chat and get an explicit yes before calling `github_merge_pr`. The tool does not prompt and the merge cannot be undone**
+1. Call `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and `github_list_pr_reviews` for the verdicts, per the `pr-review` skill
+2. **Where a user can answer in the session, ask before calling `github_merge_pr`, and name anything that is not ready: a `failing`, `pending` or `unknown` result with the failing check names, or no approval. A yes, including "merge it anyway", is the answer, so merge and do not refuse**
+3. Where nobody can answer, as in an unattended run, the request that started the run is the user's answer. Merge when it asked for a merge, and report the check and review state with the result rather than stopping to ask
 4. Call `github_merge_pr` with an explicit `commit_title`
+5. `github_merge_pr` checks nothing itself and the merge cannot be undone. A refusal from GitHub, such as branch protection requiring checks or reviews, comes back as an error that no yes overrides, so report its `GitHub said` text per the `error-handling` skill
 
 ## Tool Parameters
 
@@ -233,7 +234,7 @@ Two hundred and fifty words across all five sections is the ceiling.
 - Write PR bodies to the PR Body template above, and cut a section rather than padding it
 - Link the issue with `Fixes #N.` under Related Issues, so merging closes it
 - Assign every PR with `github_set_assignees` as you open it, so it has an owner from the start
-- Gate the merge on `github_get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
+- Read `github_get_pr_status_checks` before merging and tell the user about anything but `passing`, since `unknown` is not a pass. The user's yes, or the request that started an unattended run, is enough to merge
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
