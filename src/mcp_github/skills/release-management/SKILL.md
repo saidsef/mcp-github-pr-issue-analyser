@@ -254,5 +254,5 @@ Rules:
 - Confirm every intended PR is merged before tagging, since the tag follows the default branch HEAD
 - Publish with `draft=True` first to preview, then flip it once the notes read correctly
 - Set `prerelease=True` for alpha, beta and rc versions, which also keeps them off the latest-release badge
-- Put the release prose in `github_create_release`'s `body`, because the `github_create_tag` message does not survive
+- Put the release prose in `github_create_release`'s `body`, because the releases page shows the body and not the `github_create_tag` message
 - Pick one source for the commit list: either `generate_release_notes=True` or a hand-written `What Changed`, not both

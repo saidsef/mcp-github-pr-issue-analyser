@@ -22,7 +22,7 @@ defines.
 3. Write the title to the Title Convention and the body to the Issue Body template below
 4. Call `github_create_issue` with that title, body and labels, plus a `milestone` title if it belongs to one
 5. Call `github_set_assignees` with whoever owns the work
-6. The `mcp` label is appended automatically, so do not pass it yourself
+6. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the issue unlabelled
 
 ### Reading an Issue
 
@@ -262,7 +262,7 @@ labels needs no more access than reading the repository.
 
 | Filter | Qualifier | Returns |
 |---|---|---|
-| `involves` | `involves:<repo_owner>` | Items that user authored, is assigned, is mentioned in, or reviewed, across all of GitHub |
+| `involves` | `involves:<repo_owner>` | Items that user authored, is assigned, is mentioned in, or commented on, across all of GitHub |
 | `user` | `user:<repo_owner>` | Items in repositories owned by that user |
 | `org` | `org:<repo_owner>` | Items in repositories belonging to that organisation |
 | `repo` | `repo:<repo_owner>/<repo_name>` | Items in one repository. `repo_name` is required and the call fails without it |

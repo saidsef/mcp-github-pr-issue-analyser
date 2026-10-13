@@ -170,9 +170,10 @@ Returns `LinkedIssuesResult`:
 | `pr_number` | int | The PR queried |
 | `linked_issues` | list | One entry per issue with `number`, `title`, `state`, `url`, `created_at`, `labels` |
 
-Only issues GitHub will auto-close on merge are returned, meaning those written
-into the PR body with a closing keyword such as `Fixes #42`. An issue merely
-mentioned as `#42` is not included.
+Only issues GitHub will auto-close on merge are returned: those named in the PR
+body with a closing keyword such as `Fixes #42`, and those linked by hand from
+the Development sidebar. GitHub reads a closing keyword only on a PR into the
+default branch. An issue merely mentioned as `#42` is not included.
 
 ### `github_get_pr_status_checks`
 

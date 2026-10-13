@@ -16,7 +16,7 @@ Post targeted inline comments on specific lines, then submit a review decision o
 
 1. **Analyse the PR** - follow the `pr-analysis` skill to read the diff, metadata and CI status
 2. **Read what is already there** - call `github_list_pr_reviews` for the verdicts already given, and `github_list_pr_comments` with `kind="inline"` so a second review does not repeat the first
-3. **Post inline comments** - call `github_add_inline_pr_comment` once per line needing feedback
+3. **Post inline comments** - call `github_add_inline_pr_comment` once per line needing feedback. Each one is published at once as a review of its own, not held for the decision
 4. **Post a general comment** - optionally call `github_add_pr_comments` for remarks not tied to a line
 5. **Submit the decision** - call `github_submit_review` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`, leaving `body` unset on an approval
 
@@ -43,6 +43,11 @@ Post targeted inline comments on specific lines, then submit a review decision o
 | `start_side` | str \| None | Side `start_line` sits on. Omit to match `side` |
 
 Returns `CommentData` with `id`, `body`, `author`, `html_url`, `created_at`.
+
+GitHub publishes the comment straight away and files it as a review of its own,
+in state `COMMENTED` with an empty body, and notifies the author each time.
+`github_submit_review` adds a separate review carrying the decision, so the
+inline comments are never bundled into it.
 
 The line must fall inside the diff hunks of the PR. GitHub rejects a comment on
 an unchanged line outside any hunk, and on a path not present in the diff. A
@@ -72,6 +77,10 @@ Returns `count`, `has_more` and `reviews`, oldest first. Each review carries
 `state` is `APPROVED`, `CHANGES_REQUESTED`, `COMMENTED`, `DISMISSED` or
 `PENDING`. A review is not a comment: `github_list_pr_comments` returns what was said
 on lines and in the thread, and says nothing about whether anyone approved.
+
+Every inline comment posted through `github_add_inline_pr_comment` appears here
+as a `COMMENTED` review with an empty body. Read a verdict from the `APPROVED`
+and `CHANGES_REQUESTED` entries rather than from the number of reviews.
 
 `submitted_at` is `None` on a `PENDING` review, which is one written but never
 sent.
@@ -168,9 +177,9 @@ author cannot act on either decision without knowing what prompted it.
 
 ## Best Practices
 
-- Call `github_list_pr_reviews` before approving, since a standing `REQUEST_CHANGES` from someone else still blocks the merge
+- Call `github_list_pr_reviews` before approving, since a standing `REQUEST_CHANGES` from someone else blocks the merge on a repo with required reviews
 - List the existing inline comments before reviewing again, otherwise the same remarks land twice
-- Post every inline comment before calling `github_submit_review`
+- Post the inline comments first and submit the decision last, so the verdict is the newest review on the PR
 - Use `github_add_inline_pr_comment` for line-specific feedback and `github_add_pr_comments` for high-level remarks
 - Fix a wrong comment with `github_update_pr_comment` rather than posting a correction underneath it
 - Approve with no `body`, and write one only where the user asks for it or the decision is `REQUEST_CHANGES` or `COMMENT`

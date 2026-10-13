@@ -991,7 +991,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         issue: Annotated[Literal["pr", "issue"], "pr for pull requests, issue for issues"] = "pr",
         filtering: Annotated[
             Literal["user", "org", "repo", "involves"],
-            "involves for items that user authored, is assigned, is mentioned in or reviewed, anywhere on GitHub. "
+            "involves for items that user authored, is assigned, is mentioned in or commented on, anywhere on GitHub. "
             "user for items in that user's repositories. org for an organisation's. repo for one repository",
         ] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
