@@ -185,6 +185,7 @@ ETAG_CACHE_ENTRIES = int(getenv("GITHUB_ETAG_CACHE_ENTRIES", "256"))
 DIFF_MAX_BYTES = int(getenv("GITHUB_DIFF_MAX_BYTES", "131072"))
 FILE_MAX_BYTES = int(getenv("GITHUB_FILE_MAX_BYTES", "131072"))
 MAX_MILESTONE_PAGES = 5
+MAX_RELEASE_PAGES = 5
 MAX_STATUS_CHECKS_SUITE_PAGES = 5
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5
 
@@ -900,7 +901,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> PRContent:
         """Updates an existing pull request. Only the fields supplied are sent, the
         rest keep their current values, so a title can change without restating the body.
-        Labels take a second call, since the pull request payload carries none."""
+        Labels take a second call, since the pull request payload carries none. That
+        call answers with the issue, which has no head, base or reviewers, so a
+        labels-only update reads the pull request back."""
         payload = _supplied(title=title, body=body, state=state, base=base)
         if not payload and labels is None:
             raise GitHubValidationError("Supply at least one of title, body, state, base or labels to update.")
@@ -909,8 +912,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
             data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
         if labels is not None:
-            data = await self._replace_labels(repo_owner, repo_name, pr_number, labels)
-        return _pr_content(data)
+            await self._replace_labels(repo_owner, repo_name, pr_number, labels)
+        return _pr_content(data or await self._pr(repo_owner, repo_name, pr_number))
 
     @_write(idempotent=True)
     async def set_pr_draft(
@@ -991,7 +994,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         issue: Annotated[Literal["pr", "issue"], "pr for pull requests, issue for issues"] = "pr",
         filtering: Annotated[
             Literal["user", "org", "repo", "involves"],
-            "involves for items that user authored, is assigned, is mentioned in or reviewed, anywhere on GitHub. "
+            "involves for items that user authored, is assigned, is mentioned in or commented on, anywhere on GitHub. "
             "user for items in that user's repositories. org for an organisation's. repo for one repository",
         ] = "involves",
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
@@ -1539,12 +1542,26 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         return {**_pick(response.json(), *_RELEASE_FIELDS), "updated": False}
 
     async def _release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any] | None:
-        """The release published for a tag, or None when the tag carries none.
-        GitHub serves published releases here, so a draft naming the tag reads as
-        none and neither the delete_tag guard nor delete_release sees it."""
-        url = f"{_repo(repo_owner, repo_name)}/releases/tags/{tag_name}"
-        response = await self._request("GET", url, context=f"release for tag {tag_name}", allow_status=(404,))
-        return None if response.status_code == 404 else response.json()
+        """The release for a tag, draft or published, or None when the tag carries
+        none. GitHub serves only published releases by tag, so a draft is found in
+        the listing, which shows drafts to a token with push access."""
+        base = _repo(repo_owner, repo_name)
+        response = await self._request(
+            "GET", f"{base}/releases/tags/{tag_name}", context=f"release for tag {tag_name}", allow_status=(404,)
+        )
+        if response.status_code != 404:
+            return response.json()
+        for page in range(1, MAX_RELEASE_PAGES + 1):
+            listing = await self._request(
+                "GET",
+                f"{base}/releases",
+                context=f"releases for {repo_owner}/{repo_name}",
+                params={"per_page": 100, "page": page},
+            )
+            match = next((release for release in listing.json() if release.get("tag_name") == tag_name), None)
+            if match or not _has_more(listing):
+                return match
+        return None
 
     async def _require_release_by_tag(self, repo_owner: str, repo_name: str, tag_name: str) -> dict[str, Any]:
         """As _release_by_tag, for the callers that cannot proceed without one."""
@@ -1594,7 +1611,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         draft: bool | None = None,
         prerelease: bool | None = None,
     ) -> dict[str, Any]:
-        """Changes a published release in place. Only the fields supplied are sent,
+        """Changes a release in place, a draft included. Only the fields supplied are sent,
         so correcting a title does not wipe the notes. make_latest is settable on
         github_create_release alone, and only on the call that first publishes the tag,
         since publishing again falls through to here and this tool does not send

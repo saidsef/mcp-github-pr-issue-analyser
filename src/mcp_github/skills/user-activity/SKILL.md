@@ -128,7 +128,7 @@ This is the tool for any question of the form "which repos gained the most
 stars recently".
 
 ```
-get_repo_stars_since(username="saidsef", since="2024-04-01", top_n=5)
+github_get_repo_stars_since(username="saidsef", since="2024-04-01", top_n=5)
 ```
 
 How it picks and counts:

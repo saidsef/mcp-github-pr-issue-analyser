@@ -22,7 +22,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 3. Call `github_create_pr` with that title, body, head branch, base branch and labels
 4. Call `github_set_assignees` with whoever owns the work
 5. Pass `draft=True` while the work is still in progress
-6. The `mcp` label is appended automatically, so do not pass it yourself
+6. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the PR unlabelled
 
 ### Updating a PR
 
@@ -38,10 +38,11 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Merging a PR
 
-1. Call `github_get_pr_status_checks` and require `overall == "passing"`, per the `pr-analysis` skill
-2. Confirm the review decision is an approval
-3. **Ask the user in chat and get an explicit yes before calling `github_merge_pr`. The tool does not prompt and the merge cannot be undone**
+1. Call `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and `github_list_pr_reviews` for the verdicts, per the `pr-review` skill
+2. **Where a user can answer in the session, ask before calling `github_merge_pr`, and name anything that is not ready: a `failing`, `pending` or `unknown` result with the failing check names, or no approval. A yes, including "merge it anyway", is the answer, so merge and do not refuse**
+3. Where nobody can answer, as in an unattended run, the request that started the run is the user's answer. Merge when it asked for a merge, and report the check and review state with the result rather than stopping to ask
 4. Call `github_merge_pr` with an explicit `commit_title`
+5. `github_merge_pr` checks nothing itself and the merge cannot be undone. A refusal from GitHub, such as branch protection requiring checks or reviews, comes back as an error that no yes overrides, so report its `GitHub said` text per the `error-handling` skill
 
 ## Tool Parameters
 
@@ -87,7 +88,8 @@ reaches GitHub.
 `labels` replaces the whole set, so `[]` strips every label including `mcp`.
 Unlike `github_create_pr`, this tool does not re-add `mcp`. Labels go to the issues
 endpoint in a second call, and `PRContent` carries none of them, so read them
-back with `github_get_issue` if they matter.
+back with `github_get_issue` if they matter. A call that changes only `labels`
+reads the PR back afterwards, which costs one more request.
 
 Retargeting `base` recomputes the diff against the new branch, so the file list
 and the review comments' line anchors can both move.
@@ -112,7 +114,14 @@ the repository.
 | `repo_owner` | str | GitHub organisation or username |
 | `repo_name` | str | Repository name |
 | `issue_number` | int | PR or issue number, PRs are issues for this endpoint |
-| `assignees` | list[str] | GitHub usernames to assign |
+| `assignees` | list[str] | GitHub usernames. Replaces the current set |
+
+Returns `status`, `assignees_requested`, `assignees_applied` and `issue_url`.
+
+The list replaces every assignee already there, and `[]` clears them all, so
+include anyone who should stay. `status` reads `partial` where GitHub dropped a
+login that is not a collaborator or does not exist, and `message` then names
+the logins left out.
 
 ### `github_update_pr_branch`
 
@@ -156,8 +165,9 @@ PR titles and commit subjects share one shape with issue titles:
 
 This governs `title` in `github_create_pr`, `title` in `github_update_pr` and
 `commit_title` in `github_merge_pr`. Always set `commit_title` explicitly when
-squashing, otherwise the subject landing on the default branch inherits a
-branch commit. Append the PR reference, e.g.
+squashing. Without it GitHub follows the repository's setting, and the default
+takes a single-commit PR's subject from that commit rather than from the PR
+title. Append the PR reference, e.g.
 `feat(auth): support GitHub App tokens (#123)`.
 
 The summary names the action and what it acts on, and stops there. What the
@@ -196,7 +206,7 @@ last.
 | Section | Holds |
 |---|---|
 | Summary | Two or three sentences on what the change does, in the reviewer's terms. Opens on the change rather than the problem, since the issue holds the problem |
-| Related Issues | `Fixes #N.` and nothing else, which closes the issue on merge. `Refs #N.` where the PR leaves part of the issue undone |
+| Related Issues | `Fixes #N.` and nothing else, which closes the issue when the PR merges into the default branch. `Refs #N.` where the PR leaves part of the issue undone |
 | Changes Made | Grouped by what the change does, never by which file it touched. Five bullets is the ceiling. This is where the decision that was not obvious goes |
 | Testing | The commands and what they returned, one bullet each. Not how the checking was done, not what the new tests assert |
 | Checklist | What Testing cannot show: docs updated, nothing breaking for existing callers. Every box ticked |
@@ -225,8 +235,8 @@ Two hundred and fifty words across all five sections is the ceiling.
 - Write PR bodies to the PR Body template above, and cut a section rather than padding it
 - Link the issue with `Fixes #N.` under Related Issues, so merging closes it
 - Assign every PR with `github_set_assignees` as you open it, so it has an owner from the start
-- Gate the merge on `github_get_pr_status_checks` returning `overall="passing"`. `unknown` is not a pass
+- Read `github_get_pr_status_checks` before merging and tell the user about anything but `passing`, since `unknown` is not a pass. The user's yes, or the request that started an unattended run, is enough to merge
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
-- Delete the head branch after merging
+- Report that the head branch is still in place after a merge, since no tool here deletes a branch

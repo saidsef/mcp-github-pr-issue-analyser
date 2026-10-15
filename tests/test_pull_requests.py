@@ -205,15 +205,16 @@ class TestPRLabels:
     async def test_update_pr_sends_labels_to_the_issues_endpoint(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=label_payload("bug")))
         await gi.update_pr("o", "r", 5, labels=["bug"])
-        method, url = gi._http.request.call_args.args
-        assert (method, url) == ("PATCH", "https://api.github.com/repos/o/r/issues/5")
-        assert gi._http.request.call_args.kwargs["json"] == {"labels": ["bug"]}
+        label_call = gi._http.request.call_args_list[0]
+        assert label_call.args == ("PATCH", "https://api.github.com/repos/o/r/issues/5")
+        assert label_call.kwargs["json"] == {"labels": ["bug"]}
 
     @pytest.mark.anyio
     async def test_update_pr_labels_alone_still_returns_pr_content(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=label_payload("bug")))
         result = await gi.update_pr("o", "r", 5, labels=["bug"])
-        assert gi._http.request.call_count == 1
+        assert gi._http.request.call_count == 2
+        assert gi._http.request.call_args.args == ("GET", "https://api.github.com/repos/o/r/pulls/5")
         assert result["title"] == "A change"
         assert result["state"] == "open"
 
@@ -221,7 +222,7 @@ class TestPRLabels:
     async def test_update_pr_strips_every_label_for_an_empty_list(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=label_payload()))
         await gi.update_pr("o", "r", 5, labels=[])
-        assert gi._http.request.call_args.kwargs["json"] == {"labels": []}
+        assert gi._http.request.call_args_list[0].kwargs["json"] == {"labels": []}
 
     @pytest.mark.anyio
     async def test_update_pr_sends_the_labels_after_the_other_fields(self, gi: GitHubIntegration):

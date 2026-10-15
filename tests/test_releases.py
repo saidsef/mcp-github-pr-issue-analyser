@@ -174,7 +174,8 @@ class TestReleasesAndTags:
 
     @pytest.mark.anyio
     async def test_missing_release_raises_not_found(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=404, json_data={}))
+        responses = iter([mock_response(status_code=404, json_data={}), mock_response(json_data=[])])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         with pytest.raises(GitHubNotFoundError, match="No release found for tag 'v9'"):
             await gi.get_release("o", "r", "v9")
 
@@ -219,13 +220,14 @@ class TestReleasesAndTags:
     async def test_update_release_can_clear_the_draft_flag(self, gi: GitHubIntegration):
         responses = iter(
             [
-                mock_response(json_data=release_payload(draft=True)),
+                mock_response(status_code=404, json_data={}),
+                mock_response(json_data=[release_payload(draft=True)]),
                 mock_response(json_data=release_payload()),
             ]
         )
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         await gi.update_release("o", "r", "v1.0.0", draft=False)
-        assert gi._http.request.call_args_list[1].kwargs["json"] == {"draft": False}
+        assert gi._http.request.call_args_list[2].kwargs["json"] == {"draft": False}
 
     @pytest.mark.anyio
     async def test_update_release_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):
@@ -344,6 +346,7 @@ class TestReleasesAndTags:
         responses = iter(
             [
                 mock_response(status_code=404, json_data={}),
+                mock_response(json_data=[]),
                 mock_response(status_code=204),
             ]
         )
