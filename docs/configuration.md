@@ -210,4 +210,4 @@ Only `user` is required of every request. The scopes the gate checks are deliber
 
 The gate does not check `workflow`, so a grant issued before the server asked for it still reaches every tool. GitHub refuses the write itself, with a `403` naming the missing scope. A caller holding such a grant re-authorises once to merge a pull request that touches `.github/workflows`.
 
-stdio has no grant to check, so every tool stays listed. A static token reports every scope the flow asks for, so it reaches every tool whether it is the only credential or shares the deployment with OAuth2.
+stdio has no grant to check, so every tool stays listed. An in-process client such as `fastmcp.Client(server.mcp)` has no HTTP request behind it, and the server treats it as stdio. It reaches every tool with the server's `GITHUB_TOKEN`, and GitHub decides what that token may change. A static token reports every scope the flow asks for, so it reaches every tool whether it is the only credential or shares the deployment with OAuth2.

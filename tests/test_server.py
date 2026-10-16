@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from fastmcp import Client
 from fastmcp.exceptions import InsufficientScopeError
 from fastmcp.server.auth import MultiAuth
 from fastmcp.server.auth.providers.github import GitHubProvider
@@ -29,7 +30,7 @@ from mcp_github.auth import (
 )
 from mcp_github.issues_pr_analyser import TOOL_PREFIX, VERSION, PRIssueAnalyser, _package_version, _tool_name
 from mcp_github.tool_annotations import GATED_SCOPES, WRITE_SCOPES
-from tests.support import PROVIDED_TOOLS, STATIC_TOKEN, analyser, deployment, grant
+from tests.support import PROVIDED_TOOLS, STATIC_TOKEN, analyser, deployment, grant, issue_payload, mock_response
 
 _TOOLS_LIST = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
 _MCP_HEADERS = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
@@ -181,6 +182,23 @@ class TestScopeGate:
             reset_transport(transport)
 
         assert len(listed) == len(registered)
+
+    @pytest.mark.anyio
+    async def test_an_in_process_client_reaches_every_tool_as_stdio_does(self):
+        """An in-memory session sets no transport, and has no HTTP request behind it.
+        See #492."""
+        server = analyser()
+        registered = await server.mcp.list_tools(run_middleware=False)
+        server.gi._http.request = AsyncMock(return_value=mock_response(json_data=issue_payload()))
+        async with Client(server.mcp) as client:
+            listed = await client.list_tools()
+            await client.call_tool(
+                "github_update_issue", {"repo_owner": "o", "repo_name": "r", "issue_number": 1, "state": "closed"}
+            )
+
+        assert len(listed) == len(registered)
+        sent = server.gi._http.request.await_args_list[0].kwargs
+        assert sent["headers"]["Authorization"] == f"token {STATIC_TOKEN}"
 
 
 @contextmanager
