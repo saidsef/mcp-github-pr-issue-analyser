@@ -12,7 +12,7 @@ from fastmcp.server.context import reset_transport, set_transport
 from mcp.types import ToolListChangedNotification
 from prometheus_client import REGISTRY
 
-from tests.support import analyser, grant
+from tests.support import analyser, grant, over_http
 
 RETIRED = "create_issue"
 CURRENT = "github_create_issue"
@@ -52,13 +52,13 @@ class TestARetiredName:
     async def test_is_refused_over_http_too(self):
         """There the authorization middleware answers first, and will not say
         whether the name is absent or merely withheld."""
-        with pytest.raises(AuthorizationError):
+        with over_http(), pytest.raises(AuthorizationError):
             await analyser().mcp.call_tool(RETIRED, AN_ISSUE)
 
     @pytest.mark.anyio
     async def test_tells_the_client_the_list_has_changed(self):
         server = analyser()
-        with _sent() as send, pytest.raises(AuthorizationError):
+        with _sent() as send, over_http(), pytest.raises(AuthorizationError):
             await server.mcp.call_tool(RETIRED, AN_ISSUE)
 
         send.assert_awaited_once()
@@ -78,7 +78,7 @@ class TestAnUnknownName:
     async def test_is_answered_the_same_way(self):
         """A misspelling and a retired name are both names this server lacks."""
         server = analyser()
-        with _sent() as send, pytest.raises(AuthorizationError):
+        with _sent() as send, over_http(), pytest.raises(AuthorizationError):
             await server.mcp.call_tool("nonesuch", {})
 
         send.assert_awaited_once()
@@ -114,7 +114,7 @@ class TestTheCounter:
     async def test_counts_a_call_the_server_could_not_resolve(self):
         server = analyser()
         before = _stale_count()
-        with _sent(), pytest.raises(AuthorizationError):
+        with _sent(), over_http(), pytest.raises(AuthorizationError):
             await server.mcp.call_tool("nonesuch", {})
 
         assert _stale_count() == before + 1

@@ -12,6 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 from fastmcp.server.auth import AccessToken
 from fastmcp.server.context import reset_transport, set_transport
+from fastmcp.server.http import set_http_request
+from starlette.requests import Request
 
 from mcp_github.issues_pr_analyser import PRIssueAnalyser
 
@@ -48,15 +50,23 @@ def analyser(*, token: str | None = STATIC_TOKEN, oauth: bool = False, remote: b
 
 
 @contextmanager
-def grant(scopes: list[str]) -> Iterator[None]:
-    """A request over an HTTP transport carrying an OAuth grant with these scopes."""
-    token = AccessToken(token="t", client_id="c", expires_at=None, scopes=scopes, claims={})
+def over_http() -> Iterator[None]:
+    """A request over an HTTP transport. Without the request behind it the server
+    takes a call for an in-process one and skips the scope gate. See #492."""
     transport = set_transport("streamable-http")
     try:
-        with patch("fastmcp.server.middleware.authorization.get_access_token", return_value=token):
+        with set_http_request(Request({"type": "http"})):
             yield
     finally:
         reset_transport(transport)
+
+
+@contextmanager
+def grant(scopes: list[str]) -> Iterator[None]:
+    """A request over an HTTP transport carrying an OAuth grant with these scopes."""
+    token = AccessToken(token="t", client_id="c", expires_at=None, scopes=scopes, claims={})
+    with over_http(), patch("fastmcp.server.middleware.authorization.get_access_token", return_value=token):
+        yield
 
 
 def mock_response(

@@ -34,6 +34,8 @@ from fastmcp.apps.choice import Choice
 from fastmcp.apps.generative import GenerativeUI
 from fastmcp.exceptions import AuthorizationError, InsufficientScopeError, NotFoundError
 from fastmcp.server.auth import AuthProvider, MultiAuth, restrict_tag
+from fastmcp.server.context import reset_transport, set_transport
+from fastmcp.server.dependencies import get_http_request
 from fastmcp.server.middleware import AuthMiddleware, Middleware, MiddlewareContext
 from fastmcp.server.providers.skills import SkillsDirectoryProvider
 from fastmcp_tasks import TasksExtension
@@ -178,6 +180,23 @@ class MetricsMiddleware(Middleware):
             TOOL_DURATION.labels(tool_name=name, outcome=outcome).observe(perf_counter() - start)
 
 
+class LocalSession(Middleware):
+    """A session with no HTTP request behind it is in-process, and local as stdio is.
+    FastMCP attaches the request to every HTTP call, so HTTP sessions still meet the
+    scope gate. See #492."""
+
+    async def on_message(self, context: MiddlewareContext, call_next: Any) -> Any:
+        try:
+            get_http_request()
+        except RuntimeError:
+            token = set_transport("stdio")
+            try:
+                return await call_next(context)
+            finally:
+                reset_transport(token)
+        return await call_next(context)
+
+
 _MCP_INSTRUCTIONS = """
 # GitHub PR and Issue Analyser
 
@@ -268,6 +287,7 @@ class PRIssueAnalyser:
         )
         self.mcp.add_middleware(StaleToolList())
         self.mcp.add_middleware(MetricsMiddleware())
+        self.mcp.add_middleware(LocalSession())
         self.mcp.add_middleware(AuthMiddleware(auth=[restrict_tag(s, scopes=[s]) for s in GATED_SCOPES]))
         self.mcp.add_extension(TasksExtension())
 
