@@ -178,6 +178,15 @@ class StatusChecksResult(TypedDict):
     truncated: bool
 
 
+class EmptyCommitResult(TypedDict):
+    commit_sha: str
+    parent_sha: str
+    parent_tree_sha: str
+    tree_sha: str
+    branch: str
+    html_url: str
+
+
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))
@@ -1271,6 +1280,73 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/update-branch"
         payload = _supplied(expected_head_sha=expected_head_sha)
         return (await self._request("PUT", url, context=f"PR #{pr_number} update branch", json=payload)).json()
+
+    async def _branch_head(
+        self, repo_owner: str, repo_name: str, branch: str | None, pr_number: int | None
+    ) -> tuple[str, str, str]:
+        """The branch to commit to, the commit at its head and the default branch. A
+        fork's head branch lives in the fork, so the same name here is another branch."""
+        if pr_number is None:
+            base = _repo(repo_owner, repo_name)
+            repo = (await self._request("GET", base, context=f"repository {repo_owner}/{repo_name}")).json()
+            target: str = branch or repo["default_branch"]
+            url = f"{base}/git/ref/heads/{quote(target)}"
+            ref = (await self._request("GET", url, context=f"branch {target}")).json()
+            return target, ref["object"]["sha"], repo["default_branch"]
+        pr = await self._pr(repo_owner, repo_name, pr_number)
+        head, home = pr["head"], pr["base"]["repo"]
+        if (head.get("repo") or {}).get("full_name") != home["full_name"]:
+            raise GitHubValidationError(f"PR #{pr_number} comes from another repository, not {home['full_name']}.")
+        return head["ref"], head["sha"], home["default_branch"]
+
+    @_write
+    async def create_empty_commit(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        branch: Annotated[str | None, "Branch to commit to. Omit it and pr_number for the default branch"] = None,
+        pr_number: Annotated[int | None, "Pull request whose head branch to commit to, in place of branch"] = None,
+        message: Annotated[
+            str, "Commit message. The default carries [dependabot skip], so Dependabot keeps rebasing the branch"
+        ] = "chore: trigger CI [dependabot skip]",
+        expected_head_sha: Annotated[str | None, "Refuse unless the head still matches this SHA"] = None,
+        allow_default_branch: Annotated[bool, "Commit to the default branch, which is refused otherwise"] = False,
+    ) -> EmptyCommitResult:
+        """Pushes a commit that changes no file, so CI starts a new run under the
+        caller's name. A re-run keeps the privileges of the first run, which for
+        Dependabot is a read-only token. Dependabot stops rebasing a branch once
+        another commit is pushed to it, unless the message carries [dependabot skip],
+        as the default does. See #490."""
+        if branch and pr_number is not None:
+            raise GitHubValidationError("Pass branch or pr_number, not both.")
+        branch, parent_sha, default_branch = await self._branch_head(repo_owner, repo_name, branch, pr_number)
+        if branch == default_branch and not allow_default_branch:
+            raise GitHubValidationError(
+                f"'{branch}' is the default branch. Pass allow_default_branch=True to commit to it."
+            )
+        if expected_head_sha and expected_head_sha != parent_sha:
+            raise GitHubValidationError(f"'{branch}' is at {parent_sha}, not {expected_head_sha}.")
+        base = _repo(repo_owner, repo_name)
+        parent = (await self._request("GET", f"{base}/git/commits/{parent_sha}", context=f"commit {parent_sha}")).json()
+        payload = {"message": message, "tree": parent["tree"]["sha"], "parents": [parent_sha]}
+        commit = (
+            await self._request("POST", f"{base}/git/commits", context=f"empty commit on {branch}", json=payload)
+        ).json()
+        # The update must fast-forward, so a push that arrived after the read fails rather than being overwritten.
+        await self._request(
+            "PATCH",
+            f"{base}/git/refs/heads/{quote(branch)}",
+            context=f"move {branch}",
+            json={"sha": commit["sha"], "force": False},
+        )
+        return {
+            "commit_sha": commit["sha"],
+            "parent_sha": parent_sha,
+            "parent_tree_sha": parent["tree"]["sha"],
+            "tree_sha": commit["tree"]["sha"],
+            "branch": branch,
+            "html_url": commit["html_url"],
+        }
 
     @_write(idempotent=True)
     async def update_issue(

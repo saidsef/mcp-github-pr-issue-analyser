@@ -4,6 +4,7 @@
 github_add_inline_pr_comment
 github_add_pr_comments
 github_add_to_project
+github_create_empty_commit
 github_create_issue
 github_create_milestone
 github_create_pr

@@ -324,3 +324,71 @@ class TestSetPRDraft:
         with pytest.raises(GitHubAPIError, match=r"\[GITHUB_API_ERROR\] Could not retrieve the node id for PR #5"):
             await gi.set_pr_draft("o", "r", 5, draft=False)
         gi._execute_graphql.assert_not_called()
+
+
+class TestCreateEmptyCommit:
+    _HOME = {"full_name": "o/r", "default_branch": "main"}
+    _ON_PR = {"head": {"ref": "dependabot-pip-x", "sha": "p1", "repo": _HOME}, "base": {"ref": "main", "repo": _HOME}}
+
+    @pytest.mark.anyio
+    async def test_commits_the_parent_tree_onto_the_pr_head(self, gi: GitHubIntegration):
+        responses = iter(
+            [
+                mock_response(json_data=pr_payload(**self._ON_PR)),
+                mock_response(json_data={"sha": "p1", "tree": {"sha": "t1"}}),
+                mock_response(
+                    json_data={"sha": "c1", "tree": {"sha": "t1"}, "html_url": "https://github.com/o/r/commit/c1"}
+                ),
+                mock_response(json_data={"ref": "refs/heads/dependabot-pip-x", "object": {"sha": "c1"}}),
+            ]
+        )
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        result = await gi.create_empty_commit("o", "r", pr_number=5)
+        calls = gi._http.request.call_args_list
+        assert calls[2].kwargs["json"] == {
+            "message": "chore: trigger CI [dependabot skip]",
+            "tree": "t1",
+            "parents": ["p1"],
+        }
+        assert calls[3].args == ("PATCH", "https://api.github.com/repos/o/r/git/refs/heads/dependabot-pip-x")
+        assert calls[3].kwargs["json"] == {"sha": "c1", "force": False}
+        assert result == {
+            "commit_sha": "c1",
+            "parent_sha": "p1",
+            "parent_tree_sha": "t1",
+            "tree_sha": "t1",
+            "branch": "dependabot-pip-x",
+            "html_url": "https://github.com/o/r/commit/c1",
+        }
+
+    @pytest.mark.anyio
+    async def test_an_empty_repository_is_a_coded_error(self, gi: GitHubIntegration):
+        responses = iter(
+            [
+                mock_response(json_data={"default_branch": "main"}),
+                mock_response(
+                    status_code=409, json_data={"message": "Git Repository is empty."}, reason_phrase="Conflict"
+                ),
+            ]
+        )
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(ToolError, match=r"\[GITHUB_API_ERROR\] HTTP 409.*Git Repository is empty"):
+            await gi.create_empty_commit("o", "r", branch="feature")
+        assert gi._http.request.call_count == 2
+
+    @pytest.mark.anyio
+    async def test_a_head_that_moved_is_refused(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=mock_response(json_data=pr_payload(**self._ON_PR)))
+        with pytest.raises(GitHubValidationError, match="'dependabot-pip-x' is at p1, not p0"):
+            await gi.create_empty_commit("o", "r", pr_number=5, expected_head_sha="p0")
+        assert gi._http.request.call_count == 1
+
+    @pytest.mark.anyio
+    async def test_the_default_branch_needs_the_opt_in(self, gi: GitHubIntegration):
+        responses = iter(
+            [mock_response(json_data={"default_branch": "main"}), mock_response(json_data={"object": {"sha": "p1"}})]
+        )
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        with pytest.raises(GitHubValidationError, match="allow_default_branch=True"):
+            await gi.create_empty_commit("o", "r")
+        assert gi._http.request.call_count == 2

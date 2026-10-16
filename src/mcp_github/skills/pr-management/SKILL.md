@@ -30,6 +30,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 2. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
 3. Call `github_set_assignees` to set the assignees
 4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
+5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
 
 ### Closing a PR
 
@@ -137,6 +138,34 @@ branch. Read `head_sha` from `github_get_pr_content` and pass it as
 `expected_head_sha` to avoid racing a push from someone else.
 This does not resolve conflicts, and a conflicting update fails and the branch must
 be fixed locally.
+
+### `github_create_empty_commit`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `branch` | str \| None | `None` | Branch to commit to. Omit it and `pr_number` for the default branch |
+| `pr_number` | int \| None | `None` | Pull request whose head branch to commit to, in place of `branch` |
+| `message` | str | `chore: trigger CI [dependabot skip]` | Commit message |
+| `expected_head_sha` | str \| None | `None` | Refuse unless the head still matches this SHA |
+| `allow_default_branch` | bool | `False` | Commit to the default branch, which is refused otherwise |
+
+Returns `commit_sha`, `parent_sha`, `parent_tree_sha`, `tree_sha`, `branch` and
+`html_url`. The commit reuses its parent's tree, so `tree_sha` equal to
+`parent_tree_sha` shows it changed no file.
+
+A re-run keeps the privileges of whoever started the first run, which for a
+Dependabot PR is a read-only token with no Actions secrets. This commit is authored
+by the caller and starts a new run under their name instead.
+
+`branch` and `pr_number` are mutually exclusive. A PR opened from a fork is refused,
+since its head branch lives in the fork. The ref only fast-forwards, so a push that
+arrives after the head is read fails rather than being overwritten.
+
+Dependabot stops rebasing a PR once another commit is pushed to it, unless that
+commit's message carries `[dependabot skip]`. The default message carries it, so
+keep the marker in any message passed for a Dependabot PR.
 
 ### `github_merge_pr`
 
