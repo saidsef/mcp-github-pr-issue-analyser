@@ -230,6 +230,7 @@ _SearchType = Literal["lexical", "semantic", "hybrid"]
 _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
 _Names = list[str] | None
+_WorkflowInputs = dict[str, Any]
 
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 _PENDING_STATUSES = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
@@ -703,6 +704,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         error_text = response.text.lower()
         if "rate limit" not in error_text:
             msg = "Refused." if detail else "Permission denied. Check your token permissions."
+            if needed := response.headers.get("X-Accepted-GitHub-Permissions"):
+                msg += f" This endpoint needs the `{needed}` permission."
             if _WORKFLOW_SCOPE_REFUSAL in error_text:
                 msg += _WORKFLOW_SCOPE_GUIDANCE
             elif self._oauth_mode:
@@ -1391,6 +1394,44 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "branch": branch,
             "html_url": commit["html_url"],
         }
+
+    @_write
+    async def rerun_job(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        job_id: Annotated[int, "The check run's id, as github_get_pr_status_checks reports it"],
+        enable_debug_logging: Annotated[bool, "Run the job again with runner and step debug logging"] = False,
+    ) -> dict[str, Any]:
+        """Re-runs one Actions job and every job that depends on it, without a
+        commit on the branch. Each call starts another attempt, so calling it twice
+        runs the job twice. A re-run keeps the privileges of the first run, so a
+        Dependabot job that failed on its read-only token wants
+        github_create_empty_commit instead. See #503."""
+        url = f"{_repo(repo_owner, repo_name)}/actions/jobs/{job_id}/rerun"
+        payload = {"enable_debug_logging": enable_debug_logging}
+        await self._request("POST", url, context=f"re-run job {job_id}", json=payload)
+        return {"job_id": job_id, "status": "requested"}
+
+    @_write
+    async def dispatch_workflow(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        workflow_id: Annotated[int | str, "The workflow's id, or its file name such as ci.yml"],
+        ref: Annotated[str, "Branch or tag to run the workflow on"],
+        inputs: Annotated[_WorkflowInputs | None, "Values for the inputs the workflow declares, at most 25"] = None,
+    ) -> dict[str, Any]:
+        """Starts a workflow that declares a workflow_dispatch trigger, on ref, with
+        inputs keyed by the names its file declares. GitHub takes at most 25 inputs,
+        so more are refused before any request. The request sets return_run_details,
+        since without it GitHub answers 204 and says nothing of the run. See #503."""
+        if inputs and len(inputs) > 25:
+            raise GitHubValidationError(f"GitHub takes at most 25 inputs, and {len(inputs)} were passed.")
+        url = f"{_repo(repo_owner, repo_name)}/actions/workflows/{quote(str(workflow_id), safe='')}/dispatches"
+        payload = {"ref": ref, "return_run_details": True, **_supplied(inputs=inputs)}
+        response = await self._request("POST", url, context=f"dispatch {workflow_id} on {ref}", json=payload)
+        return _pick(response.json(), "workflow_run_id", "run_url", "html_url")
 
     @_write(idempotent=True)
     async def update_issue(
