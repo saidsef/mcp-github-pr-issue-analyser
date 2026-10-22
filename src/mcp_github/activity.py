@@ -359,7 +359,8 @@ class ActivityMixin:
         logger.info(f"Fetching repo stars since {cutoff} for {username} (top_n={top_n}, max_repos={max_repos})")
         async with self._guard("fetch repo stars"):
             candidates, truncated = await self._star_candidates(username, max_repos)
-            if ctx:
+            # A task worker rejects a progress total of zero. See #511.
+            if ctx and candidates:
                 await ctx.report_progress(progress=0, total=len(candidates))
             results: list[dict[str, Any]] = []
             for i, repo in enumerate(candidates):
