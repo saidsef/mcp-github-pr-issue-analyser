@@ -12,6 +12,7 @@ github_create_release
 github_create_tag
 github_delete_release
 github_delete_tag
+github_dispatch_workflow
 github_get_issue
 github_get_latest_sha
 github_get_pr_content
@@ -39,6 +40,7 @@ github_list_tags
 github_merge_pr
 github_remove_from_project
 github_reply_to_review_comment
+github_rerun_job
 github_search_issues_prs
 github_search_user
 github_set_assignees

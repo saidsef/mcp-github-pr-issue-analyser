@@ -93,6 +93,8 @@ which is the one case the token is the likeliest suspect. A refusal whose text
 mentions the `workflow` scope takes a third form, appending guidance of its own,
 because GitHub requires that scope for a write to a file under
 `.github/workflows` and no permission on the repository substitutes for it.
+Where GitHub sends an `X-Accepted-GitHub-Permissions` header, as it does for a
+fine-grained token, the message names that permission, such as `actions=write`.
 
 A refused 403 has several causes and each needs a different fix, so the code and
 the status settle nothing on their own. `github_merge_pr` meets all of them.
