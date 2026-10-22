@@ -1,5 +1,5 @@
 ---
-description: Manage the lifecycle of a GitHub PR - create, update the description, assign, refresh the branch and merge
+description: Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge
 ---
 
 # PR Management
@@ -12,6 +12,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 - The `head` branch must already be pushed before creating a PR
 - GitHub token with `repo` write access
 - The `workflow` scope on that token to merge a PR touching `.github/workflows`, which GitHub refuses without it
+- Actions write on a fine-grained token to re-run a job or dispatch a workflow
 
 ## Workflow
 
@@ -21,8 +22,9 @@ Open pull requests, keep them current, and merge them once they are ready.
 2. Write the title to the Title Convention and the body to the PR Body template below
 3. Call `github_create_pr` with that title, body, head branch, base branch and labels
 4. Call `github_set_assignees` with whoever owns the work
-5. Pass `draft=True` while the work is still in progress
-6. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the PR unlabelled
+5. Call `github_request_reviewers` with the people and teams who should review it
+6. Pass `draft=True` while the work is still in progress
+7. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the PR unlabelled
 
 ### Updating a PR
 
@@ -31,6 +33,8 @@ Open pull requests, keep them current, and merge them once they are ready.
 3. Call `github_set_assignees` to set the assignees
 4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
 5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
+6. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit
+7. Call `github_dispatch_workflow` to start a workflow with a `workflow_dispatch` trigger on a branch or tag, passing its inputs
 
 ### Closing a PR
 
@@ -124,6 +128,27 @@ include anyone who should stay. `status` reads `partial` where GitHub dropped a
 login that is not a collaborator or does not exist, and `message` then names
 the logins left out.
 
+### `github_request_reviewers`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `pr_number` | int | - | Pull request number |
+| `reviewers` | list[str] \| None | `None` | User logins, each a collaborator on the repository |
+| `team_reviewers` | list[str] \| None | `None` | Team slugs in the repository's organisation, not display names |
+| `remove` | bool | `False` | Withdraw the request from these reviewers rather than ask them |
+
+Returns `status`, `requested_reviewers`, `requested_teams` and `pr_url`, read
+off the PR GitHub answers with.
+
+A request adds to the reviewers already asked and a removal takes off only those
+named, so repeating a call leaves the PR as it was. GitHub refuses the whole call
+with a `VALIDATION_ERROR` when one login is not a collaborator, and the error
+names the logins and teams the call asked for. `status` reads `partial` where the
+PR leaves off a reviewer the call asked for, or still lists one it withdrew, and
+`message` then names them. A fine-grained token needs Pull requests write.
+
 ### `github_update_pr_branch`
 
 | Parameter | Type | Default | Description |
@@ -166,6 +191,42 @@ arrives after the head is read fails rather than being overwritten.
 Dependabot stops rebasing a PR once another commit is pushed to it, unless that
 commit's message carries `[dependabot skip]`. The default message carries it, so
 keep the marker in any message passed for a Dependabot PR.
+
+### `github_rerun_job`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `job_id` | int | - | The check run's `id`, as `github_get_pr_status_checks` reports it |
+| `enable_debug_logging` | bool | `False` | Run the job again with runner and step debug logging |
+
+Returns `job_id` and a `status` of `requested`. GitHub answers with no body, so
+read the new attempt's result from `github_get_pr_status_checks`.
+
+GitHub re-runs every job that depends on this one as well, and each call starts
+another attempt. Only a check run from GitHub Actions is a job, so pass the `id`
+of one whose `suite_app` is `GitHub Actions`.
+
+A re-run keeps the privileges of whoever started the first run, so a Dependabot
+job that failed on its read-only token fails the same way again. Use
+`github_create_empty_commit` for that case.
+
+### `github_dispatch_workflow`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `workflow_id` | int \| str | - | The workflow's id, or its file name such as `ci.yml` |
+| `ref` | str | - | Branch or tag to run the workflow on |
+| `inputs` | dict \| None | `None` | Values for the inputs the workflow declares, keyed by input name |
+
+Returns `workflow_run_id`, `run_url` and `html_url` for the run it started.
+
+GitHub refuses a workflow with no `workflow_dispatch` trigger. It takes at most
+25 inputs, so a call passing more is refused before it reaches GitHub, and an
+input left out takes the default the workflow file sets.
 
 ### `github_merge_pr`
 

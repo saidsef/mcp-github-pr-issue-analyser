@@ -23,6 +23,7 @@ from tests.support import deployment, mock_response
 
 _READ = {
     "get_issue",
+    "get_job_log",
     "get_latest_sha",
     "get_pr_content",
     "get_pr_diff",
@@ -61,8 +62,11 @@ _WRITE = {
     "create_pr",
     "create_release",
     "create_tag",
+    "dispatch_workflow",
     "merge_pr",
     "reply_to_review_comment",
+    "request_reviewers",
+    "rerun_job",
     "set_issue_milestone",
     "set_pr_draft",
     "set_project_field",
@@ -82,6 +86,7 @@ _DESTRUCTIVE = {"delete_release", "delete_tag", "remove_from_project"}
 
 _IDEMPOTENT = {
     "add_to_project",
+    "request_reviewers",
     "set_issue_milestone",
     "set_pr_draft",
     "set_project_field",
