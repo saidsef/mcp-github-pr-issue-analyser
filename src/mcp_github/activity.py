@@ -231,12 +231,12 @@ class ActivityMixin:
     async def _collect_sections(
         self, collection: dict[str, Any], org: str, repo: str, max_results: int, ctx: Context | None
     ) -> dict[str, list[dict[str, Any]]]:
-        """Map every contribution section, reporting one progress tick each."""
+        """Map every contribution section, reporting one progress tick each. The tick
+        carries the section's message, since a task worker has no session to log on. See #510."""
         sections: dict[str, list[dict[str, Any]]] = {}
         for i, section in enumerate(ACTIVITY_SECTIONS):
             if ctx:
-                await ctx.report_progress(progress=i, total=ACTIVITY_STAGES)
-                await ctx.info(section.message)
+                await ctx.report_progress(progress=i, total=ACTIVITY_STAGES, message=section.message)
             sections[section.field] = self._capped_contributions(
                 collection, section.key, org, repo, max_results, section.mapper
             )
@@ -257,8 +257,6 @@ class ActivityMixin:
         logger.info(f"Fetching user activities for {username} (org={org}, repo={repo}, since={since}, until={until})")
         async with self._guard("fetch user activities"):
             variables = self._activity_variables(username, since, until)
-            if ctx:
-                await ctx.info(f"Querying GitHub contributions for {username}...")
             result = await self._execute_graphql(USER_CONTRIBUTIONS_QUERY, variables)
             user_data = result.get("user")
             if not user_data:
@@ -267,8 +265,9 @@ class ActivityMixin:
             date_range = self._date_range(since, until, variables, collection)
             sections = await self._collect_sections(collection, org, repo, max_results, ctx)
             if ctx:
-                await ctx.report_progress(progress=len(ACTIVITY_SECTIONS), total=ACTIVITY_STAGES)
-                await ctx.info("Fetching repo stars...")
+                await ctx.report_progress(
+                    progress=len(ACTIVITY_SECTIONS), total=ACTIVITY_STAGES, message="Fetching repo stars..."
+                )
             repo_nodes = user_data.get("repositories", {}).get("nodes", [])
             repo_stars = self._map_repo_stars(repo_nodes, max_results)
             if ctx:
@@ -359,8 +358,6 @@ class ActivityMixin:
             cutoff = (datetime.now(UTC) - timedelta(days=30)).strftime("%Y-%m-%dT%H:%M:%SZ")
         logger.info(f"Fetching repo stars since {cutoff} for {username} (top_n={top_n}, max_repos={max_repos})")
         async with self._guard("fetch repo stars"):
-            if ctx:
-                await ctx.info(f"Fetching public repos for {username}...")
             candidates, truncated = await self._star_candidates(username, max_repos)
             if ctx:
                 await ctx.report_progress(progress=0, total=len(candidates))

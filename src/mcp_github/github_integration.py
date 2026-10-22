@@ -27,7 +27,6 @@ from typing import Annotated, Any, Literal, TypedDict
 from urllib.parse import quote, quote_plus
 
 import httpx
-from fastmcp import Context
 from fastmcp.exceptions import ToolError
 
 from .activity import ActivityMixin
@@ -2210,7 +2209,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_owner: str,
         repo_name: str,
         pr_number: int,
-        ctx: Context | None = None,
     ) -> StatusChecksResult:
         """Return the CI check runs and commit status for a pull request's HEAD commit.
 
@@ -2227,7 +2225,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         async with self._guard("fetch status checks"):
             check_runs: list[dict[str, Any]] = []
             commit_statuses: list[dict[str, Any]] = []
-            n_suites = 0
             truncated = False
             suites_after: str | None = None
             token = self._resolve_token()
@@ -2253,7 +2250,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
 
                 suites_page = head_target.get("checkSuites") or {}
                 suites_nodes = suites_page.get("nodes") or []
-                n_suites += len(suites_nodes)
                 check_runs.extend(_check_runs(head_target))
 
                 for suite in suites_nodes:
@@ -2277,12 +2273,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             else:
                 truncated = True
 
-            if ctx:
-                trailer = " (truncated)" if truncated else ""
-                await ctx.info(
-                    f"Found {n_suites} check suites, "
-                    f"{len(check_runs)} runs, {len(commit_statuses)} legacy statuses{trailer}"
-                )
             overall = _overall(check_runs, commit_statuses, truncated)
             logger.info(
                 f"Status checks for PR #{pr_number}: overall={overall}, runs={len(check_runs)}, truncated={truncated}"
