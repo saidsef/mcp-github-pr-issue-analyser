@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from mcp_github.github_integration import GitHubIntegration
-from tests.support import EMPTY_STATUS_CHECKS, mock_ctx
+from tests.support import EMPTY_STATUS_CHECKS, mock_ctx, mock_response
+
+LOG_URL = "https://blob.example.com/logs/job-7.txt?sig=abc"
 
 
 class TestGetPrStatusChecks:
@@ -36,6 +38,36 @@ class TestGetPrStatusChecks:
         ):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert result["overall"] == "unknown"
+
+    @pytest.mark.anyio
+    async def test_check_runs_carry_the_job_id(self, gi: GitHubIntegration):
+        data = _status_page([_suite([{**_run("build"), "databaseId": 42}])])
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=data):
+            result = await gi.get_pr_status_checks("owner", "repo", 1)
+        assert result["check_runs"][0]["id"] == 42
+
+
+class TestGetJobLog:
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(("max_bytes", "log"), [(10, "b" * 10), (0, "")])
+    async def test_keeps_the_tail_and_reports_the_full_size(self, gi: GitHubIntegration, max_bytes: int, log: str):
+        gi._http.request = AsyncMock(return_value=mock_response(302, headers={"Location": LOG_URL}))
+        gi._http.get = AsyncMock(return_value=mock_response(text="a" * 90 + "b" * 10))
+        result = await gi.get_job_log("o", "r", 7, max_bytes=max_bytes)
+        assert result["log"] == log
+        assert result["bytes_returned"] == max_bytes
+        assert result["bytes_total"] == 100
+        assert result["truncated"] is True
+
+    @pytest.mark.anyio
+    async def test_the_download_carries_no_token(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=mock_response(302, headers={"Location": LOG_URL}))
+        gi._http.get = AsyncMock(return_value=mock_response(text="done\n"))
+        result = await gi.get_job_log("o", "r", 7)
+        assert gi._http.request.call_args.args[1] == "https://api.github.com/repos/o/r/actions/jobs/7/logs"
+        gi._http.get.assert_awaited_once_with(LOG_URL)
+        assert result["log"] == "done\n"
+        assert result["truncated"] is False
 
 
 def _status_page(

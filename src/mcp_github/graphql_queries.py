@@ -111,6 +111,7 @@ query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
                     endCursor
                   }
                   nodes {
+                    databaseId
                     name
                     status
                     conclusion
@@ -146,6 +147,7 @@ query($suiteId: ID!, $after: String) {
           endCursor
         }
         nodes {
+          databaseId
           name
           status
           conclusion

@@ -170,6 +170,14 @@ class DiffResult(TypedDict):
     truncated: bool
 
 
+class JobLogResult(TypedDict):
+    job_id: int
+    log: str
+    bytes_returned: int
+    bytes_total: int
+    truncated: bool
+
+
 class StatusChecksResult(TypedDict):
     pr_number: int
     overall: str
@@ -526,8 +534,10 @@ def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
-    """Trim a GraphQL check-run node to the check_runs contract."""
+    """Trim a GraphQL check-run node to the check_runs contract. The id of a
+    GitHub Actions run is its job id, which github_get_job_log takes. See #500."""
     return {
+        "id": run.get("databaseId"),
         "name": run["name"],
         "status": run["status"],
         "conclusion": run.get("conclusion"),
@@ -2188,3 +2198,37 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 "commit_statuses": commit_statuses,
                 "truncated": truncated,
             }
+
+    @_read_only
+    async def get_job_log(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        job_id: Annotated[int, "The id of a GitHub Actions check run from github_get_pr_status_checks"],
+        max_bytes: Annotated[
+            int, "Cap on the log returned, kept from the end. Pass 0 to learn the size without reading the log"
+        ] = DIFF_MAX_BYTES,
+    ) -> JobLogResult:
+        """Fetches the end of a GitHub Actions job's log, capped at max_bytes. A job
+        reports its failure last, so a cut keeps the tail. GitHub redirects to a
+        storage host for one minute, and the download goes there without the
+        token. See #500."""
+        if max_bytes < 0:
+            raise GitHubValidationError("max_bytes cannot be negative.")
+        url = f"{_repo(repo_owner, repo_name)}/actions/jobs/{job_id}/logs"
+        redirect = await self._request("GET", url, context=f"job {job_id} log", allow_status=(302,))
+        try:
+            response = await self._http.get(redirect.headers["Location"])
+        except httpx.HTTPError as e:
+            raise GitHubAPIError(f"Job {job_id} log download failed: {e}") from e
+        if not response.is_success:
+            raise GitHubAPIError(f"Job {job_id} log download failed", status_code=response.status_code)
+        content = response.content
+        kept = content[max(len(content) - max_bytes, 0) :]
+        return {
+            "job_id": job_id,
+            "log": kept.decode("utf-8", errors="ignore"),
+            "bytes_returned": len(kept),
+            "bytes_total": len(content),
+            "truncated": len(kept) < len(content),
+        }
