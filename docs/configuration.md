@@ -34,7 +34,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `HOST` | No, default `localhost` | HTTP server bind address |
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
-| `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns. Callers can override it per call, and the reply carries the full size either way |
+| `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns and on the log `github_get_job_log` returns. Callers can override it per call, and the reply carries the full size either way |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
@@ -173,8 +173,8 @@ server instructions nor a prior `github_list_skills`.
 
 The mapping is read at startup from the `` `tool_name` `` headings in each SKILL.md,
 so a tool is claimed in one place and the pointer cannot disagree with the skill.
-Moving a tool between skills is a heading move and nothing else. Of the 54 tools,
-52 carry a pointer; `github_get_skill` and `github_list_skills` carry none, since
+Moving a tool between skills is a heading move and nothing else. Of the 55 tools,
+53 carry a pointer; `github_get_skill` and `github_list_skills` carry none, since
 pointing those at a skill would send a client in a circle.
 
 The pointer is added by a server-level transform rather than written into each

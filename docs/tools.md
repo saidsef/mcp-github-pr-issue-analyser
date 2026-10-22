@@ -18,6 +18,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_get_pr_content` | read | PR title, description, author, timestamps, state, head SHA, the branches either side and who was asked to review |
 | `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
+| `github_get_job_log` | read | The end of a GitHub Actions job's log, capped at `max_bytes` and reporting the full size |
 | `github_create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
 | `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
