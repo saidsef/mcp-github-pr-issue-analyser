@@ -226,6 +226,7 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
+_SearchType = Literal["lexical", "semantic", "hybrid"]
 _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
 
@@ -1044,19 +1045,29 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         query: Annotated[str, "Terms and qualifiers, e.g. 'rate limit repo:owner/name is:closed label:bug'"],
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
+        search_type: Annotated[
+            _SearchType,
+            "lexical matches words. semantic and hybrid match issues by meaning and need is:issue in the query",
+        ] = "lexical",
     ) -> dict[str, Any]:
         """Searches issues and pull requests by text and qualifiers. Unlike
         github_list_open_issues_prs the query is the caller's, so closed and merged
-        items are reachable and any qualifier GitHub search accepts works."""
+        items are reachable and any qualifier GitHub search accepts works. GitHub
+        runs a lexical search when search_type is absent, so the default sends none.
+        Semantic and hybrid cover issues alone, and GitHub falls back to lexical for
+        a query that can reach a PR."""
         if not query.strip():
             raise GitHubValidationError("Supply a search query.")
-        url = f"{API}/search/issues?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
+        mode = "" if search_type == "lexical" else f"&search_type={search_type}"
+        url = f"{API}/search/issues?q={quote_plus(query)}&advanced_search=true{mode}&per_page={per_page}&page={page}"
         response = await self._request("GET", url, context=f"search issues and PRs for {query!r}")
         data = response.json()
         items = [_search_item(item) for item in data["items"]]
         return {
             "total": data["total_count"],
             "incomplete_results": data.get("incomplete_results", False),
+            "search_type": data.get("search_type"),
+            "lexical_fallback_reason": data.get("lexical_fallback_reason"),
             **_page(response, items),
             "items": items,
         }
