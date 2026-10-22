@@ -12,8 +12,7 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - GitHub token with `repo` read access
 
 `github_get_pr_linked_issues` and `github_get_pr_status_checks` run as long-running tasks.
-Neither reports incremental progress, and `github_get_pr_status_checks` logs one
-summary line once it has finished paging through the check suites.
+Neither reports progress while it works.
 `github_get_pr_content`, `github_get_pr_diff` and `github_get_job_log` are plain reads.
 
 ## Workflow

@@ -25,24 +25,6 @@ class TestGetUserActivitiesContext:
         assert result["commits"] == []
 
     @pytest.mark.anyio
-    async def test_pre_call_info_fires_before_graphql(self, gi: GitHubIntegration):
-        """ctx.info('Querying...') must appear before the GraphQL call."""
-        order: list[str] = []
-
-        async def fake_graphql(*args, **kwargs):
-            order.append("graphql")
-            return EMPTY_CONTRIBUTIONS
-
-        ctx = mock_ctx()
-        ctx.info.side_effect = lambda msg: order.append(f"info:{msg}")
-
-        with patch.object(GitHubIntegration, "_execute_graphql", side_effect=fake_graphql):
-            await gi.get_user_activities("user1", ctx=ctx)
-
-        assert order[0].startswith("info:Querying")
-        assert order[1] == "graphql"
-
-    @pytest.mark.anyio
     async def test_progress_runs_from_zero_to_total(self, gi: GitHubIntegration):
         """One tick per section, plus the repo-stars stage, plus a final tick, every
         one reporting the same total."""
@@ -57,16 +39,15 @@ class TestGetUserActivitiesContext:
 
     @pytest.mark.anyio
     async def test_every_section_announces_itself(self, gi: GitHubIntegration):
-        """The pre-call message, one per section, then repo stars."""
+        """One message per section, then repo stars, each on its progress tick."""
         ctx = mock_ctx()
         with patch.object(
             GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=EMPTY_CONTRIBUTIONS
         ):
             await gi.get_user_activities("user1", ctx=ctx)
-        info_calls = [c.args[0] for c in ctx.info.call_args_list]
-        assert len(info_calls) == ACTIVITY_STAGES + 1
-        assert info_calls[1:-1] == [s.message for s in ACTIVITY_SECTIONS]
-        assert "repo stars" in info_calls[-1].lower()
+        messages = [c.kwargs.get("message") for c in ctx.report_progress.call_args_list]
+        assert messages[: len(ACTIVITY_SECTIONS)] == [s.message for s in ACTIVITY_SECTIONS]
+        assert "repo stars" in messages[len(ACTIVITY_SECTIONS)].lower()
 
     @pytest.mark.anyio
     async def test_result_carries_a_key_per_section(self, gi: GitHubIntegration):

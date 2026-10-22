@@ -7,30 +7,12 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from mcp_github.github_integration import GitHubIntegration
-from tests.support import EMPTY_STATUS_CHECKS, mock_ctx, mock_response
+from tests.support import EMPTY_STATUS_CHECKS, mock_response
 
 LOG_URL = "https://blob.example.com/logs/job-7.txt?sig=abc"
 
 
 class TestGetPrStatusChecks:
-    @pytest.mark.anyio
-    async def test_no_ctx_returns_result_without_info_call(self, gi: GitHubIntegration):
-        with patch.object(
-            GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=EMPTY_STATUS_CHECKS
-        ):
-            result = await gi.get_pr_status_checks("owner", "repo", 1, ctx=None)
-        assert "overall" in result
-        assert "check_runs" in result
-
-    @pytest.mark.anyio
-    async def test_ctx_info_counts_the_suites_runs_and_statuses(self, gi: GitHubIntegration):
-        data = _status_page([_suite([_run("a"), _run("b")])] * 5)
-        ctx = mock_ctx()
-        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=data):
-            await gi.get_pr_status_checks("owner", "repo", 1, ctx=ctx)
-        ctx.info.assert_called_once()
-        assert ctx.info.call_args[0][0] == "Found 5 check suites, 10 runs, 0 legacy statuses"
-
     @pytest.mark.anyio
     async def test_overall_status_derived_correctly(self, gi: GitHubIntegration):
         with patch.object(
@@ -203,18 +185,3 @@ class TestStatusChecksPagination:
         ):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert all(r["suite_app"] == "Codacy Production" for r in result["check_runs"])
-
-    @pytest.mark.anyio
-    async def test_ctx_info_announces_truncation(self, gi: GitHubIntegration):
-        suite_page = _status_page([_suite_with_id("s1", [_run("a")], runs_has_next=True)])
-        infinite_runs = _runs_page([_run("x")], has_next=True)
-        ctx = mock_ctx()
-        with patch.object(
-            GitHubIntegration,
-            "_execute_graphql",
-            new_callable=AsyncMock,
-            side_effect=[suite_page, *([infinite_runs] * 10)],
-        ):
-            await gi.get_pr_status_checks("owner", "repo", 1, ctx=ctx)
-        msg = ctx.info.call_args[0][0]
-        assert "truncated" in msg
