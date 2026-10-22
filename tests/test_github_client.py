@@ -63,6 +63,7 @@ _WRITE = {
     "create_tag",
     "merge_pr",
     "reply_to_review_comment",
+    "request_reviewers",
     "set_issue_milestone",
     "set_pr_draft",
     "set_project_field",
@@ -82,6 +83,7 @@ _DESTRUCTIVE = {"delete_release", "delete_tag", "remove_from_project"}
 
 _IDEMPOTENT = {
     "add_to_project",
+    "request_reviewers",
     "set_issue_milestone",
     "set_pr_draft",
     "set_project_field",

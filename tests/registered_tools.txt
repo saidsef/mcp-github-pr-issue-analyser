@@ -39,6 +39,7 @@ github_list_tags
 github_merge_pr
 github_remove_from_project
 github_reply_to_review_comment
+github_request_reviewers
 github_search_issues_prs
 github_search_user
 github_set_assignees

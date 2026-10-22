@@ -1,5 +1,5 @@
 ---
-description: Manage the lifecycle of a GitHub PR - create, update the description, assign, refresh the branch and merge
+description: Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge
 ---
 
 # PR Management
@@ -21,8 +21,9 @@ Open pull requests, keep them current, and merge them once they are ready.
 2. Write the title to the Title Convention and the body to the PR Body template below
 3. Call `github_create_pr` with that title, body, head branch, base branch and labels
 4. Call `github_set_assignees` with whoever owns the work
-5. Pass `draft=True` while the work is still in progress
-6. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the PR unlabelled
+5. Call `github_request_reviewers` with the people and teams who should review it
+6. Pass `draft=True` while the work is still in progress
+7. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the PR unlabelled
 
 ### Updating a PR
 
@@ -123,6 +124,27 @@ The list replaces every assignee already there, and `[]` clears them all, so
 include anyone who should stay. `status` reads `partial` where GitHub dropped a
 login that is not a collaborator or does not exist, and `message` then names
 the logins left out.
+
+### `github_request_reviewers`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `pr_number` | int | - | Pull request number |
+| `reviewers` | list[str] \| None | `None` | User logins, each a collaborator on the repository |
+| `team_reviewers` | list[str] \| None | `None` | Team slugs in the repository's organisation, not display names |
+| `remove` | bool | `False` | Withdraw the request from these reviewers rather than ask them |
+
+Returns `status`, `requested_reviewers`, `requested_teams` and `pr_url`, read
+off the PR GitHub answers with.
+
+A request adds to the reviewers already asked and a removal takes off only those
+named, so repeating a call leaves the PR as it was. GitHub refuses the whole call
+with a `VALIDATION_ERROR` when one login is not a collaborator, and the error
+names the logins and teams the call asked for. `status` reads `partial` where the
+PR leaves off a reviewer the call asked for, or still lists one it withdrew, and
+`message` then names them. A fine-grained token needs Pull requests write.
 
 ### `github_update_pr_branch`
 

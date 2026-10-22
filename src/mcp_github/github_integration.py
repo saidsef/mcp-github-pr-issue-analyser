@@ -417,6 +417,28 @@ def _review_comment_result(data: dict[str, Any]) -> ReviewCommentData:
     }
 
 
+def _review_request_result(data: dict[str, Any], users: list[str], teams: list[str], remove: bool) -> dict[str, Any]:
+    """The reviewer lists off the pull request a review request answers with. A
+    name the call asked about is unapplied when a request left it off the lists,
+    or a removal left it on them."""
+    logins = {user["login"] for user in data["requested_reviewers"]}
+    slugs = {team["slug"] for team in data["requested_teams"]}
+    if remove:
+        unapplied = sorted(logins.intersection(users) | slugs.intersection(teams))
+    else:
+        unapplied = sorted((set(users) - logins) | (set(teams) - slugs))
+    result: dict[str, Any] = {
+        "status": "partial" if unapplied else "ok",
+        "requested_reviewers": sorted(logins),
+        "requested_teams": sorted(slugs),
+        "pr_url": data.get("html_url"),
+    }
+    if unapplied:
+        logger.warning(f"Some reviewers were not applied: {unapplied}")
+        result["message"] = f"GitHub did not {'withdraw' if remove else 'add'} these reviewers: {unapplied}"
+    return result
+
+
 def _issue_result(data: dict[str, Any]) -> IssueData:
     """Trim a GitHub issue payload to the IssueData contract."""
     return {
@@ -1432,6 +1454,27 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}"
             )
         return result
+
+    @_write(idempotent=True)
+    async def request_reviewers(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        reviewers: Annotated[list[str] | None, "User logins, each a collaborator on the repository"] = None,
+        team_reviewers: Annotated[list[str] | None, "Team slugs in the repository's organisation"] = None,
+        remove: Annotated[bool, "Withdraw the request from these reviewers rather than ask them"] = False,
+    ) -> dict[str, Any]:
+        """Asks users and teams to review a pull request, or withdraws the request.
+        Both calls answer with the pull request, so its reviewer lists show what took
+        effect without a second read. The removal endpoint requires reviewers, so
+        withdrawing teams alone sends an empty list. See #502."""
+        users, teams = reviewers or [], team_reviewers or []
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/requested_reviewers"
+        context = f"{'withdraw' if remove else 'request'} review from {', '.join(users + teams)} on PR #{pr_number}"
+        payload = {"reviewers": users, "team_reviewers": teams}
+        data = (await self._request("DELETE" if remove else "POST", url, context=context, json=payload)).json()
+        return _review_request_result(data, users, teams, remove)
 
     @_read_only
     async def get_repository_file(
