@@ -30,6 +30,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
 | `github_update_pr_comment` | write | Rewrite a comment already posted |
 | `github_reply_to_review_comment` | write | Reply on an existing review thread |
+| `github_request_reviewers` | write | Ask users and teams to review a PR, or withdraw the request |
 | `github_list_pr_reviews` | read | Reviews submitted on a PR, each with its author, verdict and timestamp |
 | `github_submit_review` | write | Approve, request changes, or comment as a review |
 | `github_set_assignees` | write | Assign or update users on a PR or issue |
@@ -115,7 +116,7 @@ Every tool above names the skill that documents it, at the end of its own descri
 |----------|--------|
 | `skill://pr-analysis/SKILL.md` | Analyse a GitHub pull request by fetching its metadata, diff, linked issues and CI status |
 | `skill://pr-review/SKILL.md` | Review a GitHub pull request by posting inline code comments and submitting a review decision |
-| `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, refresh the branch and merge |
+| `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge |
 | `skill://issue-management/SKILL.md` | Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates |
 | `skill://release-management/SKILL.md` | Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there |
 | `skill://project-boards/SKILL.md` | Put issues and pull requests on a GitHub project board, set their fields, read what is on a board, and take items off it |
