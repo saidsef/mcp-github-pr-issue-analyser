@@ -18,6 +18,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_get_pr_content` | read | PR title, description, author, timestamps, state, head SHA, the branches either side and who was asked to review |
 | `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
+| `github_get_job_log` | read | The end of a GitHub Actions job's log, capped at `max_bytes` and reporting the full size |
 | `github_create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
 | `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
@@ -31,6 +32,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
 | `github_update_pr_comment` | write | Rewrite a comment already posted |
 | `github_reply_to_review_comment` | write | Reply on an existing review thread |
+| `github_request_reviewers` | write | Ask users and teams to review a PR, or withdraw the request |
 | `github_list_pr_reviews` | read | Reviews submitted on a PR, each with its author, verdict and timestamp |
 | `github_submit_review` | write | Approve, request changes, or comment as a review |
 | `github_set_assignees` | write | Assign or update users on a PR or issue |
@@ -43,7 +45,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_create_issue` | write | Open an issue with title, body, labels and an optional milestone |
 | `github_update_issue` | write | Update any subset of an existing issue's title, body, labels or state |
 | `github_list_open_issues_prs` | read | List open PRs or issues for a user or organisation |
-| `github_search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included |
+| `github_search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included, with an option to match issues by meaning |
 | `github_list_repo_labels` | read | Name, description and colour of every label a repository defines |
 | `github_list_milestones` | read | Open, closed or all milestones, with the count of issues in each |
 | `github_create_milestone` | write | Open a milestone with a description and a due date |
@@ -116,7 +118,7 @@ Every tool above names the skill that documents it, at the end of its own descri
 |----------|--------|
 | `skill://pr-analysis/SKILL.md` | Analyse a GitHub pull request by fetching its metadata, diff, linked issues and CI status |
 | `skill://pr-review/SKILL.md` | Review a GitHub pull request by posting inline code comments and submitting a review decision |
-| `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, refresh the branch and merge |
+| `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge |
 | `skill://issue-management/SKILL.md` | Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates |
 | `skill://release-management/SKILL.md` | Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there |
 | `skill://project-boards/SKILL.md` | Put issues and pull requests on a GitHub project board, set their fields, read what is on a board, and take items off it |

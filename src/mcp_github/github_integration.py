@@ -170,6 +170,14 @@ class DiffResult(TypedDict):
     truncated: bool
 
 
+class JobLogResult(TypedDict):
+    job_id: int
+    log: str
+    bytes_returned: int
+    bytes_total: int
+    truncated: bool
+
+
 class StatusChecksResult(TypedDict):
     pr_number: int
     overall: str
@@ -218,8 +226,10 @@ _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
+_SearchType = Literal["lexical", "semantic", "hybrid"]
 _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
+_Names = list[str] | None
 _WorkflowInputs = dict[str, Any]
 
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
@@ -418,6 +428,28 @@ def _review_comment_result(data: dict[str, Any]) -> ReviewCommentData:
     }
 
 
+def _review_request_result(data: dict[str, Any], users: list[str], teams: list[str], remove: bool) -> dict[str, Any]:
+    """The reviewer lists off the pull request a review request answers with. A
+    name the call asked about is unapplied when a request left it off the lists,
+    or a removal left it on them."""
+    logins = {user["login"] for user in data["requested_reviewers"]}
+    slugs = {team["slug"] for team in data["requested_teams"]}
+    if remove:
+        unapplied = sorted(logins.intersection(users) | slugs.intersection(teams))
+    else:
+        unapplied = sorted((set(users) - logins) | (set(teams) - slugs))
+    result: dict[str, Any] = {
+        "status": "partial" if unapplied else "ok",
+        "requested_reviewers": sorted(logins),
+        "requested_teams": sorted(slugs),
+        "pr_url": data.get("html_url"),
+    }
+    if unapplied:
+        logger.warning(f"Some reviewers were not applied: {unapplied}")
+        result["message"] = f"GitHub did not {'withdraw' if remove else 'add'} these reviewers: {unapplied}"
+    return result
+
+
 def _issue_result(data: dict[str, Any]) -> IssueData:
     """Trim a GitHub issue payload to the IssueData contract."""
     return {
@@ -527,8 +559,10 @@ def _project_item_summary(node: dict[str, Any]) -> dict[str, Any]:
 
 
 def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
-    """Trim a GraphQL check-run node to the check_runs contract."""
+    """Trim a GraphQL check-run node to the check_runs contract. The id of a
+    GitHub Actions run is its job id, which github_get_job_log takes. See #500."""
     return {
+        "id": run.get("databaseId"),
         "name": run["name"],
         "status": run["status"],
         "conclusion": run.get("conclusion"),
@@ -1037,19 +1071,29 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         query: Annotated[str, "Terms and qualifiers, e.g. 'rate limit repo:owner/name is:closed label:bug'"],
         per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
         page: int = 1,
+        search_type: Annotated[
+            _SearchType,
+            "lexical matches words. semantic and hybrid match issues by meaning and need is:issue in the query",
+        ] = "lexical",
     ) -> dict[str, Any]:
         """Searches issues and pull requests by text and qualifiers. Unlike
         github_list_open_issues_prs the query is the caller's, so closed and merged
-        items are reachable and any qualifier GitHub search accepts works."""
+        items are reachable and any qualifier GitHub search accepts works. GitHub
+        runs a lexical search when search_type is absent, so the default sends none.
+        Semantic and hybrid cover issues alone, and GitHub falls back to lexical for
+        a query that can reach a PR."""
         if not query.strip():
             raise GitHubValidationError("Supply a search query.")
-        url = f"{API}/search/issues?q={quote_plus(query)}&advanced_search=true&per_page={per_page}&page={page}"
+        mode = "" if search_type == "lexical" else f"&search_type={search_type}"
+        url = f"{API}/search/issues?q={quote_plus(query)}&advanced_search=true{mode}&per_page={per_page}&page={page}"
         response = await self._request("GET", url, context=f"search issues and PRs for {query!r}")
         data = response.json()
         items = [_search_item(item) for item in data["items"]]
         return {
             "total": data["total_count"],
             "incomplete_results": data.get("incomplete_results", False),
+            "search_type": data.get("search_type"),
+            "lexical_fallback_reason": data.get("lexical_fallback_reason"),
             **_page(response, items),
             "items": items,
         }
@@ -1473,6 +1517,27 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}"
             )
         return result
+
+    @_write(idempotent=True)
+    async def request_reviewers(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        pr_number: int,
+        reviewers: Annotated[_Names, "User logins, each a collaborator on the repository"] = None,
+        team_reviewers: Annotated[_Names, "Team slugs in the repository's organisation"] = None,
+        remove: Annotated[bool, "Withdraw the request from these reviewers rather than ask them"] = False,
+    ) -> dict[str, Any]:
+        """Asks users and teams to review a pull request, or withdraws the request.
+        Both calls answer with the pull request, so its reviewer lists show what took
+        effect without a second read. The removal endpoint requires reviewers, so
+        withdrawing teams alone sends an empty list. See #502."""
+        users, teams = reviewers or [], team_reviewers or []
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/requested_reviewers"
+        context = f"{'withdraw' if remove else 'request'} review from {', '.join(users + teams)} on PR #{pr_number}"
+        payload = {"reviewers": users, "team_reviewers": teams}
+        data = (await self._request("DELETE" if remove else "POST", url, context=context, json=payload)).json()
+        return _review_request_result(data, users, teams, remove)
 
     @_read_only
     async def get_repository_file(
@@ -2229,3 +2294,37 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 "commit_statuses": commit_statuses,
                 "truncated": truncated,
             }
+
+    @_read_only
+    async def get_job_log(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        job_id: Annotated[int, "The id of a GitHub Actions check run from github_get_pr_status_checks"],
+        max_bytes: Annotated[
+            int, "Cap on the log returned, kept from the end. Pass 0 to learn the size without reading the log"
+        ] = DIFF_MAX_BYTES,
+    ) -> JobLogResult:
+        """Fetches the end of a GitHub Actions job's log, capped at max_bytes. A job
+        reports its failure last, so a cut keeps the tail. GitHub redirects to a
+        storage host for one minute, and the download goes there without the
+        token. See #500."""
+        if max_bytes < 0:
+            raise GitHubValidationError("max_bytes cannot be negative.")
+        url = f"{_repo(repo_owner, repo_name)}/actions/jobs/{job_id}/logs"
+        redirect = await self._request("GET", url, context=f"job {job_id} log", allow_status=(302,))
+        try:
+            response = await self._http.get(redirect.headers["Location"])
+        except httpx.HTTPError as e:
+            raise GitHubAPIError(f"Job {job_id} log download failed: {e}") from e
+        if not response.is_success:
+            raise GitHubAPIError(f"Job {job_id} log download failed", status_code=response.status_code)
+        content = response.content
+        kept = content[max(len(content) - max_bytes, 0) :]
+        return {
+            "job_id": job_id,
+            "log": kept.decode("utf-8", errors="ignore"),
+            "bytes_returned": len(kept),
+            "bytes_total": len(content),
+            "truncated": len(kept) < len(content),
+        }

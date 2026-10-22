@@ -233,6 +233,33 @@ class TestSearchIssuesPRs:
         assert "per_page=10&page=3" in url
 
     @pytest.mark.anyio
+    async def test_the_default_search_sends_no_search_type(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=mock_response(json_data={"total_count": 0, "items": []}))
+        await gi.search_issues_prs("rate limit")
+        url = gi._http.request.call_args.args[1]
+        assert "search_type" not in url
+
+    @pytest.mark.anyio
+    async def test_hybrid_search_type_is_sent_in_url(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=mock_response(json_data={"total_count": 0, "items": []}))
+        await gi.search_issues_prs("is:issue login fails", search_type="hybrid")
+        url = gi._http.request.call_args.args[1]
+        assert "advanced_search=true&search_type=hybrid" in url
+
+    @pytest.mark.anyio
+    async def test_the_result_names_the_search_that_ran_and_the_fallback_reason(self, gi: GitHubIntegration):
+        payload = {
+            "total_count": 0,
+            "items": [],
+            "search_type": "lexical",
+            "lexical_fallback_reason": ["non_issue_target"],
+        }
+        gi._http.request = AsyncMock(return_value=mock_response(json_data=payload))
+        result = await gi.search_issues_prs("is:pr login fails", search_type="semantic")
+        assert result["search_type"] == "lexical"
+        assert result["lexical_fallback_reason"] == ["non_issue_target"]
+
+    @pytest.mark.anyio
     async def test_empty_query_is_rejected(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock()
         with pytest.raises(GitHubValidationError):
