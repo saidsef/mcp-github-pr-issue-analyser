@@ -23,6 +23,7 @@ from tests.support import deployment, mock_response
 
 _READ = {
     "get_issue",
+    "get_job_log",
     "get_latest_sha",
     "get_pr_content",
     "get_pr_diff",

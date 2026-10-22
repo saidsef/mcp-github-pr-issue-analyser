@@ -161,7 +161,7 @@ the limit that ran out.
 
 ## Statuses That Are Not Errors
 
-Four calls name a status the server returns to the tool instead of raising, so
+Five calls name a status the server returns to the tool instead of raising, so
 the tool decides what it means and the client sees the decision rather than the
 status.
 
@@ -171,10 +171,14 @@ status.
 | `github_get_latest_sha` | 409 on the commit listing | `null`, since a repository with no commits has no SHA |
 | `github_create_release` | 422 where the release exists | The release updated under `if_exists='update'`, or a `VALIDATION_ERROR` pointing at `github_update_release` under `if_exists='fail'` |
 | `github_get_release`, `github_update_release`, `github_delete_release`, `github_delete_tag` | 404 on the release lookup | `[NOT_FOUND] HTTP 404: No release found for tag '<tag>' in <owner>/<repo>` for the first three, and clearance to proceed for `github_delete_tag` |
+| `github_get_job_log` | 302 on the log request | The log, downloaded from the storage host the redirect names |
 
 A status GitHub sent for any other reason still raises, so none of this is a
 blanket suppression. A 422 on `github_create_release` that is not an existing
 release reaches you as `VALIDATION_ERROR` in the usual way.
+
+`github_get_job_log` sends no token to the storage host, so a failed download
+raises `GITHUB_API_ERROR` with the host's HTTP status and never an auth code.
 
 ## Rate Limits
 

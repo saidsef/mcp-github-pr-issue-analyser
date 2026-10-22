@@ -13,6 +13,7 @@ github_create_tag
 github_delete_release
 github_delete_tag
 github_get_issue
+github_get_job_log
 github_get_latest_sha
 github_get_pr_content
 github_get_pr_diff
