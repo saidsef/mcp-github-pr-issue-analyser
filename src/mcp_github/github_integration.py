@@ -220,6 +220,7 @@ _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
 _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
+_Names = list[str] | None
 
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 _PENDING_STATUSES = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
@@ -1461,8 +1462,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         repo_owner: str,
         repo_name: str,
         pr_number: int,
-        reviewers: Annotated[list[str] | None, "User logins, each a collaborator on the repository"] = None,
-        team_reviewers: Annotated[list[str] | None, "Team slugs in the repository's organisation"] = None,
+        reviewers: Annotated[_Names, "User logins, each a collaborator on the repository"] = None,
+        team_reviewers: Annotated[_Names, "Team slugs in the repository's organisation"] = None,
         remove: Annotated[bool, "Withdraw the request from these reviewers rather than ask them"] = False,
     ) -> dict[str, Any]:
         """Asks users and teams to review a pull request, or withdraws the request.
