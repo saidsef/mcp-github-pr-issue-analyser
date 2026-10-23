@@ -103,11 +103,19 @@ Returns:
 | `bytes_total` | int | Size of the whole patch, whether or not it was cut |
 | `truncated` | bool | `True` when `patch` is only the start of it |
 
-The patch comes from the patch-diff host rather than the REST API, so it is not
-paginated and carries no per-file metadata. `bytes_total` is the full size even
-on a truncated reply, so `max_bytes=0` is a cheap way to decide whether to ask
-for the patch at all. A cut lands on a byte boundary and any character split
-across it is dropped, so the tail of a truncated patch can end mid-line.
+The patch is the net change of the PR as the Files changed tab shows it, which
+the REST API serves under the `application/vnd.github.diff` media type. Each
+changed file appears once, with its hunks numbered as
+`github_add_inline_pr_comment` expects them. The patch is not paginated and
+carries no per-file metadata. `bytes_total` is the full size even on a
+truncated reply, so `max_bytes=0` is a cheap way to decide whether to ask for
+the patch at all. A cut lands on a byte boundary and any character split across
+it is dropped, so the tail of a truncated patch can end mid-line.
+
+GitHub refuses a diff past its own size limit with HTTP 406, and the
+`GITHUB_API_ERROR` message carries GitHub's reason. No value of `max_bytes`
+avoids the refusal, `0` included, because the tool cuts the patch only after
+GitHub serves it.
 
 The default is set by `GITHUB_DIFF_MAX_BYTES`.
 
