@@ -31,12 +31,12 @@ class TestMergePr:
         assert "405" in text
 
     @pytest.mark.anyio
-    async def test_merge_409_includes_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=mock_response(status_code=409, json_data={"message": "Head branch was modified"})
-        )
+    async def test_a_head_that_moved_is_refused_with_githubs_message(self, gi: GitHubIntegration):
+        moved = {"message": "Head branch was modified. Review and try the merge again."}
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=409, json_data=moved))
         with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 42)
+            await gi.merge_pr("owner", "repo", 42, expected_head_sha="9341d65")
+        assert gi._http.request.call_args.kwargs["json"] == {"merge_method": "squash", "sha": "9341d65"}
         text = str(excinfo.value)
         assert "Head branch was modified" in text
         assert "409" in text

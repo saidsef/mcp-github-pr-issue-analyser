@@ -43,11 +43,12 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Merging a PR
 
-1. Call `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and `github_list_pr_reviews` for the verdicts, per the `pr-review` skill
+1. Call `github_get_pr_content` and keep its `head_sha`, then `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and `github_list_pr_reviews` for the verdicts, per the `pr-review` skill
 2. **Where a user can answer in the session, ask before calling `github_merge_pr`, and name anything that is not ready: a `failing`, `pending` or `unknown` result with the failing check names, or no approval. A yes, including "merge it anyway", is the answer, so merge and do not refuse**
 3. Where nobody can answer, as in an unattended run, the request that started the run is the user's answer. Merge when it asked for a merge, and report the check and review state with the result rather than stopping to ask
-4. Call `github_merge_pr` with an explicit `commit_title`
+4. Call `github_merge_pr` with an explicit `commit_title`, and with that `head_sha` as `expected_head_sha`
 5. `github_merge_pr` checks nothing itself and the merge cannot be undone. A refusal from GitHub, such as branch protection requiring checks or reviews, comes back as an error that no yes overrides, so report its `GitHub said` text per the `error-handling` skill
+6. A 409 reading `Head branch was modified` means a push arrived after step 1 and nothing merged. Go back to step 1 for the new head, since the commits that were checked are no longer the ones that would merge
 
 ## Tool Parameters
 
@@ -238,6 +239,12 @@ input left out takes the default the workflow file sets.
 | `commit_title` | str \| None | `None` | Merge commit title, GitHub generates one if omitted |
 | `commit_message` | str \| None | `None` | Merge commit body |
 | `merge_method` | str | `squash` | One of `merge`, `squash`, `rebase` |
+| `expected_head_sha` | str \| None | `None` | Refuse unless the head still matches this SHA |
+
+Read `head_sha` from `github_get_pr_content` and pass it as `expected_head_sha`,
+so the merge takes the commit that was checked. GitHub refuses with a 409 once
+the head has moved, and the error carries GitHub's `Head branch was modified`
+message. A call without it merges whatever the head is when GitHub receives it.
 
 ## Title Convention
 
