@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 from fastmcp.exceptions import ToolError
 
@@ -12,11 +13,8 @@ from mcp_github.github_integration import GitHubIntegration
 from tests.support import mock_response, repo_payload
 
 
-def _raw(content: bytes) -> MagicMock:
-    r = mock_response(text="")
-    r.content = content
-    r.headers = {"content-type": "application/vnd.github.raw; charset=utf-8"}
-    return r
+def _raw(content: bytes) -> httpx.Response:
+    return httpx.Response(200, content=content, headers={"content-type": "application/vnd.github.raw; charset=utf-8"})
 
 
 class TestGetRepositoryFile:
@@ -117,7 +115,7 @@ class TestGetRepositoryFile:
 
 class TestListRepositoryTree:
     @staticmethod
-    def _tree(**kw) -> MagicMock:
+    def _tree(**kw) -> httpx.Response:
         return mock_response(
             json_data={
                 "sha": "t1",

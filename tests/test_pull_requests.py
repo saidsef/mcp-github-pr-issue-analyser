@@ -416,9 +416,7 @@ class TestCreateEmptyCommit:
         responses = iter(
             [
                 mock_response(json_data={"default_branch": "main"}),
-                mock_response(
-                    status_code=409, json_data={"message": "Git Repository is empty."}, reason_phrase="Conflict"
-                ),
+                mock_response(status_code=409, json_data={"message": "Git Repository is empty."}),
             ]
         )
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))

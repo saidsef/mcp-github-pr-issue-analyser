@@ -3,11 +3,10 @@ request carrying an OAuth grant, and the GitHub payloads the tools are fed."""
 
 from __future__ import annotations
 
-import json
 from collections.abc import Iterator
 from contextlib import ExitStack, contextmanager
 from datetime import datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import httpx
 from fastmcp.server.auth import AccessToken
@@ -75,20 +74,15 @@ def mock_response(
     text: str = "",
     etag: str | None = None,
     headers: dict[str, str] | None = None,
-    reason_phrase: str = "OK",
-) -> MagicMock:
-    """An httpx response as the mocked client returns it."""
-    r = MagicMock(spec=httpx.Response)
-    r.status_code = status_code
-    r.is_success = status_code < 400
-    r.json.return_value = json_data if json_data is not None else {}
-    r.text = text
-    r.reason_phrase = reason_phrase
-    r.headers = {"ETag": etag} if etag else {}
-    r.headers.update(headers or {})
-    r.content = json.dumps(json_data).encode() if json_data is not None else text.encode()
-    r.request = None
-    return r
+) -> httpx.Response:
+    """A real httpx response for the mocked client to return. Its headers match
+    case-insensitively, and json() raises on a body that is not JSON, as they do
+    in production. See #520."""
+    sent = {**({"ETag": etag} if etag else {}), **(headers or {})}
+    request = httpx.Request("GET", "https://api.github.com/")
+    if json_data is not None:
+        return httpx.Response(status_code, json=json_data, headers=sent, request=request)
+    return httpx.Response(status_code, text=text, headers=sent, request=request)
 
 
 def week(sunday: str, days: list[int]) -> dict:

@@ -40,6 +40,21 @@ pytest -v
 pytest tests/test_specific.py
 ```
 
+### Contract tests
+
+`tests/test_contract.py` calls the tools against the GitHub API and makes no
+writes. Each case skips when the token it needs is unset.
+
+```shell
+GITHUB_TOKEN=$(gh auth token) uv run pytest tests/test_contract.py
+```
+
+The `contract` job in CI runs the public cases with the workflow's own token. The
+private case reads two repository secrets: `CONTRACT_PRIVATE_REPO_TOKEN`, a token
+that can read a private repository, and `CONTRACT_PRIVATE_PR`, a pull request in
+that repository written as `owner/repo#number`. GitHub passes no repository
+secrets to Dependabot or fork pull requests, so the private case skips on those.
+
 ### Renaming or removing a tool
 
 `tests/registered_tools.txt` records every tool name the server registers. A name

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import time
 from unittest.mock import AsyncMock, patch
 
@@ -291,7 +290,7 @@ def _refusing_oauth_client(body: dict) -> GitHubIntegration:
     with deployment(token="test-token", oauth=True):
         gi = GitHubIntegration()
     gi._http = AsyncMock()
-    gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
+    gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body))
     return gi
 
 
@@ -302,14 +301,13 @@ class TestErrorDetail:
     @pytest.mark.anyio
     async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
         body = {"message": "At least 1 approving review is required by reviewers with write access."}
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body))
         with pytest.raises(ToolError, match=r"PR #42 merge: Refused.*approving review"):
             await gi.merge_pr("owner", "repo", 42)
 
     @pytest.mark.anyio
     async def test_a_403_with_no_body_still_points_at_the_token(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(status_code=403, text=""))
-        gi._http.request.return_value.json.side_effect = ValueError("not json")
         with pytest.raises(ToolError, match="Permission denied. Check your token permissions"):
             await gi.merge_pr("owner", "repo", 42)
 
@@ -317,11 +315,7 @@ class TestErrorDetail:
     async def test_a_missing_workflow_scope_leads_the_message(self, gi: GitHubIntegration):
         """GitHub names the scope in the trailing clause of a long message, so the
         refusal repeats it where a client reads the message first. See #470."""
-        gi._http.request = AsyncMock(
-            return_value=mock_response(
-                status_code=403, json_data=_WORKFLOW_SCOPE_403, text=json.dumps(_WORKFLOW_SCOPE_403)
-            )
-        )
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=_WORKFLOW_SCOPE_403))
         with pytest.raises(ToolError, match=r"Refused\. The token is missing the `workflow` scope"):
             await gi.merge_pr("owner", "repo", 42)
 
@@ -344,7 +338,7 @@ class TestErrorDetail:
             await oauth_gi.merge_pr("owner", "repo", 42)
 
     def test_a_permission_403_is_not_read_as_a_rate_limit(self, gi: GitHubIntegration):
-        response = mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
+        response = mock_response(status_code=403, json_data=_SAML_403)
         with pytest.raises(GitHubAPIError) as caught:
             gi._handle_response_error(response, "PR #42 merge")
         assert not isinstance(caught.value, GitHubRateLimitError)
@@ -356,7 +350,6 @@ class TestErrorDetail:
         response = mock_response(
             status_code=403,
             json_data=body,
-            text=json.dumps(body),
             headers={"Retry-After": "60", "X-RateLimit-Reset": "1"},
         )
         with pytest.raises(GitHubRateLimitError) as caught:
@@ -366,18 +359,14 @@ class TestErrorDetail:
 
     def test_a_primary_rate_limit_uses_the_reset_header(self, gi: GitHubIntegration):
         body = {"message": "API rate limit exceeded for user ID 1."}
-        response = mock_response(
-            status_code=403, json_data=body, text=json.dumps(body), headers={"X-RateLimit-Reset": "1893456000"}
-        )
+        response = mock_response(status_code=403, json_data=body, headers={"X-RateLimit-Reset": "1893456000"})
         with pytest.raises(GitHubRateLimitError) as caught:
             gi._handle_response_error(response, "")
         assert caught.value.reset_timestamp == 1893456000
 
     def test_an_unusable_reset_header_is_dropped_rather_than_raising(self, gi: GitHubIntegration):
         body = {"message": "API rate limit exceeded."}
-        response = mock_response(
-            status_code=403, json_data=body, text=json.dumps(body), headers={"X-RateLimit-Reset": "Wed, 21 Oct 2026"}
-        )
+        response = mock_response(status_code=403, json_data=body, headers={"X-RateLimit-Reset": "Wed, 21 Oct 2026"})
         with pytest.raises(GitHubRateLimitError) as caught:
             gi._handle_response_error(response, "")
         assert caught.value.reset_timestamp is None
@@ -405,7 +394,7 @@ class TestErrorDetail:
 
     def test_an_unlisted_status_keeps_the_message_it_always_had(self, gi: GitHubIntegration):
         body = {"message": "Pull Request is not mergeable"}
-        response = mock_response(status_code=405, json_data=body, reason_phrase="Method Not Allowed")
+        response = mock_response(status_code=405, json_data=body)
         with pytest.raises(
             GitHubAPIError, match=r"405 - Method Not Allowed GitHub said: Pull Request is not mergeable"
         ):
@@ -413,7 +402,6 @@ class TestErrorDetail:
 
     def test_a_body_that_is_not_json_leaves_the_message_alone(self, gi: GitHubIntegration):
         response = mock_response(status_code=403, text="<html>no</html>")
-        response.json.side_effect = ValueError("not json")
         with pytest.raises(GitHubAPIError) as caught:
             gi._handle_response_error(response, "PR #42 merge")
         assert "GitHub said" not in str(caught.value)
@@ -441,7 +429,7 @@ class TestRateLimitCode:
 
     def test_a_429_keeps_its_status_and_says_when_to_retry(self, gi: GitHubIntegration):
         body = {"message": "You have exceeded a secondary rate limit."}
-        response = mock_response(status_code=429, json_data=body, text=json.dumps(body), headers={"Retry-After": "60"})
+        response = mock_response(status_code=429, json_data=body, headers={"Retry-After": "60"})
         with patch("time.time", return_value=_NOW), pytest.raises(GitHubRateLimitError) as caught:
             gi._handle_response_error(response, "issue #7")
         assert str(caught.value).startswith("[RATE_LIMITED] HTTP 429: issue #7: GitHub secondary rate limit hit.")
@@ -450,7 +438,7 @@ class TestRateLimitCode:
     @pytest.mark.anyio
     async def test_a_rest_rate_limit_inside_a_guarded_tool_keeps_its_code(self, gi: GitHubIntegration):
         body = {"message": "API rate limit exceeded for user ID 1."}
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body))
         with pytest.raises(GitHubRateLimitError, match=r"^\[RATE_LIMITED\] HTTP 403: repos for octocat: "):
             await gi.get_repo_stars_since("octocat")
 

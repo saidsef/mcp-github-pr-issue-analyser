@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from unittest.mock import AsyncMock
 
 import pytest
@@ -17,7 +16,6 @@ class TestRerunJob:
     @pytest.mark.anyio
     async def test_posts_the_debug_flag_and_reads_no_body(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(status_code=201))
-        gi._http.request.return_value.json.side_effect = ValueError("no body")
         result = await gi.rerun_job("o", "r", 4242, enable_debug_logging=True)
         call = gi._http.request.call_args
         assert call.args == ("POST", "https://api.github.com/repos/o/r/actions/jobs/4242/rerun")
@@ -31,7 +29,6 @@ class TestRerunJob:
             return_value=mock_response(
                 status_code=403,
                 json_data=body,
-                text=json.dumps(body),
                 headers={"X-Accepted-GitHub-Permissions": "actions=write"},
             )
         )

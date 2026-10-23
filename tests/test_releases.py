@@ -313,7 +313,7 @@ class TestReleasesAndTags:
         responses = iter(
             [
                 mock_response(json_data=release_payload()),
-                mock_response(status_code=500, reason_phrase="Server Error"),
+                mock_response(status_code=500),
             ]
         )
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))

@@ -187,7 +187,6 @@ class TestInlineCommentPlacement:
                         "message": "Validation Failed",
                         "errors": [{"resource": "PullRequestReviewComment", "field": "line", "code": "invalid"}],
                     },
-                    reason_phrase="Unprocessable Entity",
                 ),
             ]
         )
