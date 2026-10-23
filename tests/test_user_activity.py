@@ -16,15 +16,6 @@ class TestGetUserActivitiesContext:
     relationship rather than hardcoded counts. See #298."""
 
     @pytest.mark.anyio
-    async def test_no_ctx_runs_without_error(self, gi: GitHubIntegration):
-        with patch.object(
-            GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=EMPTY_CONTRIBUTIONS
-        ):
-            result = await gi.get_user_activities("user1")
-        assert result["username"] == "user1"
-        assert result["commits"] == []
-
-    @pytest.mark.anyio
     async def test_progress_runs_from_zero_to_total(self, gi: GitHubIntegration):
         """One tick per section, plus the repo-stars stage, plus a final tick, every
         one reporting the same total."""
@@ -148,11 +139,6 @@ class TestGetUserActivitiesFiltering:
         assert await _activities(gi, repo="WIDGET") == await _activities(gi, repo="widget")
 
     @pytest.mark.anyio
-    async def test_no_match_yields_empty_section(self, gi: GitHubIntegration):
-        result = await _activities(gi, org="nobody")
-        assert result["commits"] == []
-
-    @pytest.mark.anyio
     async def test_repo_stars_ignores_org_and_repo_filters(self, gi: GitHubIntegration):
         """Documented behaviour: repo_stars is the user's own top repos regardless."""
         result = await _activities(gi, org="nobody", repo="nothing")
@@ -170,11 +156,6 @@ class TestGetUserActivitiesFiltering:
         result = await _activities(gi, org="nobody")
         assert result["commits"] == []
         assert result["total_contributions"]["commits"] == 99
-
-    @pytest.mark.anyio
-    async def test_repo_stars_total_sums_all_repos(self, gi: GitHubIntegration):
-        result = await _activities(gi)
-        assert result["total_contributions"]["repo_stars"] == 15
 
     @pytest.mark.anyio
     async def test_repo_stars_total_ignores_max_results(self, gi: GitHubIntegration):

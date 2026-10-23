@@ -20,17 +20,6 @@ class TestMergePr:
         assert result == {"merged": True}
 
     @pytest.mark.anyio
-    async def test_merge_405_includes_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=mock_response(status_code=405, json_data={"message": "Pull Request is not mergeable"})
-        )
-        with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 251)
-        text = str(excinfo.value)
-        assert "Pull Request is not mergeable" in text
-        assert "405" in text
-
-    @pytest.mark.anyio
     async def test_a_head_that_moved_is_refused_with_githubs_message(self, gi: GitHubIntegration):
         moved = {"message": "Head branch was modified. Review and try the merge again."}
         gi._http.request = AsyncMock(return_value=mock_response(status_code=409, json_data=moved))

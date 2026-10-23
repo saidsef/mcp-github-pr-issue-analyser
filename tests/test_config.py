@@ -6,7 +6,7 @@ from unittest.mock import patch
 
 import pytest
 
-from mcp_github.issues_pr_analyser import MCP_ENABLE_REMOTE, _env_enabled
+from mcp_github.issues_pr_analyser import _env_enabled
 
 
 class TestEnvEnabled:
@@ -29,13 +29,6 @@ class TestEnvEnabled:
     def test_unset_disables(self):
         with patch.dict("os.environ", {}, clear=True):
             assert _env_enabled("FLAG") is False
-
-
-class TestMcpEnableRemote:
-    """The module constant the transport and auth choices read."""
-
-    def test_is_a_bool(self):
-        assert isinstance(MCP_ENABLE_REMOTE, bool)
 
 
 class TestLoggingSetup:

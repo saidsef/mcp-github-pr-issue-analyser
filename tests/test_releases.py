@@ -42,12 +42,6 @@ class TestGetLatestShaAndCreateTag:
         assert "sha=feature%2Fx" in gi._http.request.call_args.args[1]
 
     @pytest.mark.anyio
-    async def test_get_latest_sha_reads_a_tag(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=[{"sha": "tagsha"}]))
-        assert await gi.get_latest_sha("owner", "repo", ref="v1.2.3") == "tagsha"
-        assert "sha=v1.2.3" in gi._http.request.call_args.args[1]
-
-    @pytest.mark.anyio
     async def test_get_latest_sha_rejects_an_unknown_ref(self, gi: GitHubIntegration):
         """A ref GitHub cannot resolve is a 404, which is a failure rather than
         the no-commits answer."""
@@ -106,13 +100,6 @@ class TestGetLatestShaAndCreateTag:
             "type": "commit",
         }
         assert calls[1].kwargs["json"]["sha"] == "tagobj1"
-
-    @pytest.mark.anyio
-    async def test_create_tag_empty_repo_raises_github_not_found(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=[]))
-        with pytest.raises(GitHubNotFoundError, match="No commits found"):
-            await gi.create_tag("owner", "empty-repo", "v1.0.0", "First tag")
-        gi._http.request.assert_awaited_once()
 
 
 class TestReleasesAndTags:

@@ -76,15 +76,8 @@ class TestTheServedToolList:
         assert missing == {}
 
     @pytest.mark.anyio
-    async def test_the_two_skill_tools_point_at_no_skill(self):
-        """Pointing github_get_skill at a skill would send a client in a circle."""
-        tools = await _tools()
-
-        for name in NO_SKILL:
-            assert "github_get_skill('" not in (tools[name].description or "")
-
-    @pytest.mark.anyio
     async def test_only_the_two_skill_tools_go_without_one(self):
+        """Pointing github_get_skill at a skill would send a client in a circle."""
         tools = await _tools()
         bare = {name for name, tool in tools.items() if "github_get_skill('" not in (tool.description or "")}
 

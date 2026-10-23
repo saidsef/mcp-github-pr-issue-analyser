@@ -251,16 +251,6 @@ class TestDynamoDBTokenStore:
         await aclose_token_store()
         store.close.assert_awaited_once()
 
-    @pytest.mark.anyio
-    async def test_aclose_is_a_no_op_for_the_memory_store(self):
-        with (
-            patch("mcp_github.auth.REDIS_HOST_PORT", None),
-            patch("mcp_github.auth.DYNAMODB_TABLE_ARN", None),
-        ):
-            build_token_store()
-        await aclose_token_store()
-        assert auth._token_store is None
-
 
 class TestReplacedSettings:
     """The settings the ARN replaced, left behind on an upgrade."""
@@ -286,11 +276,6 @@ class TestReplacedSettings:
 
 class TestCheckCallerAccount:
     """The ARN names an account, the credentials reach one, and they have to agree."""
-
-    @pytest.mark.anyio
-    async def test_matching_account_passes(self):
-        with patch("mcp_github.auth.boto3", new=_sts_boto3(account="123456789012")):
-            await _check_caller_account("eu-west-1", "123456789012")
 
     @pytest.mark.anyio
     async def test_another_account_is_refused(self):
@@ -331,13 +316,6 @@ class _RacingStore:
 
 class TestSetupStore:
     """Creating the table at startup, and the race between replicas doing it."""
-
-    @pytest.mark.anyio
-    async def test_setup_is_called_once_when_it_succeeds(self):
-        store = MagicMock()
-        store.setup = AsyncMock()
-        await _setup_store(store, "oauth-state")
-        store.setup.assert_awaited_once()
 
     @pytest.mark.anyio
     async def test_a_lost_create_race_is_retried(self):

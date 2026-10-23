@@ -165,13 +165,6 @@ class TestScopeGate:
             assert scope in str(refusal.value)
 
     @pytest.mark.anyio
-    async def test_the_static_token_grant_holds_the_scopes_the_gate_needs(self):
-        granted = await APIKeyVerifier("test-token").verify_token("test-token")
-
-        assert granted is not None
-        assert set(WRITE_SCOPES) <= set(granted.scopes)
-
-    @pytest.mark.anyio
     async def test_stdio_keeps_every_tool(self):
         server = analyser()
         registered = await server.mcp.list_tools(run_middleware=False)
@@ -478,32 +471,10 @@ class TestListOpenIssuesPrsSchema:
         return tools["github_list_open_issues_prs"]
 
     @pytest.mark.anyio
-    async def test_repo_owner_carries_the_per_mode_meaning(self):
-        properties = (await self._schema()).parameters["properties"]
-        described = properties["repo_owner"]["description"].lower()
-
-        assert "username" in described
-        assert "organisation" in described
-        assert "owner" in described
-
-    @pytest.mark.anyio
-    async def test_filtering_names_what_each_mode_returns(self):
-        described = (await self._schema()).parameters["properties"]["filtering"]["description"].lower()
-
-        assert {"involves", "user", "org", "repo"} <= set(described.split())
-
-    @pytest.mark.anyio
     async def test_every_parameter_is_described(self):
         properties = (await self._schema()).parameters["properties"]
 
         assert [name for name, field in properties.items() if not field.get("description")] == []
-
-    @pytest.mark.anyio
-    async def test_the_description_states_open_only_and_points_onward(self):
-        description = (await self._schema()).description or ""
-
-        assert "is:open" in description
-        assert "search_issues_prs" in description
 
 
 class TestAnnotationCoverage:

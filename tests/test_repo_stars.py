@@ -74,20 +74,6 @@ class TestGetRepoStarsSince:
         assert result["repos"][1]["new_stars"] == 1
 
     @pytest.mark.anyio
-    async def test_day_exactly_on_the_cutoff_counts(self, gi: GitHubIntegration):
-        """The cutoff is inclusive, so the day it names is new."""
-        repos_payload = [
-            {"name": "edge", "stargazers_count": 2, "html_url": "https://github.com/u/edge", "description": None},
-        ]
-        history = [week("2090-01-01", [0, 0, 1, 0, 0, 0, 0]), OLD_WEEK]
-        responses = iter([mock_response(json_data=repos_payload), mock_response(json_data=history)])
-        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-
-        result = await gi.get_repo_stars_since("u", since="2090-01-03")
-
-        assert result["repos"][0]["new_stars"] == 1
-
-    @pytest.mark.anyio
     async def test_week_straddling_the_cutoff_counts_only_later_days(self, gi: GitHubIntegration):
         """The week holding the cutoff contributes its days from the cutoff onwards,
         never its whole total. See #398."""

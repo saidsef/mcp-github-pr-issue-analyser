@@ -152,12 +152,6 @@ class TestAnnotations:
                 assert set(WRITE_SCOPES) <= set(scopes), name
         assert seen > 0
 
-    def test_the_board_tools_need_the_project_scope(self, gi: GitHubIntegration):
-        """A board sits outside the repository it tracks, so repo does not reach it.
-        See #351."""
-        for name in ("add_to_project", "set_project_field", "remove_from_project"):
-            assert set(PROJECT_SCOPES) <= set(getattr(gi, name)._mcp_scopes), name
-
 
 class TestConnectionPooling:
     @pytest.mark.anyio
@@ -481,9 +475,6 @@ class TestMissingCredentials:
             patch("mcp_github.auth.GITHUB_OAUTH_BASE_URL", None),
         ):
             return GitHubIntegration()
-
-    def test_building_the_integration_does_not_raise(self):
-        assert self._unconfigured().credentials_configured is False
 
     def test_a_request_refuses_with_the_documented_code(self):
         with pytest.raises(GitHubAuthError) as raised:

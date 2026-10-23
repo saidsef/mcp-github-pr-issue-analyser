@@ -43,20 +43,9 @@ def _stale_count() -> float:
 
 class TestARetiredName:
     @pytest.mark.anyio
-    async def test_is_refused_rather_than_forwarded(self):
-        """The whole point of #439. Until now this reached the renamed tool."""
-        with _over_stdio(), pytest.raises(NotFoundError):
-            await analyser().mcp.call_tool(RETIRED, AN_ISSUE)
-
-    @pytest.mark.anyio
-    async def test_is_refused_over_http_too(self):
-        """There the authorization middleware answers first, and will not say
-        whether the name is absent or merely withheld."""
-        with over_http(), pytest.raises(AuthorizationError):
-            await analyser().mcp.call_tool(RETIRED, AN_ISSUE)
-
-    @pytest.mark.anyio
     async def test_tells_the_client_the_list_has_changed(self):
+        """Over HTTP the authorization middleware answers first, and will not say
+        whether the name is absent or merely withheld."""
         server = analyser()
         with _sent() as send, over_http(), pytest.raises(AuthorizationError):
             await server.mcp.call_tool(RETIRED, AN_ISSUE)
@@ -66,6 +55,7 @@ class TestARetiredName:
 
     @pytest.mark.anyio
     async def test_tells_the_client_over_stdio_as_well(self):
+        """The retired name is refused rather than forwarded to the tool it became."""
         server = analyser()
         with _sent() as send, _over_stdio(), pytest.raises(NotFoundError):
             await server.mcp.call_tool(RETIRED, AN_ISSUE)

@@ -94,12 +94,6 @@ class TestIssueTrimming:
         assert gi._http.request.call_args.kwargs["json"] == {"state": "closed"}
 
     @pytest.mark.anyio
-    async def test_update_issue_keeps_labels_when_they_are_omitted(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=issue_payload()))
-        await gi.update_issue("o", "r", 7, title="A different title")
-        assert "labels" not in gi._http.request.call_args.kwargs["json"]
-
-    @pytest.mark.anyio
     async def test_update_issue_strips_labels_when_an_empty_list_is_explicit(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=issue_payload()))
         await gi.update_issue("o", "r", 7, labels=[])

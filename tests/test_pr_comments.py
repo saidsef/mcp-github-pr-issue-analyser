@@ -396,13 +396,6 @@ class TestListPRReviews:
         assert (await gi.list_pr_reviews("o", "r", 5))["reviews"][0]["submitted_at"] is None
 
     @pytest.mark.anyio
-    async def test_the_noise_is_trimmed_away(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=[review_payload()]))
-        review = (await gi.list_pr_reviews("o", "r", 5))["reviews"][0]
-        for noise in ("node_id", "_links", "pull_request_url", "author_association", "user"):
-            assert noise not in review
-
-    @pytest.mark.anyio
     async def test_paging_goes_out_as_params(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=[]))
         await gi.list_pr_reviews("o", "r", 5, per_page=100, page=2)

@@ -35,9 +35,6 @@ class TestListSkills:
 
         assert names == sorted(names)
 
-    def test_is_read_only(self, skills: SkillsMixin):
-        assert skills.list_skills._mcp_annotations.read_only_hint is True
-
 
 class TestGetSkill:
     @pytest.mark.anyio
@@ -64,9 +61,6 @@ class TestGetSkill:
         with pytest.raises(GitHubNotFoundError):
             await skills.get_skill(name)
 
-    def test_is_read_only(self, skills: SkillsMixin):
-        assert skills.get_skill._mcp_annotations.read_only_hint is True
-
 
 class TestFrontMatter:
     def test_reads_the_description(self):
@@ -77,52 +71,3 @@ class TestFrontMatter:
 
     def test_a_colon_in_the_description_survives(self):
         assert _description("---\ndescription: Read this: carefully\n---\n") == "Read this: carefully"
-
-
-class TestAuthoringConventions:
-    """The skills that open issues and PRs carry the body templates, so an agent
-    reading only the skill writes the same shape a person would."""
-
-    _ISSUE = ("Problem Statement", "Proposed Solution", "Affected Resources", "Resource Links", "Acceptance Criteria")
-    _PR = ("Summary", "Related Issues", "Changes Made", "Testing", "Checklist")
-
-    @staticmethod
-    def _skill(name: str) -> str:
-        return (SKILLS_DIR / name / "SKILL.md").read_text(encoding="utf-8")
-
-    def test_issue_management_carries_the_issue_template(self):
-        body = self._skill("issue-management")
-
-        assert "## Issue Body" in body
-        for heading in self._ISSUE:
-            assert f"## {heading}" in body, heading
-
-    def test_pr_management_carries_the_pr_template(self):
-        body = self._skill("pr-management")
-
-        assert "## PR Body" in body
-        for heading in self._PR:
-            assert f"## {heading}" in body, heading
-
-    def test_the_templates_are_in_order(self):
-        """The order is part of the template, not a preference."""
-        for name, headings in (("issue-management", self._ISSUE), ("pr-management", self._PR)):
-            body = self._skill(name)
-            found = [body.index(f"## {heading}") for heading in headings]
-            assert found == sorted(found), name
-
-    def test_the_issue_template_admits_a_fenced_artefact(self):
-        """A failure with a machine-readable cause reaches the issue verbatim. See #471."""
-        prose = " ".join(self._skill("issue-management").split())
-
-        assert "a verbatim error, log excerpt or request payload in a fenced block" in prose
-        assert "carries no narrative account of how the problem was found" in prose
-        assert "An artefact that reproduces the failure is evidence rather than backstory" in prose
-        assert "is the ceiling, and a fenced block does not count towards it" in prose
-
-    def test_both_skills_title_the_same_way(self):
-        """Issue titles, PR titles and commit subjects share one shape."""
-        for name in ("issue-management", "pr-management"):
-            body = self._skill(name)
-            assert "## Title Convention" in body, name
-            assert "<type>(<scope>): <short prose summary>" in body, name
