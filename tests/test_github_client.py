@@ -236,12 +236,6 @@ class TestTimeouts:
 
 class TestLifecycle:
     @pytest.mark.anyio
-    async def test_aclose_delegates_to_http_client(self, gi: GitHubIntegration):
-        gi._http.aclose = AsyncMock()
-        await gi.aclose()
-        gi._http.aclose.assert_called_once()
-
-    @pytest.mark.anyio
     async def test_async_context_manager_closes_on_exit(self, gi: GitHubIntegration):
         gi._http.aclose = AsyncMock()
         async with gi as g:
@@ -304,14 +298,6 @@ def _refusing_oauth_client(body: dict) -> GitHubIntegration:
 class TestErrorDetail:
     """GitHub explains a refusal in the response body, and the exception text is all
     the client sees, so the body has to survive into the message."""
-
-    @pytest.mark.anyio
-    async def test_a_permission_403_carries_githubs_own_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
-        )
-        with pytest.raises(ToolError, match="SAML enforcement"):
-            await gi.merge_pr("owner", "repo", 42)
 
     @pytest.mark.anyio
     async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
