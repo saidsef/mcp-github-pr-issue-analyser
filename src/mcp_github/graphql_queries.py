@@ -90,9 +90,10 @@ PR_STATUS_CHECKS_QUERY = """
 query($owner: String!, $repo: String!, $number: Int!, $suitesAfter: String) {
   repository(owner: $owner, name: $repo) {
     pullRequest(number: $number) {
-      headRef {
-        target {
-          ... on Commit {
+      commits(last: 1) {
+        nodes {
+          commit {
+            oid
             checkSuites(first: 50, after: $suitesAfter) {
               pageInfo {
                 hasNextPage

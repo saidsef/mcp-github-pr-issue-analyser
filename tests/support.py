@@ -139,11 +139,16 @@ EMPTY_CONTRIBUTIONS = {
 EMPTY_STATUS_CHECKS = {
     "repository": {
         "pullRequest": {
-            "headRef": {
-                "target": {
-                    "checkSuites": {"nodes": [{"checkRuns": {"nodes": []}}]},
-                    "status": None,
-                }
+            "commits": {
+                "nodes": [
+                    {
+                        "commit": {
+                            "oid": "abc123",
+                            "checkSuites": {"nodes": [{"checkRuns": {"nodes": []}}]},
+                            "status": None,
+                        }
+                    }
+                ]
             }
         }
     }
