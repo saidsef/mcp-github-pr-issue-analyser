@@ -222,6 +222,10 @@ _MILESTONE_FIELDS = (
 
 _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
 
+# The tools read these headers off a successful response, and the cache keeps
+# them with the body so a 304 rebuilt from it matches the original. See #516.
+_CACHED_HEADERS = ("Link", "content-type")
+
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
@@ -617,7 +621,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
         self._http = httpx.AsyncClient(timeout=_timeout())
-        self._etags: dict[str, tuple[str, bytes, str]] = {}
+        self._etags: dict[str, tuple[str, bytes, dict[str, str]]] = {}
 
         logger.info("GitHub Integration Initialised")
 
@@ -764,15 +768,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             response = await self._http.request(method, url, headers=sent, **kwargs)
             if response.status_code == 304 and cached:
                 logger.info(f"Not modified {ctx}")
-                headers = {"Link": cached[2]} if cached[2] else None
-                return httpx.Response(200, content=cached[1], headers=headers, request=response.request)
+                return httpx.Response(200, content=cached[1], headers=cached[2], request=response.request)
             if response.status_code in allow_status:
                 logger.info(f"Expected {response.status_code} {ctx}")
                 return response
             if not response.is_success:
                 self._handle_response_error(response, context)
             if key and (etag := response.headers.get("ETag")):
-                self._remember_etag(key, etag, response.content, response.headers.get("Link", ""))
+                self._remember_etag(key, etag, response)
             logger.info(f"Success {method.upper()} {ctx}")
             return response
         except GitHubAuthError:
@@ -780,13 +783,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         except Exception as e:
             raise ToolError(str(e)) from e
 
-    def _remember_etag(self, key: str, etag: str, content: bytes, link: str = "") -> None:
+    def _remember_etag(self, key: str, etag: str, response: httpx.Response) -> None:
         """Oldest out first once the cache is full, so a long-running server
         does not grow a body per URL it has ever read."""
+        headers = {name: value for name in _CACHED_HEADERS if (value := response.headers.get(name))}
         self._etags.pop(key, None)
         while len(self._etags) >= ETAG_CACHE_ENTRIES:
             self._etags.pop(next(iter(self._etags)))
-        self._etags[key] = (etag, content, link)
+        self._etags[key] = (etag, response.content, headers)
 
     async def _pr(self, repo_owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
         """The pull request as GitHub serves it, for the tools that read one field off it."""
