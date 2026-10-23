@@ -146,9 +146,9 @@ and `is_draft`.
 Only open items are returned, since the search is hardcoded to `is:open`. Reach
 for `github_search_issues_prs` for a closed or merged item.
 
-`is_draft` carries draft status, which `github_get_pr_content` does not return. This
-tool and `github_search_issues_prs` share the result shape, so either one answers a
-review or merge decision that turns on it.
+This tool and `github_search_issues_prs` share the result shape. For a review or
+merge decision on one PR, read `is_draft` from `github_get_pr_content`, which reads
+the PR itself rather than the search index.
 
 ### `github_search_issues_prs`
 

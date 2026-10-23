@@ -71,11 +71,19 @@ class PRContent(TypedDict):
     created_at: str
     updated_at: str
     state: str
+    is_draft: bool
+    merged: bool
+    mergeable: bool | None
+    mergeable_state: str
     head_sha: str | None
     head_ref: str | None
     base_ref: str | None
     requested_reviewers: list[str]
     requested_teams: list[str]
+    commits: int
+    additions: int
+    deletions: int
+    changed_files: int
 
 
 class CommentData(TypedDict):
@@ -306,11 +314,20 @@ def _pr_content(data: dict[str, Any]) -> PRContent:
         "created_at": data["created_at"],
         "updated_at": data["updated_at"],
         "state": data["state"],
+        "is_draft": data.get("draft", False),
+        "merged": data["merged"],
+        # Null means GitHub is still working mergeability out, so it passes through. See #518.
+        "mergeable": data["mergeable"],
+        "mergeable_state": data["mergeable_state"],
         "head_sha": head.get("sha"),
         "head_ref": head.get("ref"),
         "base_ref": (data.get("base") or {}).get("ref"),
         "requested_reviewers": [user["login"] for user in data.get("requested_reviewers") or []],
         "requested_teams": [team["slug"] for team in data.get("requested_teams") or []],
+        "commits": data["commits"],
+        "additions": data["additions"],
+        "deletions": data["deletions"],
+        "changed_files": data["changed_files"],
     }
 
 
