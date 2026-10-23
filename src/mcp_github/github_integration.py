@@ -179,6 +179,7 @@ class JobLogResult(TypedDict):
 
 class StatusChecksResult(TypedDict):
     pr_number: int
+    head_sha: str | None
     overall: str
     check_runs: list[dict[str, Any]]
     commit_statuses: list[dict[str, Any]]
@@ -572,6 +573,13 @@ def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
         "details_url": run.get("detailsUrl"),
         "suite_app": app_name,
     }
+
+
+def _head_commit(pull_request: dict[str, Any]) -> dict[str, Any]:
+    """The PR's last commit, which still resolves once its head branch is deleted.
+    An empty dict means GitHub resolved no commit. See #515."""
+    nodes = (pull_request.get("commits") or {}).get("nodes") or [None]
+    return (nodes[-1] or {}).get("commit") or {}
 
 
 def _check_runs(head_target: dict[str, Any]) -> list[dict[str, Any]]:
@@ -2226,13 +2234,15 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         pages via the supplemental query. If either cap is hit before the
         connection is exhausted, the result is flagged truncated=True and
         overall is downgraded from 'passing' to 'unknown' so the caller
-        does not act on a partial view.
+        does not act on a partial view. head_sha names the commit read, and is
+        None when GitHub resolves no commit for the pull request. See #515.
 
         """
         logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
         async with self._guard("fetch status checks"):
             check_runs: list[dict[str, Any]] = []
             commit_statuses: list[dict[str, Any]] = []
+            head_sha: str | None = None
             truncated = False
             suites_after: str | None = None
             token = self._resolve_token()
@@ -2251,10 +2261,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 repo_data = result.get("repository")
                 if not repo_data or not repo_data.get("pullRequest"):
                     raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
-                head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
+                head_target = _head_commit(repo_data["pullRequest"])
 
                 if suites_after is None:
                     commit_statuses = _commit_statuses(head_target)
+                    head_sha = head_target.get("oid")
 
                 suites_page = head_target.get("checkSuites") or {}
                 suites_nodes = suites_page.get("nodes") or []
@@ -2287,6 +2298,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             )
             return {
                 "pr_number": pr_number,
+                "head_sha": head_sha,
                 "overall": overall,
                 "check_runs": check_runs,
                 "commit_statuses": commit_statuses,

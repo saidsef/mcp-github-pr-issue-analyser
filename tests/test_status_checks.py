@@ -10,16 +10,17 @@ from mcp_github.github_integration import GitHubIntegration
 from tests.support import EMPTY_STATUS_CHECKS, mock_response
 
 LOG_URL = "https://blob.example.com/logs/job-7.txt?sig=abc"
+NO_HEAD_COMMIT = {"repository": {"pullRequest": {"commits": {"nodes": []}}}}
 
 
 class TestGetPrStatusChecks:
     @pytest.mark.anyio
-    async def test_overall_status_derived_correctly(self, gi: GitHubIntegration):
-        with patch.object(
-            GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=EMPTY_STATUS_CHECKS
-        ):
+    @pytest.mark.parametrize(("data", "head_sha"), [(EMPTY_STATUS_CHECKS, "abc123"), (NO_HEAD_COMMIT, None)])
+    async def test_no_checks_differs_from_no_head_commit(self, gi: GitHubIntegration, data: dict, head_sha: str | None):
+        with patch.object(GitHubIntegration, "_execute_graphql", new_callable=AsyncMock, return_value=data):
             result = await gi.get_pr_status_checks("owner", "repo", 1)
         assert result["overall"] == "unknown"
+        assert result["head_sha"] == head_sha
 
     @pytest.mark.anyio
     async def test_check_runs_carry_the_job_id(self, gi: GitHubIntegration):
@@ -62,14 +63,18 @@ def _status_page(
     return {
         "repository": {
             "pullRequest": {
-                "headRef": {
-                    "target": {
-                        "checkSuites": {
-                            "pageInfo": {"hasNextPage": has_next, "endCursor": end_cursor},
-                            "nodes": suites,
-                        },
-                        "status": status,
-                    }
+                "commits": {
+                    "nodes": [
+                        {
+                            "commit": {
+                                "checkSuites": {
+                                    "pageInfo": {"hasNextPage": has_next, "endCursor": end_cursor},
+                                    "nodes": suites,
+                                },
+                                "status": status,
+                            }
+                        }
+                    ]
                 }
             }
         }

@@ -191,6 +191,7 @@ Returns `StatusChecksResult`:
 | Field | Type | Description |
 |---|---|---|
 | `pr_number` | int | The PR queried |
+| `head_sha` | str \| None | The head commit the checks were read from, `None` where GitHub resolved no commit for the PR |
 | `overall` | str | One of `passing`, `failing`, `pending`, `unknown` |
 | `check_runs` | list | Check runs on the head commit |
 | `commit_statuses` | list | Legacy commit statuses on the head commit |
@@ -207,8 +208,12 @@ Each entry in `commit_statuses` carries `context`, `state`, `description` and
 `overall` is derived, and `failing` and `pending` are authoritative. `passing`
 is returned only when the full set of checks was read, so `truncated=True`
 downgrades an otherwise-clean result to `unknown` rather than `passing`. A head
-commit with no checks and no statuses at all also reads `unknown`. Treat
-`unknown` as "not verified", never as "fine".
+commit with no checks and no statuses at all also reads `unknown`, with its
+`head_sha` set. A `head_sha` of `None` means GitHub resolved no head commit, and
+no checks were read. Treat `unknown` as "not verified", never as "fine".
+
+The tool reads the head commit from the pull request, so a merged PR whose
+branch was deleted still reports its checks.
 
 ### `github_get_job_log`
 
