@@ -31,12 +31,12 @@ class TestMergePr:
         assert "405" in text
 
     @pytest.mark.anyio
-    async def test_merge_409_includes_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=mock_response(status_code=409, json_data={"message": "Head branch was modified"})
-        )
+    async def test_a_head_that_moved_is_refused_with_githubs_message(self, gi: GitHubIntegration):
+        moved = {"message": "Head branch was modified. Review and try the merge again."}
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=409, json_data=moved))
         with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 42)
+            await gi.merge_pr("owner", "repo", 42, expected_head_sha="9341d65")
+        assert gi._http.request.call_args.kwargs["json"] == {"merge_method": "squash", "sha": "9341d65"}
         text = str(excinfo.value)
         assert "Head branch was modified" in text
         assert "409" in text
@@ -133,6 +133,32 @@ class TestGetPRContent:
 
 
 class TestGetPRDiff:
+    @pytest.mark.anyio
+    async def test_reads_the_net_diff_through_the_rest_api(self, gi: GitHubIntegration):
+        """The patch-diff host answers the API token with a redirect on a private
+        repository, and serves a patch per commit. See #514."""
+        gi._http.request = AsyncMock(return_value=mock_response(text="diff --git a b\n"))
+        await gi.get_pr_diff("o", "r", 5)
+        assert gi._http.request.call_args.args == ("GET", "https://api.github.com/repos/o/r/pulls/5")
+        assert gi._http.request.call_args.kwargs["headers"]["Accept"] == "application/vnd.github.diff"
+
+    @pytest.mark.anyio
+    async def test_content_and_diff_of_one_pr_keep_their_own_bodies(self, gi: GitHubIntegration):
+        """Both reads share a URL. One ETag for both is the worst case, where a
+        shared cache entry would serve one body for the other. See #514."""
+
+        def github(method, url, headers, **_):
+            if headers.get("If-None-Match") == '"same"':
+                return mock_response(status_code=304)
+            if headers["Accept"] == "application/vnd.github.diff":
+                return mock_response(text="diff --git a b\n", etag='"same"')
+            return mock_response(json_data=pr_payload(), etag='"same"')
+
+        gi._http.request = AsyncMock(side_effect=github)
+        for _ in range(2):
+            assert (await gi.get_pr_content("o", "r", 5))["title"] == "A change"
+            assert (await gi.get_pr_diff("o", "r", 5))["patch"] == "diff --git a b\n"
+
     @pytest.mark.anyio
     async def test_short_patch_comes_back_whole(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(text="diff --git a b\n"))

@@ -97,7 +97,8 @@ Where GitHub sends an `X-Accepted-GitHub-Permissions` header, as it does for a
 fine-grained token, the message names that permission, such as `actions=write`.
 
 A refused 403 has several causes and each needs a different fix, so the code and
-the status settle nothing on their own. `github_merge_pr` meets all of them.
+the status settle nothing on their own. `github_merge_pr` meets all of them, and
+a 409 under `GITHUB_API_ERROR` where the head moved.
 
 | GitHub said | Cause | Do |
 |---|---|---|
@@ -105,6 +106,7 @@ the status settle nothing on their own. `github_merge_pr` meets all of them.
 | `Resource not accessible by integration` | The App installation lacks the permission the call needs | Grant the permission on the installation |
 | `<n> of <m> required status checks have not succeeded`, or a ruleset refusal | Branch protection is refusing this actor | Report it. No token change helps |
 | `At least <n> approving review is required` | The PR is short of reviews | Report it. Retrying fails again |
+| `Head branch was modified. Review and try the merge again.` | A push arrived after the `head_sha` passed as `expected_head_sha` was read | Read the PR again and decide on the new head, per the `pr-management` skill |
 
 **A 404 does not prove the thing is missing.** GitHub returns 404 rather than
 403 for a resource the token cannot see, so a private repository the token

@@ -14,11 +14,11 @@ Post targeted inline comments on specific lines, then submit a review decision o
 
 ## Workflow
 
-1. **Analyse the PR** - follow the `pr-analysis` skill to read the diff, metadata and CI status
+1. **Analyse the PR** - follow the `pr-analysis` skill to read the diff, metadata and CI status, and keep the `head_sha` that `github_get_pr_content` reports
 2. **Read what is already there** - call `github_list_pr_reviews` for the verdicts already given, and `github_list_pr_comments` with `kind="inline"` so a second review does not repeat the first
-3. **Post inline comments** - call `github_add_inline_pr_comment` once per line needing feedback. Each one is published at once as a review of its own, not held for the decision
+3. **Post inline comments** - call `github_add_inline_pr_comment` once per line needing feedback, passing that `head_sha` as `expected_head_sha`. Each one is published at once as a review of its own, not held for the decision
 4. **Post a general comment** - optionally call `github_add_pr_comments` for remarks not tied to a line
-5. **Submit the decision** - call `github_submit_review` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT`, leaving `body` unset on an approval
+5. **Submit the decision** - call `github_submit_review` with `APPROVE`, `REQUEST_CHANGES` or `COMMENT` and the same `expected_head_sha`, leaving `body` unset on an approval
 
 ### Correcting a comment
 
@@ -41,8 +41,14 @@ Post targeted inline comments on specific lines, then submit a review decision o
 | `side` | str | `RIGHT` for an added or context line, `LEFT` for a deleted one. Default `RIGHT` |
 | `start_line` | int \| None | First line of a range ending at `line`. Omit to comment on `line` alone |
 | `start_side` | str \| None | Side `start_line` sits on. Omit to match `side` |
+| `expected_head_sha` | str \| None | Attach the comment to this SHA, as `github_get_pr_content` reports it. Omit for the current head |
 
 Returns `CommentData` with `id`, `body`, `author`, `html_url`, `created_at`.
+
+The line numbers come from the diff that was read, so pass the `head_sha` read
+with it as `expected_head_sha`. Without it the tool reads the head again as it
+posts, and a push since the analysis moves the comment onto a commit nobody
+read, where the same number can point at another line.
 
 GitHub publishes the comment straight away and files it as a review of its own,
 in state `COMMENTED` with an empty body, and notifies the author each time.
@@ -152,10 +158,16 @@ another `github_add_pr_comments` call.
 | `pr_number` | int | - | Pull request number |
 | `event` | str | - | One of `APPROVE`, `REQUEST_CHANGES`, `COMMENT` |
 | `body` | str \| None | `None` | Summary body for the review. Leave it unset on `APPROVE` unless the user asks for a message |
+| `expected_head_sha` | str \| None | `None` | Attach the review to this SHA, as `github_get_pr_content` reports it. Omit for the newest commit |
 
 Returns `id`, `state`, `body`, `html_url` and `submitted_at`. `state` reads back
 as `APPROVED`, `CHANGES_REQUESTED` or `COMMENTED`, which is the review's state
 rather than the `event` name sent.
+
+GitHub applies a review to the newest commit on the PR unless it is given one.
+Pass the `head_sha` the analysis read as `expected_head_sha`, so the review
+names the commit that was read. `commit_id` on `github_list_pr_reviews` shows
+which commit each review covers.
 
 ## Review Decision Guide
 

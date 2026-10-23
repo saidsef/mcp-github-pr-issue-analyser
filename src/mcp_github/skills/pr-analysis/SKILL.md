@@ -110,11 +110,19 @@ Returns:
 | `bytes_total` | int | Size of the whole patch, whether or not it was cut |
 | `truncated` | bool | `True` when `patch` is only the start of it |
 
-The patch comes from the patch-diff host rather than the REST API, so it is not
-paginated and carries no per-file metadata. `bytes_total` is the full size even
-on a truncated reply, so `max_bytes=0` is a cheap way to decide whether to ask
-for the patch at all. A cut lands on a byte boundary and any character split
-across it is dropped, so the tail of a truncated patch can end mid-line.
+The patch is the net change of the PR as the Files changed tab shows it, which
+the REST API serves under the `application/vnd.github.diff` media type. Each
+changed file appears once, with its hunks numbered as
+`github_add_inline_pr_comment` expects them. The patch is not paginated and
+carries no per-file metadata. `bytes_total` is the full size even on a
+truncated reply, so `max_bytes=0` is a cheap way to decide whether to ask for
+the patch at all. A cut lands on a byte boundary and any character split across
+it is dropped, so the tail of a truncated patch can end mid-line.
+
+GitHub refuses a diff past its own size limit with HTTP 406, and the
+`GITHUB_API_ERROR` message carries GitHub's reason. No value of `max_bytes`
+avoids the refusal, `0` included, because the tool cuts the patch only after
+GitHub serves it.
 
 The default is set by `GITHUB_DIFF_MAX_BYTES`.
 
@@ -190,6 +198,7 @@ Returns `StatusChecksResult`:
 | Field | Type | Description |
 |---|---|---|
 | `pr_number` | int | The PR queried |
+| `head_sha` | str \| None | The head commit the checks were read from, `None` where GitHub resolved no commit for the PR |
 | `overall` | str | One of `passing`, `failing`, `pending`, `unknown` |
 | `check_runs` | list | Check runs on the head commit |
 | `commit_statuses` | list | Legacy commit statuses on the head commit |
@@ -206,8 +215,12 @@ Each entry in `commit_statuses` carries `context`, `state`, `description` and
 `overall` is derived, and `failing` and `pending` are authoritative. `passing`
 is returned only when the full set of checks was read, so `truncated=True`
 downgrades an otherwise-clean result to `unknown` rather than `passing`. A head
-commit with no checks and no statuses at all also reads `unknown`. Treat
-`unknown` as "not verified", never as "fine".
+commit with no checks and no statuses at all also reads `unknown`, with its
+`head_sha` set. A `head_sha` of `None` means GitHub resolved no head commit, and
+no checks were read. Treat `unknown` as "not verified", never as "fine".
+
+The tool reads the head commit from the pull request, so a merged PR whose
+branch was deleted still reports its checks.
 
 ### `github_get_job_log`
 
