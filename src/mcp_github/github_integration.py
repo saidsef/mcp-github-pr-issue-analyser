@@ -367,6 +367,24 @@ def _reset_timestamp(response: httpx.Response) -> int | None:
     return int(reset) if reset.isdigit() else None
 
 
+def _rate_limit_error(
+    response: httpx.Response, response_body: dict | None, where: str, detail: str
+) -> GitHubRateLimitError:
+    """GitHub sends either limit as a 403 or a 429, so the error keeps the status
+    that arrived. See #519."""
+    msg = (
+        "GitHub secondary rate limit hit. Wait for the retry window before making more requests."
+        if "secondary rate limit" in response.text.lower()
+        else "GitHub API rate limit exceeded. Please wait before making more requests."
+    )
+    return GitHubRateLimitError(
+        f"{where}{msg}{detail}",
+        response_body=response_body,
+        reset_timestamp=_reset_timestamp(response),
+        status_code=response.status_code,
+    )
+
+
 def _repo_result(repo: dict[str, Any]) -> dict[str, Any]:
     """Trim a repository payload to what a caller needs to pick one and call
     the next tool with it."""
@@ -673,6 +691,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         if status == 403:
             self._raise_for_403(response, response_body, where, detail)
 
+        if status == 429:
+            raise _rate_limit_error(response, response_body, where, detail)
+
         if status == 404:
             msg = "Resource not found"
             if self._oauth_mode:
@@ -713,16 +734,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                     " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
                 )
             raise GitHubAPIError(f"{where}{msg}{detail}", status_code=403, response_body=response_body)
-        msg = (
-            "GitHub secondary rate limit hit. Wait for the retry window before making more requests."
-            if "secondary rate limit" in error_text
-            else "GitHub API rate limit exceeded. Please wait before making more requests."
-        )
-        raise GitHubRateLimitError(
-            f"{where}{msg}{detail}",
-            response_body=response_body,
-            reset_timestamp=_reset_timestamp(response),
-        )
+        raise _rate_limit_error(response, response_body, where, detail)
 
     def _get_headers(self):
         """Constructs the HTTP headers required for GitHub API requests."""
@@ -775,7 +787,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 self._remember_etag(key, etag, response.content, response.headers.get("Link", ""))
             logger.info(f"Success {method.upper()} {ctx}")
             return response
-        except GitHubAuthError:
+        # A rate limit keeps its type, so a guarded tool still reports RATE_LIMITED. See #519.
+        except GitHubAuthError, GitHubRateLimitError:
             raise
         except Exception as e:
             raise ToolError(str(e)) from e
@@ -2090,17 +2103,18 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             self._handle_response_error(response, "GraphQL query")
         data = response.json()
         if "errors" in data:
-            handle_graphql_errors(data["errors"])
+            handle_graphql_errors(data["errors"], reset_timestamp=_reset_timestamp(response))
         return data.get("data", {})
 
     @asynccontextmanager
     async def _guard(self, action: str):
-        """Let GitHubNotFoundError and GitHubAuthError pass through; wrap any other
-        failure in a GitHubAPIError labelled with the action that failed. An auth
-        error already says what to fix, and relabelling it buries that."""
+        """Let GitHubNotFoundError, GitHubAuthError and GitHubRateLimitError pass
+        through, and wrap any other failure in a GitHubAPIError labelled with the
+        action that failed. An auth error or a rate limit already says what to do,
+        and relabelling it buries that. See #519."""
         try:
             yield
-        except GitHubNotFoundError, GitHubAuthError:
+        except GitHubNotFoundError, GitHubAuthError, GitHubRateLimitError:
             raise
         except Exception as e:
             logger.error(f"Error during {action}: {e}")

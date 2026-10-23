@@ -446,6 +446,40 @@ class TestErrorDetail:
             gi._handle_response_error(response, "")
 
 
+_NOW = 1_700_000_000  # 22:13:20 UTC
+
+
+class TestRateLimitCode:
+    """Every rate limit reaches the client under RATE_LIMITED, and says when to retry
+    whenever GitHub sent the timing. See #519."""
+
+    def test_a_429_keeps_its_status_and_says_when_to_retry(self, gi: GitHubIntegration):
+        body = {"message": "You have exceeded a secondary rate limit."}
+        response = mock_response(status_code=429, json_data=body, text=json.dumps(body), headers={"Retry-After": "60"})
+        with patch("time.time", return_value=_NOW), pytest.raises(GitHubRateLimitError) as caught:
+            gi._handle_response_error(response, "issue #7")
+        assert str(caught.value).startswith("[RATE_LIMITED] HTTP 429: issue #7: GitHub secondary rate limit hit.")
+        assert str(caught.value).endswith("Retry after 60s (22:14:20Z).")
+
+    @pytest.mark.anyio
+    async def test_a_rest_rate_limit_inside_a_guarded_tool_keeps_its_code(self, gi: GitHubIntegration):
+        body = {"message": "API rate limit exceeded for user ID 1."}
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
+        with pytest.raises(GitHubRateLimitError, match=r"^\[RATE_LIMITED\] HTTP 403: repos for octocat: "):
+            await gi.get_repo_stars_since("octocat")
+
+    @pytest.mark.anyio
+    async def test_a_graphql_rate_limit_reads_the_reset_off_the_200(self, gi: GitHubIntegration):
+        body = {"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]}
+        reset = {"X-RateLimit-Reset": str(_NOW + 42)}
+        gi._http.post = AsyncMock(return_value=mock_response(json_data=body, headers=reset))
+        with patch("time.time", return_value=_NOW), pytest.raises(GitHubRateLimitError) as caught:
+            await gi.list_projects("o")
+        assert str(caught.value) == (
+            "[RATE_LIMITED] HTTP 403: API rate limit exceeded for user ID 1. Retry after 42s (22:14:02Z)."
+        )
+
+
 class TestTypedCodes:
     """A client matches on the bracketed code and never on the prose, so a failure
     raised before or after the HTTP call carries one too. See #475."""

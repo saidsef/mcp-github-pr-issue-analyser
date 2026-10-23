@@ -47,28 +47,27 @@ def _auth_hint(err_type: str) -> str:
     return " If using OAuth, the authorization may have been revoked -- please re-authenticate."
 
 
-def handle_graphql_errors(errors: list[dict[str, Any]]) -> None:
-    """Map the errors array a 200 response can carry onto our exceptions."""
+def handle_graphql_errors(errors: list[dict[str, Any]], reset_timestamp: int | None = None) -> None:
+    """Map the errors array a 200 response can carry onto our exceptions. The
+    caller reads reset_timestamp off that response's headers. See #519."""
     if not errors:
         return
 
     error = errors[0]
     msg = error.get("message", "Unknown GraphQL error")
     err_type = error.get("type", "")
+    body = {"errors": errors}
 
     logger.error(f"GraphQL error: {msg} (type: {err_type})")
 
-    predicates = [
-        ("NOT_FOUND" in err_type or "not found" in msg.lower(), GitHubNotFoundError),
-        ("RATE_LIMITED" in err_type, GitHubRateLimitError),
-        (
-            "FORBIDDEN" in err_type or "UNAUTHORIZED" in err_type or "INSUFFICIENT_SCOPES" in err_type,
-            GitHubAuthError,
-        ),
-    ]
-    for predicate, exc_cls in predicates:
-        if predicate:
-            hint = _auth_hint(err_type) if exc_cls is GitHubAuthError else ""
-            raise exc_cls(msg + hint, response_body={"errors": errors})
+    if "NOT_FOUND" in err_type or "not found" in msg.lower():
+        raise GitHubNotFoundError(msg, response_body=body)
+    if "RATE_LIMITED" in err_type:
+        raise GitHubRateLimitError(msg, response_body=body, reset_timestamp=reset_timestamp)
+    # A refusal reads as a REST 403 does, since a fresh login cannot lift it. See #519.
+    if "FORBIDDEN" in err_type:
+        raise GitHubAPIError(f"Refused. GitHub said: {msg}", status_code=403, response_body=body)
+    if "UNAUTHORIZED" in err_type or "INSUFFICIENT_SCOPES" in err_type:
+        raise GitHubAuthError(msg + _auth_hint(err_type), response_body=body)
 
-    raise GitHubAPIError(f"GraphQL error: {msg}", response_body={"errors": errors})
+    raise GitHubAPIError(f"GraphQL error: {msg}", response_body=body)
