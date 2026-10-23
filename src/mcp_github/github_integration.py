@@ -735,9 +735,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         }
         return headers
 
-    def _cache_key(self, url: str, params: Any) -> str:
-        """Params ride outside the URL, so page 2 must not read page 1's body."""
-        return f"{url}?{sorted(params.items())}" if params else url
+    def _cache_key(self, url: str, params: Any, headers: dict[str, str]) -> str:
+        """Params ride outside the URL, so page 2 must not read page 1's body. One
+        URL serves JSON or a diff by its Accept header, so each form keeps its own
+        entry. See #514."""
+        key = f"{url}?{sorted(params.items())}" if params else url
+        return f"{key} {headers.get('Accept', '')}"
 
     async def _request(
         self,
@@ -756,7 +759,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
         sent = {**self._get_headers(), **(headers or {})}
-        key = self._cache_key(url, kwargs.get("params")) if method == "GET" and ETAG_CACHE_ENTRIES else None
+        key = self._cache_key(url, kwargs.get("params"), sent) if method == "GET" and ETAG_CACHE_ENTRIES else None
         cached = self._etags.get(key) if key else None
         if cached:
             sent["If-None-Match"] = cached[0]
@@ -803,13 +806,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             int, "Cap on the patch returned. Pass 0 to learn the size without reading the patch"
         ] = DIFF_MAX_BYTES,
     ) -> DiffResult:
-        """Fetches the diff/patch of a specific pull request, capped at max_bytes.
-        bytes_total is the whole patch either way, so a truncated reply says what
-        was left behind. See #314."""
+        """Fetches the net unified diff of a specific pull request, capped at
+        max_bytes. bytes_total is the whole diff either way, so a truncated reply
+        says what was left behind. See #314 and #514."""
         if max_bytes < 0:
             raise GitHubValidationError("max_bytes cannot be negative.")
-        url = f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch"
-        content = (await self._request("GET", url, context=f"PR #{pr_number} diff")).content
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
+        diff = {"Accept": "application/vnd.github.diff"}
+        content = (await self._request("GET", url, context=f"PR #{pr_number} diff", headers=diff)).content
         kept = content[:max_bytes]
         return {
             "pr_number": pr_number,
