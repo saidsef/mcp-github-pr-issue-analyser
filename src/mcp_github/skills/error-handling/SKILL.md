@@ -19,8 +19,9 @@ The code is written `[<CODE>] HTTP <status>: ` when a status is known and
 varies with the call and is not stable enough to match on.
 
 The code does not always start the message. A REST call that failed opens with
-it, as above. An authentication failure, and anything a GraphQL-backed step
-raised, arrive wrapped once more and open with the tool name instead:
+it, as above. An authentication failure, a rate limit and anything a
+GraphQL-backed step raised arrive wrapped once more and open with the tool name
+instead:
 
 ```
 Error calling tool 'github_get_pr_content': [AUTH_FAILED] HTTP 401: PR #1: Authentication failed. Check your GitHub token. GitHub said: Bad credentials
@@ -32,7 +33,8 @@ What follows the code has three parts. The call that failed comes first, such
 as `PR #4321`. The server's own reading of the status comes next. Whatever
 GitHub said about the refusal comes last, after `GitHub said: `, and a 422
 appends its field-level errors as `<field>: <message>` after that. The last part
-is absent when GitHub sent no body or sent one that is not JSON.
+is absent when GitHub sent no body or sent one that is not JSON. A rate limit
+adds the time to retry after all three, as Rate Limits below describes.
 
 Report the `GitHub said` text to the user, since it names the cause where the
 codes only name the class.
@@ -43,9 +45,9 @@ step that failed, such as `fetch user activities` or `fetch status checks`.
 
 Which codes survive that labelling is a question of transport. An error raised
 inside the step itself, by the tool or by the GraphQL mapper, keeps its own code
-where it is `NOT_FOUND` or `AUTH_FAILED`, since the labelling re-raises those
-two untouched. `github_search_user` raises one against its own result for a name
-nobody holds:
+where it is `NOT_FOUND`, `AUTH_FAILED` or `RATE_LIMITED`, since the labelling
+re-raises those three untouched. `github_search_user` raises one against its own
+result for a name nobody holds:
 
 ```
 Error calling tool 'github_search_user': [NOT_FOUND] HTTP 404: User 'nobody' not found
@@ -53,7 +55,8 @@ Error calling tool 'github_search_user': [NOT_FOUND] HTTP 404: User 'nobody' not
 
 An error the step met on a REST call is labelled even where it carries a code,
 because the shared request helper strips the type off everything but an
-authentication failure before the labelling sees it. The original code stays in
+authentication failure and a rate limit before the labelling sees it. The
+original code stays in
 the text. `github_get_repo_stars_since` on a name nobody holds reports the same
 missing account under a different code:
 
@@ -61,9 +64,8 @@ missing account under a different code:
 Error calling tool 'github_get_repo_stars_since': [GITHUB_API_ERROR] Failed to fetch repo stars: [NOT_FOUND] HTTP 404: repos for nobody: Resource not found GitHub said: Not Found
 ```
 
-Read the innermost code in a message that carries two. A rate limit met inside
-one of these steps arrives the same way whichever transport carried it, as
-`RATE_LIMITED` inside `GITHUB_API_ERROR`.
+Read the innermost code in a message that carries two. A rate limit never
+carries two, and reads `RATE_LIMITED` first whichever transport carried it.
 
 ## The Codes
 
@@ -71,12 +73,12 @@ one of these steps arrives the same way whichever transport carried it, as
 |---|---|---|---|
 | `AUTH_FAILED` | 401 | The token is missing, expired or revoked | Stop. Tell the user to re-authenticate or replace the token. Retrying cannot help |
 | `AUTH_FAILED` | 401 | A GraphQL call needs a scope the token lacks, and the message names it | Stop. Tell the user to grant that scope and authorise again. Re-authenticating on its own changes nothing |
-| `RATE_LIMITED` | 403 | A rate limit GitHub reported as a 403 is exhausted | Wait for the reset, then retry the same call unchanged |
+| `RATE_LIMITED` | 403 or 429 | A primary or secondary rate limit is exhausted | Wait for the time the message names, then retry the same call unchanged |
 | `NOT_FOUND` | 404 | The resource is absent, or the token cannot see it | Check the owner, repo and number. Do not retry unchanged |
 | `VALIDATION_ERROR` | 422 | GitHub rejected the arguments | Fix the arguments. Retrying unchanged fails again |
-| `GITHUB_API_ERROR` | 403, 429 or other | Permission denied, a secondary rate limit sent as a 429, or any status not listed above | Read the message. Permission problems need a token or approval change, not a retry |
+| `GITHUB_API_ERROR` | 403 or other | Permission denied, or any status not listed above | Read the message. Permission problems need a token or approval change, not a retry |
 
-Four of these are easy to misread.
+Three of these are easy to misread.
 
 **`AUTH_FAILED` covers two fixes, not one.** A revoked or expired token needs a
 fresh authorisation. A token short of a scope needs that scope granted, and
@@ -113,12 +115,6 @@ a 409 under `GITHUB_API_ERROR` where the head moved.
 lacks scope for is indistinguishable from a typo in the name. Check the
 spelling before concluding the resource does not exist.
 
-**A rate limit does not always arrive as `RATE_LIMITED`.** Only the 403 form is
-mapped to that code. GitHub sends the secondary limit as a 429 as well, and that
-falls through to `GITHUB_API_ERROR` reading
-`GitHub API error (<context>): 429 - Too Many Requests`. Treat a 429 as a rate
-limit whatever code it carries.
-
 ## GraphQL Failures
 
 The project board tools, `github_search_user`, `github_get_user_activities`,
@@ -131,7 +127,8 @@ array, so the server reads the first entry and maps its `type` onto a code:
 |---|---|---|
 | `NOT_FOUND`, or any type where the message contains `not found` | `NOT_FOUND` | 404 |
 | `RATE_LIMITED` | `RATE_LIMITED` | 403 |
-| `FORBIDDEN`, `UNAUTHORIZED` or `INSUFFICIENT_SCOPES` | `AUTH_FAILED` | 401 |
+| `FORBIDDEN` | `GITHUB_API_ERROR` | 403, and the message opens `Refused. GitHub said: ` |
+| `UNAUTHORIZED` or `INSUFFICIENT_SCOPES` | `AUTH_FAILED` | 401 |
 | anything else | `GITHUB_API_ERROR` | none, and the message opens `GraphQL error: ` |
 
 The status in one of these messages is the code's own label. GitHub answered
@@ -152,16 +149,20 @@ Ask the user to grant the scope the message names and authorise again. A
 revoked authorisation reads differently, ending
 `please re-authenticate`, and a fresh OAuth flow is enough for that one.
 
-`NOT_FOUND` and `AUTH_FAILED` reach the client as themselves. Every other
-GraphQL code is labelled with the step that raised it, so a board read that hits
-a rate limit arrives under two codes:
+A `FORBIDDEN` is a refusal, and it reads the way a refused REST 403 does. The
+`GitHub said` text names the cause, and the table under The Codes covers the
+common ones. Authorising again changes nothing, so report the text to the user.
+
+`NOT_FOUND`, `AUTH_FAILED` and `RATE_LIMITED` reach the client as themselves.
+Every other GraphQL code is labelled with the step that raised it, so a board
+read that GitHub refuses arrives under two codes:
 
 ```
-Error calling tool 'github_list_projects': [GITHUB_API_ERROR] Failed to list projects: [RATE_LIMITED] HTTP 403: API rate limit exceeded for user ID 1.
+Error calling tool 'github_list_projects': [GITHUB_API_ERROR] Failed to list projects: [GITHUB_API_ERROR] HTTP 403: Refused. GitHub said: Resource not accessible by integration
 ```
 
-The text after `HTTP 403: ` is GitHub's own, so it varies with the account and
-the limit that ran out.
+The text after `GitHub said: ` is GitHub's own, so it varies with the token and
+the resource.
 
 ## Statuses That Are Not Errors
 
@@ -190,20 +191,27 @@ A rate limit is the only failure worth retrying on its own, and there are two
 of them. The primary limit is a budget of requests per hour, and its message
 reads `GitHub API rate limit exceeded`. The secondary limit is a throttle on
 writes made in quick succession, and its message reads `GitHub secondary rate
-limit hit` where GitHub sent it as a 403 and `429 - Too Many Requests` where
-GitHub sent it as a 429. A secondary limit clears in minutes, so the same call
+limit hit`. GitHub sends either limit as a 403 or a 429, and the message shows
+the status that arrived. A secondary limit clears in minutes, so the same call
 succeeds later without any change.
 
-All three wordings are the server's own and it writes them for a REST status
-only. A GraphQL rate limit carries GitHub's message and neither phrase, so
-recognise that one by the `RATE_LIMITED` code inside the step label rather than
+Both wordings are the server's own, and it writes them where GitHub answered 403
+or 429. A GraphQL rate limit that arrives inside a 200 carries GitHub's message
+and neither phrase, so recognise that one by the `RATE_LIMITED` code rather than
 by the prose. GraphQL keeps a separate budget from REST, which is why a board
 call can be refused while a REST read on the same token still works.
 
-Neither message says when the limit resets. The server reads `Retry-After` and
-`X-RateLimit-Reset` off the response, and the value does not survive into the
-`ToolError` the client receives. Wait a minute or so on a secondary limit, and
-longer on a primary one, since the primary window is an hour.
+The message ends with the wait whenever GitHub sent the timing, on either
+transport. The server reads `Retry-After` first and `X-RateLimit-Reset` where
+that is absent, and gives the wait in seconds and the UTC time the limit clears:
+
+```
+Error calling tool 'github_list_projects': [RATE_LIMITED] HTTP 403: API rate limit exceeded for user ID 1. Retry after 42s (14:05:00Z).
+```
+
+Wait that long before retrying. A message without `Retry after` means GitHub
+sent no timing the server could read, so wait a minute or so on a secondary
+limit and longer on a primary one, since the primary window is an hour.
 
 No tool retries or backs off internally. A failed call is simply raised, so any
 waiting is yours to do. Do not retry in a tight loop, since every attempt spends
@@ -236,11 +244,11 @@ what two of the errors mean. In OAuth mode the messages say so.
 `AUTH_FAILED` gains a line about the authorisation having been revoked, and the
 fix is a fresh OAuth flow rather than a new token.
 
-`NOT_FOUND` and the permission-denied form of `GITHUB_API_ERROR` gain a line
-about organisation approval. A private organisation repository stays invisible
-until an org admin approves the OAuth App under Org Settings, Third-party
-access, OAuth App access policy. Surface that to the user, since no retry and
-no change of arguments will fix it.
+On a REST call, `NOT_FOUND` and the permission-denied form of `GITHUB_API_ERROR`
+gain a line about organisation approval. A private organisation repository stays
+invisible until an org admin approves the OAuth App under Org Settings,
+Third-party access, OAuth App access policy. Surface that to the user, since no
+retry and no change of arguments will fix it.
 
 The `workflow` scope guidance takes the place of that line rather than joining
 it, so a 403 mentioning the scope reads the same in either mode and says
@@ -262,8 +270,8 @@ code twice:
 [GITHUB_API_ERROR] Failed to <action>: [GITHUB_API_ERROR] GraphQL request failed: <httpx message>
 ```
 
-The repeated code marks a transport failure rather than an API refusal, so read
-the httpx message at the end for the cause.
+`GraphQL request failed: ` after the repeated code marks a transport failure
+rather than an API refusal, so read the httpx message at the end for the cause.
 
 Large diffs and busy status-check queries are the usual causes, and the
 operator raises `GITHUB_API_TIMEOUT` for them. That no longer changes how long
@@ -305,7 +313,7 @@ or the limit resets.
 
 - Match on the bracketed code, never on the prose after it, and search the whole message for it rather than reading it off the front
 - Read the innermost code where a message carries two, since the outer one names the step and the inner one names the failure
-- Retry only a rate limit, whether it came through as `RATE_LIMITED` or as a 429 under `GITHUB_API_ERROR`, and wait before retrying
+- Retry only a rate limit, and wait for the time its message names before retrying
 - Treat `AUTH_FAILED` as terminal and hand it back to the user, naming the scope where the message names one, since a fresh login without it fails identically
 - Read a status on a GraphQL code as the code's own label, since GitHub answered 200 and sent no status of its own
 - Re-read the arguments on `VALIDATION_ERROR` rather than trying the call again

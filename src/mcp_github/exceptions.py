@@ -20,6 +20,9 @@
 
 from __future__ import annotations
 
+import time
+from datetime import UTC, datetime
+
 
 class MCPGitHubError(Exception):
     """Base exception for MCP GitHub integration."""
@@ -49,14 +52,24 @@ class GitHubAuthError(GitHubAPIError):
         super().__init__(message, status_code=401, response_body=response_body, code="AUTH_FAILED")
 
 
+def _retry_after(reset_timestamp: int) -> str:
+    """The wait in seconds and the UTC time it ends, since the client sees only
+    the message. See #519."""
+    wait = max(0, reset_timestamp - int(time.time()))
+    return f"Retry after {wait}s ({datetime.fromtimestamp(reset_timestamp, UTC):%H:%M:%S}Z)."
+
+
 class GitHubRateLimitError(GitHubAPIError):
     def __init__(
         self,
         message: str = "GitHub API rate limit exceeded.",
         response_body: dict | None = None,
         reset_timestamp: int | None = None,
+        status_code: int = 403,
     ):
-        super().__init__(message, status_code=403, response_body=response_body, code="RATE_LIMITED")
+        if reset_timestamp is not None:
+            message = f"{message} {_retry_after(reset_timestamp)}"
+        super().__init__(message, status_code=status_code, response_body=response_body, code="RATE_LIMITED")
         self.reset_timestamp = reset_timestamp
 
 

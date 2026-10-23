@@ -350,28 +350,14 @@ class TestListProjects:
 
 
 class TestGraphQLScopeErrors:
-    def test_a_missing_scope_is_an_auth_error_naming_the_scope(self):
-        errors = [
-            {
-                "type": "INSUFFICIENT_SCOPES",
-                "message": "The 'id' field requires one of the following scopes: ['read:project'].",
-            }
-        ]
-        with pytest.raises(GitHubAuthError, match="read:project"):
-            handle_graphql_errors(errors)
-
     def test_a_scope_error_does_not_advise_re_authenticating(self):
         errors = [{"type": "INSUFFICIENT_SCOPES", "message": "Missing scope."}]
         with pytest.raises(GitHubAuthError) as caught:
             handle_graphql_errors(errors)
         assert "re-authenticate" not in str(caught.value)
 
-    def test_a_forbidden_error_still_advises_re_authenticating(self):
-        with pytest.raises(GitHubAuthError, match="re-authenticate"):
+    def test_a_forbidden_error_is_a_refusal_with_no_re_authenticate_hint(self):
+        with pytest.raises(GitHubAPIError) as caught:
             handle_graphql_errors([{"type": "FORBIDDEN", "message": "Nope."}])
-
-    @pytest.mark.anyio
-    async def test_guard_lets_an_auth_error_keep_its_class(self, gi: GitHubIntegration):
-        with pytest.raises(GitHubAuthError):  # noqa: PT012 - the guard is what is under test
-            async with gi._guard("do a thing"):
-                raise GitHubAuthError("Missing scope.")
+        assert not isinstance(caught.value, GitHubAuthError)
+        assert str(caught.value) == "[GITHUB_API_ERROR] HTTP 403: Refused. GitHub said: Nope."

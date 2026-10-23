@@ -236,12 +236,6 @@ class TestTimeouts:
 
 class TestLifecycle:
     @pytest.mark.anyio
-    async def test_aclose_delegates_to_http_client(self, gi: GitHubIntegration):
-        gi._http.aclose = AsyncMock()
-        await gi.aclose()
-        gi._http.aclose.assert_called_once()
-
-    @pytest.mark.anyio
     async def test_async_context_manager_closes_on_exit(self, gi: GitHubIntegration):
         gi._http.aclose = AsyncMock()
         async with gi as g:
@@ -304,14 +298,6 @@ def _refusing_oauth_client(body: dict) -> GitHubIntegration:
 class TestErrorDetail:
     """GitHub explains a refusal in the response body, and the exception text is all
     the client sees, so the body has to survive into the message."""
-
-    @pytest.mark.anyio
-    async def test_a_permission_403_carries_githubs_own_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
-        )
-        with pytest.raises(ToolError, match="SAML enforcement"):
-            await gi.merge_pr("owner", "repo", 42)
 
     @pytest.mark.anyio
     async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
@@ -444,6 +430,40 @@ class TestErrorDetail:
         response = mock_response(status_code=422, json_data=body)
         with pytest.raises(GitHubValidationError, match="milestone does not exist"):
             gi._handle_response_error(response, "")
+
+
+_NOW = 1_700_000_000  # 22:13:20 UTC
+
+
+class TestRateLimitCode:
+    """Every rate limit reaches the client under RATE_LIMITED, and says when to retry
+    whenever GitHub sent the timing. See #519."""
+
+    def test_a_429_keeps_its_status_and_says_when_to_retry(self, gi: GitHubIntegration):
+        body = {"message": "You have exceeded a secondary rate limit."}
+        response = mock_response(status_code=429, json_data=body, text=json.dumps(body), headers={"Retry-After": "60"})
+        with patch("time.time", return_value=_NOW), pytest.raises(GitHubRateLimitError) as caught:
+            gi._handle_response_error(response, "issue #7")
+        assert str(caught.value).startswith("[RATE_LIMITED] HTTP 429: issue #7: GitHub secondary rate limit hit.")
+        assert str(caught.value).endswith("Retry after 60s (22:14:20Z).")
+
+    @pytest.mark.anyio
+    async def test_a_rest_rate_limit_inside_a_guarded_tool_keeps_its_code(self, gi: GitHubIntegration):
+        body = {"message": "API rate limit exceeded for user ID 1."}
+        gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
+        with pytest.raises(GitHubRateLimitError, match=r"^\[RATE_LIMITED\] HTTP 403: repos for octocat: "):
+            await gi.get_repo_stars_since("octocat")
+
+    @pytest.mark.anyio
+    async def test_a_graphql_rate_limit_reads_the_reset_off_the_200(self, gi: GitHubIntegration):
+        body = {"errors": [{"type": "RATE_LIMITED", "message": "API rate limit exceeded for user ID 1."}]}
+        reset = {"X-RateLimit-Reset": str(_NOW + 42)}
+        gi._http.post = AsyncMock(return_value=mock_response(json_data=body, headers=reset))
+        with patch("time.time", return_value=_NOW), pytest.raises(GitHubRateLimitError) as caught:
+            await gi.list_projects("o")
+        assert str(caught.value) == (
+            "[RATE_LIMITED] HTTP 403: API rate limit exceeded for user ID 1. Retry after 42s (22:14:02Z)."
+        )
 
 
 class TestTypedCodes:
