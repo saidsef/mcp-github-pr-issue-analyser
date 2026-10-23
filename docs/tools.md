@@ -14,7 +14,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `github_get_pr_diff` | read | Retrieve the diff or patch for a PR, capped at `max_bytes` and reporting the full size |
+| `github_get_pr_diff` | read | Retrieve the net diff of a PR, capped at `max_bytes` and reporting the full size |
 | `github_get_pr_content` | read | PR title, description, author, timestamps, state, head SHA, the branches either side and who was asked to review |
 | `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |

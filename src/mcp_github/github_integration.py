@@ -179,6 +179,7 @@ class JobLogResult(TypedDict):
 
 class StatusChecksResult(TypedDict):
     pr_number: int
+    head_sha: str | None
     overall: str
     check_runs: list[dict[str, Any]]
     commit_statuses: list[dict[str, Any]]
@@ -221,6 +222,10 @@ _MILESTONE_FIELDS = (
 )
 
 _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
+
+# The tools read these headers off a successful response, and the cache keeps
+# them with the body so a 304 rebuilt from it matches the original. See #516.
+_CACHED_HEADERS = ("Link", "content-type")
 
 _OpenClosed = Literal["open", "closed"]
 _MilestoneState = Literal["open", "closed", "all"]
@@ -588,6 +593,13 @@ def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
     }
 
 
+def _head_commit(pull_request: dict[str, Any]) -> dict[str, Any]:
+    """The PR's last commit, which still resolves once its head branch is deleted.
+    An empty dict means GitHub resolved no commit. See #515."""
+    nodes = (pull_request.get("commits") or {}).get("nodes") or [None]
+    return (nodes[-1] or {}).get("commit") or {}
+
+
 def _check_runs(head_target: dict[str, Any]) -> list[dict[str, Any]]:
     """Every run across a commit's check suites, each naming the app its suite belongs to."""
     return [
@@ -635,7 +647,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         self.verifier = APIKeyVerifier(self.github_token) if self.github_token else None
 
         self._http = httpx.AsyncClient(timeout=_timeout())
-        self._etags: dict[str, tuple[str, bytes, str]] = {}
+        self._etags: dict[str, tuple[str, bytes, dict[str, str]]] = {}
 
         logger.info("GitHub Integration Initialised")
 
@@ -747,9 +759,12 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         }
         return headers
 
-    def _cache_key(self, url: str, params: Any) -> str:
-        """Params ride outside the URL, so page 2 must not read page 1's body."""
-        return f"{url}?{sorted(params.items())}" if params else url
+    def _cache_key(self, url: str, params: Any, headers: dict[str, str]) -> str:
+        """Params ride outside the URL, so page 2 must not read page 1's body. One
+        URL serves JSON or a diff by its Accept header, so each form keeps its own
+        entry. See #514."""
+        key = f"{url}?{sorted(params.items())}" if params else url
+        return f"{key} {headers.get('Accept', '')}"
 
     async def _request(
         self,
@@ -768,7 +783,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         ctx = context or url
         logger.info(f"{method.upper()} {ctx}")
         sent = {**self._get_headers(), **(headers or {})}
-        key = self._cache_key(url, kwargs.get("params")) if method == "GET" and ETAG_CACHE_ENTRIES else None
+        key = self._cache_key(url, kwargs.get("params"), sent) if method == "GET" and ETAG_CACHE_ENTRIES else None
         cached = self._etags.get(key) if key else None
         if cached:
             sent["If-None-Match"] = cached[0]
@@ -776,15 +791,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             response = await self._http.request(method, url, headers=sent, **kwargs)
             if response.status_code == 304 and cached:
                 logger.info(f"Not modified {ctx}")
-                headers = {"Link": cached[2]} if cached[2] else None
-                return httpx.Response(200, content=cached[1], headers=headers, request=response.request)
+                return httpx.Response(200, content=cached[1], headers=cached[2], request=response.request)
             if response.status_code in allow_status:
                 logger.info(f"Expected {response.status_code} {ctx}")
                 return response
             if not response.is_success:
                 self._handle_response_error(response, context)
             if key and (etag := response.headers.get("ETag")):
-                self._remember_etag(key, etag, response.content, response.headers.get("Link", ""))
+                self._remember_etag(key, etag, response)
             logger.info(f"Success {method.upper()} {ctx}")
             return response
         # A rate limit keeps its type, so a guarded tool still reports RATE_LIMITED. See #519.
@@ -793,13 +807,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         except Exception as e:
             raise ToolError(str(e)) from e
 
-    def _remember_etag(self, key: str, etag: str, content: bytes, link: str = "") -> None:
+    def _remember_etag(self, key: str, etag: str, response: httpx.Response) -> None:
         """Oldest out first once the cache is full, so a long-running server
         does not grow a body per URL it has ever read."""
+        headers = {name: value for name in _CACHED_HEADERS if (value := response.headers.get(name))}
         self._etags.pop(key, None)
         while len(self._etags) >= ETAG_CACHE_ENTRIES:
             self._etags.pop(next(iter(self._etags)))
-        self._etags[key] = (etag, content, link)
+        self._etags[key] = (etag, response.content, headers)
 
     async def _pr(self, repo_owner: str, repo_name: str, pr_number: int) -> dict[str, Any]:
         """The pull request as GitHub serves it, for the tools that read one field off it."""
@@ -816,13 +831,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             int, "Cap on the patch returned. Pass 0 to learn the size without reading the patch"
         ] = DIFF_MAX_BYTES,
     ) -> DiffResult:
-        """Fetches the diff/patch of a specific pull request, capped at max_bytes.
-        bytes_total is the whole patch either way, so a truncated reply says what
-        was left behind. See #314."""
+        """Fetches the net unified diff of a specific pull request, capped at
+        max_bytes. bytes_total is the whole diff either way, so a truncated reply
+        says what was left behind. See #314 and #514."""
         if max_bytes < 0:
             raise GitHubValidationError("max_bytes cannot be negative.")
-        url = f"https://patch-diff.githubusercontent.com/raw/{repo_owner}/{repo_name}/pull/{pr_number}.patch"
-        content = (await self._request("GET", url, context=f"PR #{pr_number} diff")).content
+        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
+        diff = {"Accept": "application/vnd.github.diff"}
+        content = (await self._request("GET", url, context=f"PR #{pr_number} diff", headers=diff)).content
         kept = content[:max_bytes]
         return {
             "pr_number": pr_number,
@@ -856,14 +872,21 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         side: Annotated[_Side, "LEFT for a line the PR deletes, RIGHT for one it adds or leaves as context"] = "RIGHT",
         start_line: Annotated[int | None, "First line of a range ending at line. Omit to comment on line alone"] = None,
         start_side: Annotated[_Side | None, "Side start_line sits on. Omit to match side"] = None,
+        expected_head_sha: Annotated[
+            str | None, "Attach the comment to this SHA, as github_get_pr_content reports it. Omit for the current head"
+        ] = None,
     ) -> CommentData:
         """Adds an inline review comment to a line, or to a range of lines, in a
         file within a PR. The line must fall inside the PR's diff hunks: GitHub
         rejects a comment on an unchanged line outside any hunk, and on a path not
-        in the diff. A deleted line exists only on side LEFT."""
+        in the diff. A deleted line exists only on side LEFT. Pass head_sha from
+        github_get_pr_content as expected_head_sha, so line numbers taken from that
+        diff apply to that commit. See #517."""
         if start_line is not None and start_line >= line:
             raise GitHubValidationError(f"start_line {start_line} must come before line {line} on {path}.")
-        commit_id = ((await self._pr(repo_owner, repo_name, pr_number)).get("head") or {}).get("sha")
+        commit_id = expected_head_sha
+        if not commit_id:
+            commit_id = ((await self._pr(repo_owner, repo_name, pr_number)).get("head") or {}).get("sha")
         if not commit_id:
             raise GitHubAPIError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/comments"
@@ -1317,10 +1340,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         commit_title: str | None = None,
         commit_message: str | None = None,
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
+        expected_head_sha: Annotated[
+            str | None, "Refuse unless the head still matches this SHA, as github_get_pr_content reports it"
+        ] = None,
     ) -> dict[str, Any]:
-        """Merges a specific pull request."""
+        """Merges a specific pull request. Read head_sha from github_get_pr_content
+        and pass it as expected_head_sha, and GitHub refuses with a 409 rather than
+        merge a push that arrived after the read. See #517."""
         url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/merge"
-        payload = {"merge_method": merge_method, **_supplied(commit_title=commit_title, commit_message=commit_message)}
+        fields = _supplied(commit_title=commit_title, commit_message=commit_message, sha=expected_head_sha)
+        payload = {"merge_method": merge_method, **fields}
         return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
 
     @_write(idempotent=True)
@@ -1495,12 +1524,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         pr_number: int,
         event: Literal["APPROVE", "REQUEST_CHANGES", "COMMENT"],
         body: str | None = None,
+        expected_head_sha: Annotated[
+            str | None, "Attach the review to this SHA, as github_get_pr_content reports it. Omit for the newest commit"
+        ] = None,
     ) -> dict[str, Any]:
-        """Submits a review for a specific pull request."""
+        """Submits a review for a specific pull request. GitHub applies a review to
+        the newest commit unless told otherwise, so pass head_sha from
+        github_get_pr_content as expected_head_sha to review the commit that was read. See #517."""
         url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/reviews"
-        data = (
-            await self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event})
-        ).json()
+        payload = {"body": body, "event": event, **_supplied(commit_id=expected_head_sha)}
+        data = (await self._request("POST", url, context=f"PR #{pr_number} review", json=payload)).json()
         return _pick(data, "id", "state", "body", "html_url", "submitted_at")
 
     @_write(idempotent=True)
@@ -2232,13 +2265,15 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         pages via the supplemental query. If either cap is hit before the
         connection is exhausted, the result is flagged truncated=True and
         overall is downgraded from 'passing' to 'unknown' so the caller
-        does not act on a partial view.
+        does not act on a partial view. head_sha names the commit read, and is
+        None when GitHub resolves no commit for the pull request. See #515.
 
         """
         logger.info(f"Fetching status checks for PR #{pr_number} in {repo_owner}/{repo_name}")
         async with self._guard("fetch status checks"):
             check_runs: list[dict[str, Any]] = []
             commit_statuses: list[dict[str, Any]] = []
+            head_sha: str | None = None
             truncated = False
             suites_after: str | None = None
             token = self._resolve_token()
@@ -2257,10 +2292,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 repo_data = result.get("repository")
                 if not repo_data or not repo_data.get("pullRequest"):
                     raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
-                head_target = (repo_data["pullRequest"].get("headRef") or {}).get("target") or {}
+                head_target = _head_commit(repo_data["pullRequest"])
 
                 if suites_after is None:
                     commit_statuses = _commit_statuses(head_target)
+                    head_sha = head_target.get("oid")
 
                 suites_page = head_target.get("checkSuites") or {}
                 suites_nodes = suites_page.get("nodes") or []
@@ -2293,6 +2329,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             )
             return {
                 "pr_number": pr_number,
+                "head_sha": head_sha,
                 "overall": overall,
                 "check_runs": check_runs,
                 "commit_statuses": commit_statuses,
