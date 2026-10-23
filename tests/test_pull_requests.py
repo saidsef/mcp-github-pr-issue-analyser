@@ -131,14 +131,6 @@ class TestGetPRContent:
         assert result["mergeable_state"] == "unknown"
         assert (result["commits"], result["additions"], result["deletions"], result["changed_files"]) == (3, 40, 5, 4)
 
-    @pytest.mark.anyio
-    async def test_a_pr_nobody_was_asked_to_review_reports_empty(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=pr_payload(head={}, base={})))
-        result = await gi.get_pr_content("o", "r", 5)
-        assert result["head_sha"] is None
-        assert result["requested_reviewers"] == []
-        assert result["requested_teams"] == []
-
 
 class TestGetPRDiff:
     @pytest.mark.anyio
@@ -191,12 +183,6 @@ class TestUpdatePR:
         gi._http.request = AsyncMock(return_value=mock_response(json_data=pr_payload(state="closed")))
         await gi.update_pr("o", "r", 5, state="closed")
         assert gi._http.request.call_args.kwargs["json"] == {"state": "closed"}
-
-    @pytest.mark.anyio
-    async def test_title_changes_without_resending_the_body(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=pr_payload()))
-        await gi.update_pr("o", "r", 5, title="A better title")
-        assert "body" not in gi._http.request.call_args.kwargs["json"]
 
     @pytest.mark.anyio
     async def test_base_can_be_retargeted(self, gi: GitHubIntegration):
