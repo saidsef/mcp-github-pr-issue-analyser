@@ -843,14 +843,21 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         side: Annotated[_Side, "LEFT for a line the PR deletes, RIGHT for one it adds or leaves as context"] = "RIGHT",
         start_line: Annotated[int | None, "First line of a range ending at line. Omit to comment on line alone"] = None,
         start_side: Annotated[_Side | None, "Side start_line sits on. Omit to match side"] = None,
+        expected_head_sha: Annotated[
+            str | None, "Attach the comment to this SHA, as github_get_pr_content reports it. Omit for the current head"
+        ] = None,
     ) -> CommentData:
         """Adds an inline review comment to a line, or to a range of lines, in a
         file within a PR. The line must fall inside the PR's diff hunks: GitHub
         rejects a comment on an unchanged line outside any hunk, and on a path not
-        in the diff. A deleted line exists only on side LEFT."""
+        in the diff. A deleted line exists only on side LEFT. Pass head_sha from
+        github_get_pr_content as expected_head_sha, so line numbers taken from that
+        diff apply to that commit. See #517."""
         if start_line is not None and start_line >= line:
             raise GitHubValidationError(f"start_line {start_line} must come before line {line} on {path}.")
-        commit_id = ((await self._pr(repo_owner, repo_name, pr_number)).get("head") or {}).get("sha")
+        commit_id = expected_head_sha
+        if not commit_id:
+            commit_id = ((await self._pr(repo_owner, repo_name, pr_number)).get("head") or {}).get("sha")
         if not commit_id:
             raise GitHubAPIError(f"Could not retrieve head SHA for PR #{pr_number}")
         review_url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/comments"
@@ -1304,10 +1311,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         commit_title: str | None = None,
         commit_message: str | None = None,
         merge_method: Literal["merge", "squash", "rebase"] = "squash",
+        expected_head_sha: Annotated[
+            str | None, "Refuse unless the head still matches this SHA, as github_get_pr_content reports it"
+        ] = None,
     ) -> dict[str, Any]:
-        """Merges a specific pull request."""
+        """Merges a specific pull request. Read head_sha from github_get_pr_content
+        and pass it as expected_head_sha, and GitHub refuses with a 409 rather than
+        merge a push that arrived after the read. See #517."""
         url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/merge"
-        payload = {"merge_method": merge_method, **_supplied(commit_title=commit_title, commit_message=commit_message)}
+        fields = _supplied(commit_title=commit_title, commit_message=commit_message, sha=expected_head_sha)
+        payload = {"merge_method": merge_method, **fields}
         return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
 
     @_write(idempotent=True)
@@ -1482,12 +1495,16 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         pr_number: int,
         event: Literal["APPROVE", "REQUEST_CHANGES", "COMMENT"],
         body: str | None = None,
+        expected_head_sha: Annotated[
+            str | None, "Attach the review to this SHA, as github_get_pr_content reports it. Omit for the newest commit"
+        ] = None,
     ) -> dict[str, Any]:
-        """Submits a review for a specific pull request."""
+        """Submits a review for a specific pull request. GitHub applies a review to
+        the newest commit unless told otherwise, so pass head_sha from
+        github_get_pr_content as expected_head_sha to review the commit that was read. See #517."""
         url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/reviews"
-        data = (
-            await self._request("POST", url, context=f"PR #{pr_number} review", json={"body": body, "event": event})
-        ).json()
+        payload = {"body": body, "event": event, **_supplied(commit_id=expected_head_sha)}
+        data = (await self._request("POST", url, context=f"PR #{pr_number} review", json=payload)).json()
         return _pick(data, "id", "state", "body", "html_url", "submitted_at")
 
     @_write(idempotent=True)

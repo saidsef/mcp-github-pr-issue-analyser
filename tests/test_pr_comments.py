@@ -97,6 +97,13 @@ class TestCommentTrimming:
             "submitted_at": "2026-07-01T00:00:00Z",
         }
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(("sha", "pinned"), [("9341d65", {"commit_id": "9341d65"}), (None, {})])
+    async def test_a_review_names_its_commit_only_when_given_one(self, gi: GitHubIntegration, sha, pinned):
+        gi._http.request = AsyncMock(return_value=mock_response(json_data=review_payload()))
+        await gi.update_reviews("o", "r", 5, "APPROVE", expected_head_sha=sha)
+        assert gi._http.request.call_args.kwargs["json"] == {"body": None, "event": "APPROVE", **pinned}
+
 
 def _inline_responses(**overrides):
     """A head-SHA read followed by the created review comment."""
@@ -133,6 +140,14 @@ class TestInlineCommentPlacement:
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         await gi.add_inline_pr_comment("o", "r", 5, "app.py", 7, "why drop this?", side="LEFT")
         assert self._posted(gi)["side"] == "LEFT"
+
+    @pytest.mark.anyio
+    async def test_a_given_sha_is_posted_without_reading_the_head(self, gi: GitHubIntegration):
+        *_, created = _inline_responses()
+        gi._http.request = AsyncMock(return_value=created)
+        await gi.add_inline_pr_comment("o", "r", 5, "app.py", 3, "fix this", expected_head_sha="9341d65")
+        gi._http.request.assert_awaited_once()
+        assert gi._http.request.call_args.kwargs["json"]["commit_id"] == "9341d65"
 
     @pytest.mark.anyio
     async def test_a_range_sends_start_line_and_matches_the_side(self, gi: GitHubIntegration):
