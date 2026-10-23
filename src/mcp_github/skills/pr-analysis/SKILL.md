@@ -63,26 +63,33 @@ Returns `PRContent` with exactly these fields:
 | `created_at` | str | ISO 8601 timestamp |
 | `updated_at` | str | ISO 8601 timestamp |
 | `state` | str | `open` or `closed` |
+| `is_draft` | bool | Whether the PR is a draft |
+| `merged` | bool | Whether the PR has been merged |
+| `mergeable` | bool \| None | Whether GitHub can merge the PR without a conflict. `None` while GitHub is still computing it |
+| `mergeable_state` | str | GitHub's merge readiness, such as `clean`, `blocked`, `behind`, `dirty` or `unknown` |
 | `head_sha` | str \| None | Newest commit on the PR branch |
 | `head_ref` | str \| None | Branch the PR merges from |
 | `base_ref` | str \| None | Branch the PR merges into |
 | `requested_reviewers` | list[str] | Logins asked to review and yet to answer |
 | `requested_teams` | list[str] | Team slugs asked to review |
+| `commits` | int | Commits on the PR branch |
+| `additions` | int | Lines added |
+| `deletions` | int | Lines removed |
+| `changed_files` | int | Files changed |
 
-Nothing else is returned. Draft status, labels and `mergeable` are **not**
-available from this tool. `state` is `closed` for both merged and abandoned PRs
-and does not distinguish the two.
+Nothing else is returned, and labels are **not** available from this tool.
+`state` is `closed` for both merged and abandoned PRs, and `merged` tells the
+two apart.
+
+GitHub works out `mergeable` in a background job and reports `None` until the
+job finishes. Read the PR again after a few seconds rather than treating `None`
+as a conflict.
 
 `head_sha` is what `github_update_pr_branch` takes as `expected_head_sha`.
 
 GitHub empties `requested_reviewers` once that reviewer answers, so an empty
 list with no reviews means nobody was asked. Read the verdicts themselves with
 `github_list_pr_reviews`.
-
-To learn whether a PR is a draft, call `github_list_open_issues_prs` with
-`filtering="repo"` and read `is_draft` on the matching entry. That tool returns
-open PRs only, so read a closed or merged one through `github_search_issues_prs`, which
-returns the same shape.
 
 ### `github_get_pr_diff`
 
@@ -267,4 +274,4 @@ Cover:
 - For diffs over 500 lines, analyse the high-risk files first: auth, config, dependency manifests
 - Report `overall="unknown"` as unverified rather than treating it as a pass
 - Use `github_get_pr_linked_issues` to check a PR actually closes what it claims to
-- Do not assert draft or mergeable status from `github_get_pr_content`, which carries neither field
+- Read draft, merged and mergeable status from `github_get_pr_content`, and report `mergeable=None` as not yet known rather than as a conflict

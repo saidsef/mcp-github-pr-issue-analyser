@@ -226,6 +226,14 @@ def pr_payload(**overrides) -> dict:
         "updated_at": "2026-07-02T00:00:00Z",
         "state": "open",
         "node_id": "PR_abc",
+        "draft": False,
+        "merged": False,
+        "mergeable": True,
+        "mergeable_state": "clean",
+        "commits": 1,
+        "additions": 10,
+        "deletions": 2,
+        "changed_files": 1,
     }
     payload.update(overrides)
     return payload
