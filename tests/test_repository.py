@@ -79,13 +79,19 @@ class TestGetRepositoryFile:
         assert result["bytes_total"] == 10
 
     @pytest.mark.anyio
-    async def test_a_directory_points_at_the_tree_tool(self, gi: GitHubIntegration):
-        """A directory answers as JSON however the Accept header is set."""
-        listing = mock_response(json_data=[{"name": "app.py", "type": "file"}])
-        listing.headers = {"content-type": "application/json; charset=utf-8"}
-        gi._http.request = AsyncMock(return_value=listing)
-        with pytest.raises(GitHubValidationError, match="list_repository_tree"):
-            await gi.get_repository_file("o", "r", "src")
+    async def test_a_directory_points_at_the_tree_tool_on_every_read(self, gi: GitHubIntegration):
+        """A directory answers as JSON however the Accept header is set. GitHub
+        answers the second read with a 304, served from the ETag cache. See #516."""
+        listing = mock_response(
+            json_data=[{"name": "app.py", "type": "file"}],
+            etag='"abc"',
+            headers={"content-type": "application/json; charset=utf-8"},
+        )
+        responses = iter([listing, mock_response(status_code=304)])
+        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
+        for _ in range(2):
+            with pytest.raises(GitHubValidationError, match="list_repository_tree"):
+                await gi.get_repository_file("o", "r", "src")
 
     @pytest.mark.anyio
     async def test_a_missing_path_is_not_found(self, gi: GitHubIntegration):
