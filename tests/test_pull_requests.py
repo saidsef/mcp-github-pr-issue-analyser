@@ -382,26 +382,26 @@ class TestCreateEmptyCommit:
 
     @pytest.mark.anyio
     async def test_commits_the_parent_tree_onto_the_pr_head(self, gi: GitHubIntegration):
-        responses = iter(
-            [
-                mock_response(json_data=pr_payload(**self._ON_PR)),
-                mock_response(json_data={"sha": "p1", "tree": {"sha": "t1"}}),
-                mock_response(
-                    json_data={"sha": "c1", "tree": {"sha": "t1"}, "html_url": "https://github.com/o/r/commit/c1"}
-                ),
-                mock_response(json_data={"ref": "refs/heads/dependabot-pip-x", "object": {"sha": "c1"}}),
-            ]
-        )
-        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        result = await gi.create_empty_commit("o", "r", pr_number=5)
-        calls = gi._http.request.call_args_list
-        assert calls[2].kwargs["json"] == {
-            "message": "chore: trigger CI [dependabot skip]",
-            "tree": "t1",
-            "parents": ["p1"],
+        gi._http.request = AsyncMock(return_value=mock_response(json_data=pr_payload(**self._ON_PR)))
+        commit = {
+            "oid": "c1",
+            "url": "https://github.com/o/r/commit/c1",
+            "tree": {"oid": "t1"},
+            "parents": {"nodes": [{"tree": {"oid": "t1"}}]},
         }
-        assert calls[3].args == ("PATCH", "https://api.github.com/repos/o/r/git/refs/heads/dependabot-pip-x")
-        assert calls[3].kwargs["json"] == {"sha": "c1", "force": False}
+        gi._execute_graphql = AsyncMock(return_value={"createCommitOnBranch": {"commit": commit}})
+        result = await gi.create_empty_commit("o", "r", pr_number=5)
+        query, variables = gi._execute_graphql.call_args.args
+        assert "createCommitOnBranch" in query
+        assert variables == {
+            "input": {
+                "branch": {"repositoryNameWithOwner": "o/r", "branchName": "dependabot-pip-x"},
+                "expectedHeadOid": "p1",
+                "message": {"headline": "chore: trigger CI [dependabot skip]", "body": None},
+                "fileChanges": {"additions": [], "deletions": []},
+            }
+        }
+        assert gi._http.request.call_count == 1
         assert result == {
             "commit_sha": "c1",
             "parent_sha": "p1",

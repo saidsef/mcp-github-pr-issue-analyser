@@ -49,6 +49,7 @@ from .graphql_queries import (
     ADD_PROJECT_ITEM_MUTATION,
     CHECK_SUITE_RUNS_QUERY,
     CONVERT_PR_TO_DRAFT_MUTATION,
+    CREATE_COMMIT_ON_BRANCH_MUTATION,
     DELETE_PROJECT_ITEM_MUTATION,
     ISSUE_PROJECT_ITEMS_QUERY,
     MARK_PR_READY_MUTATION,
@@ -1421,7 +1422,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         caller's name. A re-run keeps the privileges of the first run, which for
         Dependabot is a read-only token. Dependabot stops rebasing a branch once
         another commit is pushed to it, unless the message carries [dependabot skip],
-        as the default does. See #490."""
+        as the default does. GitHub signs the commit, as it does one made in the web
+        interface. See #490 and #534."""
         if branch and pr_number is not None:
             raise GitHubValidationError("Pass branch or pr_number, not both.")
         branch, parent_sha, default_branch = await self._branch_head(repo_owner, repo_name, branch, pr_number)
@@ -1431,26 +1433,26 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             )
         if expected_head_sha and expected_head_sha != parent_sha:
             raise GitHubValidationError(f"'{branch}' is at {parent_sha}, not {expected_head_sha}.")
-        base = _repo(repo_owner, repo_name)
-        parent = (await self._request("GET", f"{base}/git/commits/{parent_sha}", context=f"commit {parent_sha}")).json()
-        payload = {"message": message, "tree": parent["tree"]["sha"], "parents": [parent_sha]}
-        commit = (
-            await self._request("POST", f"{base}/git/commits", context=f"empty commit on {branch}", json=payload)
-        ).json()
-        # The update must fast-forward, so a push that arrived after the read fails rather than being overwritten.
-        await self._request(
-            "PATCH",
-            f"{base}/git/refs/heads/{quote(branch)}",
-            context=f"move {branch}",
-            json={"sha": commit["sha"], "force": False},
-        )
+        headline, _, body = message.partition("\n")
+        variables = {
+            "input": {
+                "branch": {"repositoryNameWithOwner": f"{repo_owner}/{repo_name}", "branchName": branch},
+                "expectedHeadOid": parent_sha,
+                "message": {"headline": headline, "body": body.strip() or None},
+                # GitHub fails the call when fileChanges is left out, though the schema marks it optional. See #534.
+                "fileChanges": {"additions": [], "deletions": []},
+            }
+        }
+        async with self._guard("create empty commit"):
+            result = await self._execute_graphql(CREATE_COMMIT_ON_BRANCH_MUTATION, variables)
+        commit = result["createCommitOnBranch"]["commit"]
         return {
-            "commit_sha": commit["sha"],
+            "commit_sha": commit["oid"],
             "parent_sha": parent_sha,
-            "parent_tree_sha": parent["tree"]["sha"],
-            "tree_sha": commit["tree"]["sha"],
+            "parent_tree_sha": commit["parents"]["nodes"][0]["tree"]["oid"],
+            "tree_sha": commit["tree"]["oid"],
             "branch": branch,
-            "html_url": commit["html_url"],
+            "html_url": commit["url"],
         }
 
     @_write

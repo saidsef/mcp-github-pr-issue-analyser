@@ -118,9 +118,9 @@ spelling before concluding the resource does not exist.
 ## GraphQL Failures
 
 The project board tools, `github_search_user`, `github_get_user_activities`,
-`github_get_pr_linked_issues`, `github_get_pr_status_checks` and
-`github_set_pr_draft` run on GitHub's GraphQL API, and Projects (v2) has no REST
-equivalent at all. GraphQL answers HTTP 200 and puts the refusal in an `errors`
+`github_get_pr_linked_issues`, `github_get_pr_status_checks`,
+`github_set_pr_draft` and `github_create_empty_commit` run on GitHub's GraphQL
+API, and Projects (v2) has no REST equivalent at all. GraphQL answers HTTP 200 and puts the refusal in an `errors`
 array, so the server reads the first entry and maps its `type` onto a code:
 
 | GraphQL `type` | Code | Status the message shows |
