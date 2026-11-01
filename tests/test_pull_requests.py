@@ -236,6 +236,8 @@ class TestUpdatePR:
             "base_ref": None,
             "requested_reviewers": [],
             "requested_teams": [],
+            "labels": [],
+            "assignees": [],
             "commits": 1,
             "additions": 10,
             "deletions": 2,
