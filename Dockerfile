@@ -3,7 +3,7 @@
 FROM denoland/deno:bin-2.9.8 AS deno
 FROM ghcr.io/astral-sh/uv:0.13.5 AS uv
 
-FROM docker.io/python:3.14-slim AS builder
+FROM docker.io/python:3.15-slim AS builder
 
 ARG VERSION=0.0.0
 
@@ -19,7 +19,7 @@ RUN UV_PROJECT_ENVIRONMENT=/opt/venv \
     UV_DYNAMIC_VERSIONING_BYPASS=${VERSION} \
     uv sync --locked --no-dev --no-editable --no-cache
 
-FROM docker.io/python:3.14-slim
+FROM docker.io/python:3.15-slim
 
 ARG PORT=8081
 
