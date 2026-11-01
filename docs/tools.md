@@ -19,12 +19,13 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `github_get_job_log` | read | The end of a GitHub Actions job's log, capped at `max_bytes` and reporting the full size |
+| `github_get_workflow_runs` | read, task | One workflow run by id, or every run on a commit, with jobs and steps, optionally waiting for the runs to finish |
 | `github_create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
 | `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
 | `github_update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `github_create_empty_commit` | write | Push a commit that changes no file to a branch or a PR's head, starting a new CI run under the caller's name |
-| `github_rerun_job` | write | Re-run one Actions job and the jobs that depend on it, without a commit, optionally with debug logging |
+| `github_rerun_job` | write | Re-run one Actions job and the jobs that depend on it, without a commit, optionally with debug logging, returning the run to follow |
 | `github_dispatch_workflow` | write | Start a `workflow_dispatch` workflow on a branch or tag with up to 25 inputs, returning the run it started |
 | `github_merge_pr` | write | Merge using the merge, squash or rebase method |
 | `github_add_pr_comments` | write | Post a general comment on the PR thread |

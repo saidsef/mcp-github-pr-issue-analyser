@@ -33,8 +33,8 @@ Open pull requests, keep them current, and merge them once they are ready.
 3. Call `github_set_assignees` to set the assignees
 4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
 5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
-6. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit
-7. Call `github_dispatch_workflow` to start a workflow with a `workflow_dispatch` trigger on a branch or tag, passing its inputs
+6. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit. Pass the `workflow_run_id` it returns to `github_get_workflow_runs` to follow the run
+7. Call `github_dispatch_workflow` to start a workflow with a `workflow_dispatch` trigger on a branch or tag, passing its inputs. Follow the run it starts the same way
 
 ### Closing a PR
 
@@ -204,8 +204,12 @@ keep the marker in any message passed for a Dependabot PR.
 | `job_id` | int | - | The check run's `id`, as `github_get_pr_status_checks` reports it |
 | `enable_debug_logging` | bool | `False` | Run the job again with runner and step debug logging |
 
-Returns `job_id` and a `status` of `requested`. GitHub answers with no body, so
-read the new attempt's result from `github_get_pr_status_checks`.
+Returns `job_id`, the `workflow_run_id` of the run the job belongs to, and a
+`status` of `requested`. Pass `workflow_run_id` to `github_get_workflow_runs` with
+`wait_seconds` to follow the new attempt. GitHub moves the run to `queued` before
+it answers, so a wait does not end on the previous attempt's conclusion. The tool
+reads the job before it asks for the re-run, so a failed read leaves nothing
+re-run.
 
 GitHub re-runs every job that depends on this one as well, and each call starts
 another attempt. Only a check run from GitHub Actions is a job, so pass the `id`
@@ -225,7 +229,8 @@ job that failed on its read-only token fails the same way again. Use
 | `ref` | str | - | Branch or tag to run the workflow on |
 | `inputs` | dict \| None | `None` | Values for the inputs the workflow declares, keyed by input name |
 
-Returns `workflow_run_id`, `run_url` and `html_url` for the run it started.
+Returns `workflow_run_id`, `run_url` and `html_url` for the run it started. Pass
+`workflow_run_id` to `github_get_workflow_runs` to follow the run.
 
 GitHub refuses a workflow with no `workflow_dispatch` trigger. It takes at most
 25 inputs, so a call passing more is refused before it reaches GitHub, and an

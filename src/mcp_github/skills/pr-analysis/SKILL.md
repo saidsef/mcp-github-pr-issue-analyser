@@ -11,8 +11,8 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - `repo_owner`, `repo_name` and `pr_number` for the target PR
 - GitHub token with `repo` read access
 
-`github_get_pr_linked_issues` and `github_get_pr_status_checks` run as long-running tasks.
-Neither reports progress while it works.
+`github_get_pr_linked_issues`, `github_get_pr_status_checks` and `github_get_workflow_runs` run as long-running tasks.
+None of them reports progress while it works.
 `github_get_pr_content`, `github_get_pr_diff` and `github_get_job_log` are plain reads.
 
 ## Workflow
@@ -253,6 +253,48 @@ read on a fine-grained one.
 
 The default is set by `GITHUB_DIFF_MAX_BYTES`, which `github_get_pr_diff` reads
 as well.
+
+### `github_get_workflow_runs`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `run_id` | int \| None | `None` | A run's id, such as the `workflow_run_id` that `github_dispatch_workflow` or `github_rerun_job` returns |
+| `head` | str \| None | `None` | Branch, tag or SHA whose commit to read every run of, in place of `run_id` |
+| `wait_seconds` | int | `0` | Seconds to wait for every run to complete, capped by the server |
+
+Pass `run_id` or `head`, not both. The tool resolves `head` to one commit when
+the call starts, so a push during the wait does not move it.
+
+Returns `WorkflowRunsResult`:
+
+| Field | Type | Description |
+|---|---|---|
+| `runs` | list | The run `run_id` names, or every run on the commit `head` resolves to |
+| `truncated` | bool | `True` when GitHub holds more than 100 runs for the commit, or more than 100 jobs for a run |
+| `timed_out` | bool | `True` when a run had not completed by the time the tool returned |
+
+Each entry in `runs` carries `id`, `name`, `event`, `head_sha`, `run_attempt`,
+`status`, `conclusion`, `html_url` and `jobs`. Each job carries `id`, `name`,
+`status`, `conclusion`, `started_at`, `completed_at`, `html_url` and `steps`, and
+each step carries `number`, `name`, `status` and `conclusion`. A job's `id` is the
+id that `github_get_job_log` and `github_rerun_job` take. The jobs belong to the
+run's newest attempt, so a re-run reads its new jobs.
+
+With `wait_seconds` above 0 the tool polls every 10 seconds until every run has
+completed or the wait ends. The server caps the wait 60 seconds under the task
+worker's `FASTMCP_DOCKET_REDELIVERY_TIMEOUT`, so a task ends before the worker
+hands it to another. The cap is 240 seconds with the worker's default. An inline
+call blocks for the whole wait, so ask for one only when the call runs as a task,
+or keep it under the client's own timeout. A call that a timeout cuts off can run
+again, because the tool only reads.
+
+`timed_out` is `True` whenever a run had not completed when the tool returned,
+including a call with `wait_seconds=0`, so the last `status` never reads as final.
+Right after a push a lookup by `head` can find no runs yet, and the wait keeps
+polling until GitHub creates them. A run that a `workflow_run` trigger starts
+after the others finish is not in the result.
 
 ## Analysis Output Structure
 

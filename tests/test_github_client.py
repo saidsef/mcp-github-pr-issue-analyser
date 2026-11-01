@@ -35,6 +35,7 @@ _READ = {
     "get_repository_file",
     "get_skill",
     "get_user_activities",
+    "get_workflow_runs",
     "list_milestones",
     "list_open_issues_prs",
     "list_pr_comments",
@@ -100,7 +101,14 @@ _IDEMPOTENT = {
 }
 
 
-_TASKS = {"get_pr_linked_issues", "get_pr_status_checks", "get_repo_stars_since", "get_user_activities", "search_user"}
+_TASKS = {
+    "get_pr_linked_issues",
+    "get_pr_status_checks",
+    "get_repo_stars_since",
+    "get_user_activities",
+    "get_workflow_runs",
+    "search_user",
+}
 
 
 class TestAnnotations:

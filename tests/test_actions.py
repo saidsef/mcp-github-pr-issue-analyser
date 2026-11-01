@@ -16,13 +16,14 @@ from tests.support import mock_response
 class TestRerunJob:
     @pytest.mark.anyio
     async def test_posts_the_debug_flag_and_reads_no_body(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=201))
-        gi._http.request.return_value.json.side_effect = ValueError("no body")
+        posted = mock_response(status_code=201)
+        posted.json.side_effect = ValueError("no body")
+        gi._http.request = AsyncMock(side_effect=[mock_response(json_data={"id": 4242, "run_id": 9001}), posted])
         result = await gi.rerun_job("o", "r", 4242, enable_debug_logging=True)
         call = gi._http.request.call_args
         assert call.args == ("POST", "https://api.github.com/repos/o/r/actions/jobs/4242/rerun")
         assert call.kwargs["json"] == {"enable_debug_logging": True}
-        assert result == {"job_id": 4242, "status": "requested"}
+        assert result == {"job_id": 4242, "workflow_run_id": 9001, "status": "requested"}
 
     @pytest.mark.anyio
     async def test_a_403_names_the_permission_github_wants(self, gi: GitHubIntegration):
