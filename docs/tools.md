@@ -60,6 +60,13 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_get_repository_file` | read | One file at a branch, tag or SHA, windowed by `offset` and `limit` |
 | `github_list_repository_tree` | read | Entries of a directory, one level deep or every level |
 
+## Branches
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `github_list_branches` | read | A repository's branches, the commit at each head and whether a protection rule covers it |
+| `github_delete_branch` | destructive | Remove a branch, refusing the default branch, and one an open PR comes from unless forced |
+
 ## Tags and releases
 
 | Tool | Kind | Description |

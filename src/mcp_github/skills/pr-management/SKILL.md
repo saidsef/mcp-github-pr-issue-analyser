@@ -40,6 +40,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 1. Call `github_update_pr` with `state="closed"`. Reopen with `state="open"`
 2. Closing is not merging. A closed PR keeps its branch and its comments
+3. Call `github_delete_branch` to remove the head branch once the PR is merged or closed and nobody wants the branch any more. Call `github_list_branches` first to see which branches are left
 
 ### Merging a PR
 
@@ -253,6 +254,43 @@ so the merge takes the commit that was checked. GitHub refuses with a 409 once
 the head has moved, and the error carries GitHub's `Head branch was modified`
 message. A call without it merges whatever the head is when GitHub receives it.
 
+### `github_list_branches`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `protected` | bool \| None | `None` | `True` for protected branches only, `False` for unprotected ones. Omit for every branch |
+| `per_page` | int | `50` | Results per page, 1 to 100 |
+| `page` | int | `1` | Page number |
+
+Returns `count`, `has_more` and `branches`, each a `name`, the `sha` at its head
+and a `protected` flag. `count` is the branches on this page. Page on while
+`has_more` is true.
+
+### `github_delete_branch`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `branch` | str | - | Branch to delete |
+| `expected_head_sha` | str \| None | `None` | Refuse unless the head still matches this SHA |
+| `force` | bool | `False` | Delete even though an open PR comes from the branch |
+
+Returns `status`, `branch` and `closed_prs`, the numbers of the open PRs that
+`force` closed by deleting their head branch.
+
+Destructive. GitHub can restore a deleted branch from its PR page, but no tool
+here can. The default branch is refused, and `force` does not lift that. A branch
+that an open PR comes from is refused unless `force=True`, because GitHub closes
+the PR when its head branch goes. A protection rule that forbids deleting the
+branch comes back as GitHub's own refusal, per the `error-handling` skill.
+
+The tool compares `expected_head_sha` with the head before it deletes, since
+GitHub's delete takes no precondition. A push that arrives between the check and
+the delete is not caught.
+
 ## Title Convention
 
 PR titles and commit subjects share one shape with issue titles:
@@ -343,4 +381,4 @@ Two hundred and fifty words across all five sections is the ceiling.
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
 - Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
-- Report that the head branch is still in place after a merge, since no tool here deletes a branch
+- Delete the head branch with `github_delete_branch` after a merge where the repository does not delete it on merge. Where a user can answer, ask before deleting the branch of a PR closed without merging, since it may hold work someone still wants. In an unattended run, the request that started the run is the answer

@@ -173,8 +173,8 @@ server instructions nor a prior `github_list_skills`.
 
 The mapping is read at startup from the `` `tool_name` `` headings in each SKILL.md,
 so a tool is claimed in one place and the pointer cannot disagree with the skill.
-Moving a tool between skills is a heading move and nothing else. Of the 59 tools,
-57 carry a pointer; `github_get_skill` and `github_list_skills` carry none, since
+Moving a tool between skills is a heading move and nothing else. Of the 60 tools,
+58 carry a pointer; `github_get_skill` and `github_list_skills` carry none, since
 pointing those at a skill would send a client in a circle.
 
 The pointer is added by a server-level transform rather than written into each

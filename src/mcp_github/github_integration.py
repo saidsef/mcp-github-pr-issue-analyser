@@ -1975,6 +1975,52 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         await self._delete_tag_ref(repo_owner, repo_name, tag_name)
         return {"status": "deleted", "tag_name": tag_name, "release_still_published": bool(release)}
 
+    @_read_only
+    async def list_branches(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        protected: Annotated[bool | None, "True for protected branches only, False for unprotected ones"] = None,
+        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Lists a repository's branches, the commit at each head and whether a
+        protection rule covers it."""
+        url = f"{_repo(repo_owner, repo_name)}/branches"
+        params = {**_supplied(protected=protected), "per_page": per_page, "page": page}
+        response = await self._request("GET", url, context=f"branches for {repo_owner}/{repo_name}", params=params)
+        branches = [
+            {"name": item["name"], "sha": (item.get("commit") or {}).get("sha"), "protected": item.get("protected")}
+            for item in response.json()
+        ]
+        return {**_page(response, branches), "branches": branches}
+
+    @_destructive
+    async def delete_branch(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        branch: str,
+        expected_head_sha: Annotated[str | None, "Refuse unless the head still matches this SHA"] = None,
+        force: Annotated[bool, "Delete the branch even though an open pull request comes from it"] = False,
+    ) -> dict[str, Any]:
+        """Deletes a branch. The default branch is always refused. A branch an open
+        pull request comes from is refused unless force is set, because deleting it
+        closes that pull request. See #536."""
+        branch, head_sha, default_branch = await self._branch_head(repo_owner, repo_name, branch, None)
+        if branch == default_branch:
+            raise GitHubValidationError(f"'{branch}' is the default branch and cannot be deleted.")
+        if expected_head_sha and expected_head_sha != head_sha:
+            raise GitHubValidationError(f"'{branch}' is at {head_sha}, not {expected_head_sha}.")
+        base = _repo(repo_owner, repo_name)
+        params = {"state": "open", "head": f"{repo_owner}:{branch}", "per_page": 100}
+        prs = (await self._request("GET", f"{base}/pulls", context=f"open PRs from {branch}", params=params)).json()
+        if prs and not force:
+            numbers = ", ".join(f"#{pr['number']}" for pr in prs)
+            raise GitHubValidationError(f"'{branch}' is the head of open PR {numbers}. Pass force=True to delete it.")
+        await self._request("DELETE", f"{base}/git/refs/heads/{quote(branch)}", context=f"delete branch {branch}")
+        return {"status": "deleted", "branch": branch, "closed_prs": [pr["number"] for pr in prs]}
+
     async def _project(self, owner: str, number: int) -> dict[str, Any]:
         """Resolve a board from its owner's login and its number, fields included."""
         async with self._guard("look up project"):
