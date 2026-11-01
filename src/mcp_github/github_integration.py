@@ -81,6 +81,8 @@ class PRContent(TypedDict):
     base_ref: str | None
     requested_reviewers: list[str]
     requested_teams: list[str]
+    labels: list[str]
+    assignees: list[str]
     commits: int
     additions: int
     deletions: int
@@ -330,6 +332,8 @@ def _pr_content(data: dict[str, Any]) -> PRContent:
         "base_ref": (data.get("base") or {}).get("ref"),
         "requested_reviewers": [user["login"] for user in data.get("requested_reviewers") or []],
         "requested_teams": [team["slug"] for team in data.get("requested_teams") or []],
+        "labels": [label["name"] for label in data.get("labels") or []],
+        "assignees": [user["login"] for user in data.get("assignees") or []],
         "commits": data["commits"],
         "additions": data["additions"],
         "deletions": data["deletions"],
@@ -1000,8 +1004,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     ) -> PRContent:
         """Updates an existing pull request. Only the fields supplied are sent, the
         rest keep their current values, so a title can change without restating the body.
-        Labels take a second call, since the pull request payload carries none. That
-        call answers with the issue, which has no head, base or reviewers, so a
+        Labels take a second call, since the pull request endpoint does not take them.
+        That call answers with the issue, which has no head, base or reviewers, so a
         labels-only update reads the pull request back."""
         payload = _supplied(title=title, body=body, state=state, base=base)
         if not payload and labels is None:
@@ -1011,7 +1015,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}"
             data = (await self._request("PATCH", url, context=f"PR #{pr_number}", json=payload)).json()
         if labels is not None:
-            await self._replace_labels(repo_owner, repo_name, pr_number, labels)
+            labelled = await self._replace_labels(repo_owner, repo_name, pr_number, labels)
+            if data:
+                # The PATCH answered before the label write, so its labels are stale. See #535.
+                data["labels"] = labelled.get("labels") or []
         return _pr_content(data or await self._pr(repo_owner, repo_name, pr_number))
 
     @_write(idempotent=True)

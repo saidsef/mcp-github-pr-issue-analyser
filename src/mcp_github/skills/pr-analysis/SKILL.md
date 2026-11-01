@@ -72,12 +72,14 @@ Returns `PRContent` with exactly these fields:
 | `base_ref` | str \| None | Branch the PR merges into |
 | `requested_reviewers` | list[str] | Logins asked to review and yet to answer |
 | `requested_teams` | list[str] | Team slugs asked to review |
+| `labels` | list[str] | Label names on the PR |
+| `assignees` | list[str] | Logins assigned to the PR |
 | `commits` | int | Commits on the PR branch |
 | `additions` | int | Lines added |
 | `deletions` | int | Lines removed |
 | `changed_files` | int | Files changed |
 
-Nothing else is returned, and labels are **not** available from this tool.
+Nothing else is returned.
 `state` is `closed` for both merged and abandoned PRs, and `merged` tells the
 two apart.
 
