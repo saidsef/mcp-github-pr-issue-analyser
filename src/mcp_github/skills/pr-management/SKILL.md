@@ -183,11 +183,13 @@ Returns `commit_sha`, `parent_sha`, `parent_tree_sha`, `tree_sha`, `branch` and
 
 A re-run keeps the privileges of whoever started the first run, which for a
 Dependabot PR is a read-only token with no Actions secrets. This commit is authored
-by the caller and starts a new run under their name instead.
+by the caller and starts a new run under their name instead. GitHub signs it and
+acts as its committer, as for a commit made in the web interface, so it shows as
+Verified and passes a rule that requires signed commits.
 
 `branch` and `pr_number` are mutually exclusive. A PR opened from a fork is refused,
-since its head branch lives in the fork. The ref only fast-forwards, so a push that
-arrives after the head is read fails rather than being overwritten.
+since its head branch lives in the fork. GitHub refuses the commit when a push
+arrives after the head is read, so nothing is overwritten.
 
 Dependabot stops rebasing a PR once another commit is pushed to it, unless that
 commit's message carries `[dependabot skip]`. The default message carries it, so

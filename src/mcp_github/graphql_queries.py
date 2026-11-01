@@ -283,6 +283,27 @@ mutation($pullRequestId: ID!) {
 }
 """
 
+CREATE_COMMIT_ON_BRANCH_MUTATION = """
+mutation($input: CreateCommitOnBranchInput!) {
+  createCommitOnBranch(input: $input) {
+    commit {
+      oid
+      url
+      tree {
+        oid
+      }
+      parents(first: 1) {
+        nodes {
+          tree {
+            oid
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
 
 def _owner_query(variables: str, selection: str) -> str:
     """Wrap a selection in the repositoryOwner shell. A board's owner may be a
