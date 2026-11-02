@@ -51,7 +51,7 @@ The consent screen asks for `repo`, `read:org`, `user` and `project`, whatever a
 client requests for itself. `repo` covers the write and destructive tools,
 `project` the board tools on top of it, and `read:org` the org membership the
 activity queries read. A grant carrying only `user` clears the floor and is
-admitted, and the scope gate then hides the 28 tools it cannot reach.
+admitted, and the scope gate then hides the 29 tools it cannot reach.
 
 An authorisation is not widened by re-authorising. GitHub offers only what the
 request asks for, so a grant made before a scope was added keeps its original

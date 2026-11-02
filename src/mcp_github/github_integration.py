@@ -22,6 +22,7 @@ import asyncio
 import functools
 import logging
 import time
+from base64 import b64encode
 from contextlib import asynccontextmanager
 from os import getenv
 from typing import Annotated, Any, Literal, TypedDict
@@ -214,6 +215,14 @@ class EmptyCommitResult(TypedDict):
     html_url: str
 
 
+class CommitResult(TypedDict):
+    commit_sha: str
+    parents: list[str]
+    tree_sha: str
+    branch: str
+    html_url: str
+
+
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))
@@ -261,6 +270,7 @@ _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
 _Names = list[str] | None
 _WorkflowInputs = dict[str, Any]
+_FileChanges = dict[str, str | None]
 
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 _PENDING_STATUSES = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
@@ -1460,26 +1470,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         interface. See #490 and #534."""
         if branch and pr_number is not None:
             raise GitHubValidationError("Pass branch or pr_number, not both.")
-        branch, parent_sha, default_branch = await self._branch_head(repo_owner, repo_name, branch, pr_number)
-        if branch == default_branch and not allow_default_branch:
-            raise GitHubValidationError(
-                f"'{branch}' is the default branch. Pass allow_default_branch=True to commit to it."
-            )
-        if expected_head_sha and expected_head_sha != parent_sha:
-            raise GitHubValidationError(f"'{branch}' is at {parent_sha}, not {expected_head_sha}.")
-        headline, _, body = message.partition("\n")
-        variables = {
-            "input": {
-                "branch": {"repositoryNameWithOwner": f"{repo_owner}/{repo_name}", "branchName": branch},
-                "expectedHeadOid": parent_sha,
-                "message": {"headline": headline, "body": body.strip() or None},
-                # GitHub fails the call when fileChanges is left out, though the schema marks it optional. See #534.
-                "fileChanges": {"additions": [], "deletions": []},
-            }
-        }
+        branch, parent_sha = await self._commit_target(
+            repo_owner, repo_name, branch, pr_number, expected_head_sha, allow_default_branch
+        )
         async with self._guard("create empty commit"):
-            result = await self._execute_graphql(CREATE_COMMIT_ON_BRANCH_MUTATION, variables)
-        commit = result["createCommitOnBranch"]["commit"]
+            commit = await self._commit_on_branch(repo_owner, repo_name, branch, parent_sha, message, {})
         return {
             "commit_sha": commit["oid"],
             "parent_sha": parent_sha,
@@ -1487,6 +1482,114 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "tree_sha": commit["tree"]["oid"],
             "branch": branch,
             "html_url": commit["url"],
+        }
+
+    @_write
+    async def commit_files(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        branch: Annotated[str, "Branch to commit to, in this repository rather than a fork"],
+        message: Annotated[str, "Commit message. Its first line is the headline"],
+        files: Annotated[_FileChanges, "New text content by path from the repository root, or null to delete it"],
+        parents: Annotated[
+            _Names, "The head the files were read at, then for a merge commit the commit to merge in"
+        ] = None,
+        allow_default_branch: Annotated[bool, "Commit to the default branch, which is refused otherwise"] = False,
+    ) -> CommitResult:
+        """Commits text files to a branch, writing each path in files and deleting
+        each one set to null. GitHub signs the commit, as it does for
+        github_create_empty_commit. A second parent makes a merge commit through the
+        Git Database API, since the signing mutation takes one parent, and GitHub
+        leaves that commit unsigned. Its tree starts from the second parent's, so
+        files carries every file the branch changes as it should read after the
+        merge. See #547."""
+        if parents and len(parents) > 2:
+            raise GitHubValidationError("Pass at most two parents, the branch head and the commit to merge in.")
+        expected = parents[0] if parents else None
+        branch, head_sha = await self._commit_target(
+            repo_owner, repo_name, branch, None, expected, allow_default_branch
+        )
+        if parents and len(parents) == 2:
+            return await self._merge_commit(repo_owner, repo_name, branch, message, files, [head_sha, parents[1]])
+        async with self._guard("commit files"):
+            commit = await self._commit_on_branch(repo_owner, repo_name, branch, head_sha, message, files)
+        return {
+            "commit_sha": commit["oid"],
+            "parents": [head_sha],
+            "tree_sha": commit["tree"]["oid"],
+            "branch": branch,
+            "html_url": commit["url"],
+        }
+
+    async def _commit_target(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        branch: str | None,
+        pr_number: int | None,
+        expected_head_sha: str | None,
+        allow_default_branch: bool,
+    ) -> tuple[str, str]:
+        """The branch to commit to and the commit at its head, refusing the default
+        branch unless it is allowed and a head that has moved past expected_head_sha."""
+        branch, head_sha, default_branch = await self._branch_head(repo_owner, repo_name, branch, pr_number)
+        if branch == default_branch and not allow_default_branch:
+            raise GitHubValidationError(
+                f"'{branch}' is the default branch. Pass allow_default_branch=True to commit to it."
+            )
+        if expected_head_sha and expected_head_sha != head_sha:
+            raise GitHubValidationError(f"'{branch}' is at {head_sha}, not {expected_head_sha}.")
+        return branch, head_sha
+
+    async def _commit_on_branch(
+        self, repo_owner: str, repo_name: str, branch: str, head_sha: str, message: str, files: _FileChanges
+    ) -> dict[str, Any]:
+        """Commit through createCommitOnBranch, which GitHub signs. expectedHeadOid
+        refuses the commit when a push moved the branch after head_sha was read."""
+        headline, _, body = message.partition("\n")
+        written = {path: text for path, text in files.items() if text is not None}
+        variables = {
+            "input": {
+                "branch": {"repositoryNameWithOwner": f"{repo_owner}/{repo_name}", "branchName": branch},
+                "expectedHeadOid": head_sha,
+                "message": {"headline": headline, "body": body.strip() or None},
+                # GitHub fails the call when fileChanges is left out, though the schema marks it optional. See #534.
+                "fileChanges": {
+                    "additions": [{"path": p, "contents": b64encode(t.encode()).decode()} for p, t in written.items()],
+                    "deletions": [{"path": path} for path in files if path not in written],
+                },
+            }
+        }
+        result = await self._execute_graphql(CREATE_COMMIT_ON_BRANCH_MUTATION, variables)
+        return result["createCommitOnBranch"]["commit"]
+
+    async def _merge_commit(
+        self, repo_owner: str, repo_name: str, branch: str, message: str, files: _FileChanges, parents: list[str]
+    ) -> CommitResult:
+        """Build a merge commit through the Git Database API on the merged parent's
+        tree. The branch moves only as a fast forward, so a push after the head was
+        read leaves the new commit unreferenced and the branch where it was."""
+        base = _repo(repo_owner, repo_name)
+        merged = (await self._request("GET", f"{base}/git/commits/{parents[1]}", context=f"commit {parents[1]}")).json()
+        entries = [
+            {"path": path, "mode": "100644", "type": "blob", **({"sha": None} if text is None else {"content": text})}
+            for path, text in files.items()
+        ]
+        payload = {"base_tree": merged["tree"]["sha"], "tree": entries}
+        tree = (await self._request("POST", f"{base}/git/trees", context=f"tree on {parents[1]}", json=payload)).json()
+        payload = {"message": message, "tree": tree["sha"], "parents": parents}
+        commit = (
+            await self._request("POST", f"{base}/git/commits", context=f"commit on {branch}", json=payload)
+        ).json()
+        url = f"{base}/git/refs/heads/{quote(branch)}"
+        await self._request("PATCH", url, context=f"branch {branch}", json={"sha": commit["sha"], "force": False})
+        return {
+            "commit_sha": commit["sha"],
+            "parents": parents,
+            "tree_sha": tree["sha"],
+            "branch": branch,
+            "html_url": commit["html_url"],
         }
 
     @_write

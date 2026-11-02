@@ -31,10 +31,21 @@ Open pull requests, keep them current, and merge them once they are ready.
 1. Call `github_update_pr` to change any subset of the title, body, state, base branch and labels. This is the one to reach for, since it leaves the fields you omit alone
 2. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
 3. Call `github_set_assignees` to set the assignees
-4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits
+4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits. GitHub refuses a conflicted branch, so resolve it as Resolving a conflicted PR describes
 5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
-6. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit. Pass the `workflow_run_id` it returns to `github_get_workflow_runs` to follow the run
-7. Call `github_dispatch_workflow` to start a workflow with a `workflow_dispatch` trigger on a branch or tag, passing its inputs. Follow the run it starts the same way
+6. Call `github_commit_files` with the PR's `head_ref` to commit text files to its branch
+7. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit. Pass the `workflow_run_id` it returns to `github_get_workflow_runs` to follow the run
+8. Call `github_dispatch_workflow` to start a workflow with a `workflow_dispatch` trigger on a branch or tag, passing its inputs. Follow the run it starts the same way
+
+### Resolving a conflicted PR
+
+1. Call `github_get_pr_content` and keep `head_sha`, `head_ref`, `base_ref` and `changed_files`. A conflicted PR reads `mergeable: false`
+2. Call `github_get_latest_sha` with `ref` set to `base_ref` for the commit to merge in
+3. Call `github_get_pr_diff` for the files the PR changes
+4. Read each of those files at `head_sha` and at the base commit with `github_get_repository_file`, and write the version that keeps both sides' changes
+5. Call `github_commit_files` with `branch` set to `head_ref`, `parents` set to `head_sha` then the base commit, and every file from step 3 in `files` as it should read after the merge. A file the PR deletes goes in as `null`
+6. A file left out of `files` takes the base branch's version, which drops the PR's change to it. `github_get_repository_file` returns no content for a binary file, so a PR that changes one cannot be resolved this way
+7. Call `github_get_pr_content` again. `mergeable` reads `null` while GitHub recomputes it, then `true`. A `changed_files` count that differs from step 1 means a file was left out
 
 ### Closing a PR
 
@@ -163,8 +174,8 @@ PR leaves off a reviewer the call asked for, or still lists one it withdrew, and
 Merges the base branch into the head branch, adding a merge commit to the PR
 branch. Read `head_sha` from `github_get_pr_content` and pass it as
 `expected_head_sha` to avoid racing a push from someone else.
-This does not resolve conflicts, and a conflicting update fails and the branch must
-be fixed locally.
+This does not resolve conflicts. A conflicting update fails, and Resolving a
+conflicted PR above fixes the branch with `github_commit_files`.
 
 ### `github_create_empty_commit`
 
@@ -195,6 +206,42 @@ arrives after the head is read, so nothing is overwritten.
 Dependabot stops rebasing a PR once another commit is pushed to it, unless that
 commit's message carries `[dependabot skip]`. The default message carries it, so
 keep the marker in any message passed for a Dependabot PR.
+
+### `github_commit_files`
+
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `branch` | str | - | Branch to commit to, in this repository rather than a fork |
+| `message` | str | - | Commit message. Its first line is the headline |
+| `files` | dict[str, str \| None] | - | New text content by path from the repository root, or `null` to delete the path |
+| `parents` | list[str] \| None | `None` | The head the files were read at, then for a merge commit the commit to merge in |
+| `allow_default_branch` | bool | `False` | Commit to the default branch, which is refused otherwise |
+
+Returns `commit_sha`, `parents`, `tree_sha`, `branch` and `html_url`.
+
+Pass the head the files were read at as the first parent, and the tool refuses
+the call when the branch has moved since. Without `parents` the tool commits on
+whatever the head is when the call runs, which can overwrite a push you have not
+read.
+
+With one parent, GitHub creates the commit and signs it, as for
+`github_create_empty_commit`. GitHub refuses the commit when a push arrives after
+the head is read, so nothing is overwritten.
+
+A second parent makes a merge commit. GitHub's signing mutation takes one parent
+only, so the tool builds this commit through the Git Database API, and GitHub
+leaves it unsigned under a personal access token or an OAuth token. A branch with
+a rule that requires signed commits refuses it. The tree starts from the second
+parent's tree, so `files` carries every file the branch changes, as it should
+read after the merge. The branch moves only as a fast forward, so a push that
+arrives after the head is read fails the call with a `VALIDATION_ERROR` and leaves
+the branch where it was. A merge commit writes every file without the executable
+bit.
+
+The tool writes text only, as UTF-8, and refuses more than two parents. A PR
+opened from a fork is out of reach, since its head branch lives in the fork.
 
 ### `github_rerun_job`
 

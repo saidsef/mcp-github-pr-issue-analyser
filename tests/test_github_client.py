@@ -58,6 +58,7 @@ _WRITE = {
     "add_inline_pr_comment",
     "add_pr_comments",
     "add_to_project",
+    "commit_files",
     "create_empty_commit",
     "create_issue",
     "create_milestone",
