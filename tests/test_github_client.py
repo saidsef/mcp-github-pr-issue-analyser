@@ -35,6 +35,7 @@ _READ = {
     "get_repository_file",
     "get_skill",
     "get_user_activities",
+    "get_workflow_runs",
     "list_branches",
     "list_milestones",
     "list_open_issues_prs",
