@@ -4,6 +4,8 @@
 github_add_inline_pr_comment
 github_add_pr_comments
 github_add_to_project
+github_api_read
+github_api_write
 github_commit_files
 github_create_empty_commit
 github_create_issue

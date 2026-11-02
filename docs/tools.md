@@ -104,6 +104,15 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 | `github_get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
 | `github_get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing or a repo's star history was cut short |
 
+## REST and GraphQL requests
+
+`github_api_read` and `github_api_write` reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. Both tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers the path rules and the tools to prefer where one exists.
+
+| Tool | Kind | Description |
+|------|------|-------------|
+| `github_api_read` | read | A GET to any path, or a GraphQL query. A mutation is refused |
+| `github_api_write` | destructive | A POST, PATCH, PUT or DELETE to any path, or a GraphQL mutation, sent once and never retried |
+
 ## Interactive UI
 
 | Tool | Kind | Description |

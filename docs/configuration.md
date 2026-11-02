@@ -35,6 +35,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
 | `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns and on the log `github_get_job_log` returns. Callers can override it per call, and the reply carries the full size either way |
+| `GITHUB_FILE_MAX_BYTES` | No, default `131072` | Default cap on the bytes `github_get_repository_file` reads in one window and on the body `github_api_read` and `github_api_write` return. Callers can override it per call, and the reply carries the full size either way |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 
@@ -51,7 +52,7 @@ The consent screen asks for `repo`, `read:org`, `user` and `project`, whatever a
 client requests for itself. `repo` covers the write and destructive tools,
 `project` the board tools on top of it, and `read:org` the org membership the
 activity queries read. A grant carrying only `user` clears the floor and is
-admitted, and the scope gate then hides the 29 tools it cannot reach.
+admitted, and the scope gate then hides every tool it cannot reach.
 
 An authorisation is not widened by re-authorising. GitHub offers only what the
 request asks for, so a grant made before a scope was added keeps its original
@@ -173,8 +174,8 @@ server instructions nor a prior `github_list_skills`.
 
 The mapping is read at startup from the `` `tool_name` `` headings in each SKILL.md,
 so a tool is claimed in one place and the pointer cannot disagree with the skill.
-Moving a tool between skills is a heading move and nothing else. Of the 60 tools,
-58 carry a pointer; `github_get_skill` and `github_list_skills` carry none, since
+Moving a tool between skills is a heading move and nothing else. Every tool
+carries a pointer except `github_get_skill` and `github_list_skills`, since
 pointing those at a skill would send a client in a circle.
 
 The pointer is added by a server-level transform rather than written into each

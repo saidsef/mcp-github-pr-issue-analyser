@@ -11,10 +11,13 @@ curl http://localhost:8081/metrics
 | `mcp_tool_invocations_total` | counter | Tool calls, labelled by `tool_name` and `outcome` |
 | `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` and `outcome` |
 | `mcp_tool_in_progress` | gauge | Tool calls currently running |
+| `mcp_api_route_invocations_total` | counter | `github_api_read` and `github_api_write` calls, labelled by `tool_name`, `method`, `route` and `outcome` |
 | `process_*` | gauge | CPU, memory and file descriptor usage of the server process, Linux only |
 | `python_info` | gauge | Interpreter version |
 
 `outcome` is `success` or `error`. A call for a tool that does not exist is recorded as `tool_name="unknown"`, which keeps the label bounded to registered tools.
+
+`route` is the template from GitHub's REST API description, such as `/repos/{owner}/{repo}/collaborators`, or `/graphql` for a GraphQL call. A path that matches no route is recorded as `method="unmatched"` and `route="unmatched"`, which keeps both labels bounded to the routes GitHub documents.
 
 ## Scraping
 
@@ -47,4 +50,7 @@ histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_seconds_
 
 # calls currently running
 mcp_tool_in_progress
+
+# the routes reached through github_api_read and github_api_write
+sum by (tool_name, method, route) (rate(mcp_api_route_invocations_total[5m]))
 ```

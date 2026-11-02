@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 import logging
 import time
 from base64 import b64encode
@@ -33,6 +34,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp_tasks.settings import DocketSettings
 
 from .activity import ActivityMixin
+from .api_routes import api_url, is_mutation
 from .auth import (
     MISSING_CREDENTIALS,
     APIKeyVerifier,
@@ -223,6 +225,15 @@ class CommitResult(TypedDict):
     html_url: str
 
 
+class APIResult(TypedDict):
+    status: int
+    body: str
+    bytes_returned: int
+    bytes_total: int
+    truncated: bool
+    has_more: bool
+
+
 GITHUB_TOKEN = getenv("GITHUB_TOKEN")
 TIMEOUT = int(getenv("GITHUB_API_TIMEOUT", "5"))
 CONNECT_TIMEOUT = int(getenv("GITHUB_API_CONNECT_TIMEOUT", "3"))
@@ -271,6 +282,9 @@ _IfExists = Literal["fail", "update"]
 _Names = list[str] | None
 _WorkflowInputs = dict[str, Any]
 _FileChanges = dict[str, str | None]
+_WriteMethod = Literal["POST", "PATCH", "PUT", "DELETE"]
+_APIValues = dict[str, Any] | None
+_APIBody = dict[str, Any] | list[Any] | None
 
 _FAILING_CONCLUSIONS = {"FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE"}
 _PENDING_STATUSES = {"IN_PROGRESS", "QUEUED", "WAITING", "REQUESTED", "PENDING"}
@@ -328,6 +342,20 @@ def _page(response: httpx.Response, items: list[Any]) -> dict[str, Any]:
     """The paging half of a list reply. count is what came back this call, which
     is not the size of the result set, and has_more says whether to ask again."""
     return {"count": len(items), "has_more": _has_more(response)}
+
+
+def _api_result(status: int, content: bytes, max_bytes: int, has_more: bool) -> APIResult:
+    """A response body as text, capped at max_bytes. bytes_total is the whole body,
+    so a truncated reply says what was left behind."""
+    kept = content[:max_bytes]
+    return {
+        "status": status,
+        "body": kept.decode("utf-8", errors="ignore"),
+        "bytes_returned": len(kept),
+        "bytes_total": len(content),
+        "truncated": len(kept) < len(content),
+        "has_more": has_more,
+    }
 
 
 def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
@@ -406,6 +434,19 @@ def _github_detail(response_body: dict | None) -> str:
         if text and text not in parts:
             parts.append(text)
     return f" GitHub said: {'; '.join(parts)}" if parts else ""
+
+
+def _scope_hint(response: httpx.Response) -> str:
+    """The scopes GitHub accepts for an endpoint, beside the ones the token holds, when
+    it holds none of them. A classic or OAuth token short of a scope mostly gets a 404
+    rather than a 403. A fine-grained token sends no X-OAuth-Scopes. See #543."""
+    if "X-OAuth-Scopes" not in response.headers:
+        return ""
+    held = [s.strip() for s in response.headers["X-OAuth-Scopes"].split(",") if s.strip()]
+    accepted = [s.strip() for s in response.headers.get("X-Accepted-OAuth-Scopes", "").split(",") if s.strip()]
+    if not accepted or set(accepted) & set(held):
+        return ""
+    return f" The token holds {', '.join(held) or 'no scopes'}, and this endpoint needs one of {', '.join(accepted)}."
 
 
 def _reset_timestamp(response: httpx.Response) -> int | None:
@@ -767,7 +808,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
 
         if status == 404:
             msg = "Resource not found"
-            if self._oauth_mode:
+            if scopes := _scope_hint(response):
+                msg += f", or hidden from a token without the scope to see it.{scopes}"
+            elif self._oauth_mode:
                 msg += (
                     " If this is a private organisation repository, the org admin may need to"
                     " approve this OAuth App under Org Settings -> Third-party access -> OAuth App access policy."
@@ -799,6 +842,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
                 msg += f" This endpoint needs the `{needed}` permission."
             if _WORKFLOW_SCOPE_REFUSAL in error_text:
                 msg += _WORKFLOW_SCOPE_GUIDANCE
+            elif scopes := _scope_hint(response):
+                msg += scopes
             elif self._oauth_mode:
                 msg += (
                     " If accessing a private organisation repository, the org admin may need to"
@@ -2628,3 +2673,49 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "truncated": truncated or any(more for _, more in read),
             "timed_out": not _all_completed(runs),
         }
+
+    async def _api_call(
+        self, method: str, path: str, graphql: str | None, variables: _APIValues, max_bytes: int, **kwargs: Any
+    ) -> APIResult:
+        """The part github_api_read and github_api_write share. A call is sent once,
+        since a repeated POST can create the same thing twice. See #543."""
+        if max_bytes < 0:
+            raise GitHubValidationError("max_bytes cannot be negative.")
+        if graphql:
+            data = await self._execute_graphql(graphql, variables or {})
+            return _api_result(
+                200, json.dumps(data, separators=(",", ":"), ensure_ascii=False).encode(), max_bytes, False
+            )
+        response = await self._request(method, api_url(path), context=path, **kwargs)
+        return _api_result(response.status_code, response.content, max_bytes, _has_more(response))
+
+    @_read_only
+    async def api_read(
+        self,
+        path: Annotated[str, "Path under https://api.github.com, such as repos/octocat/hello-world/collaborators"] = "",
+        params: Annotated[_APIValues, "Query parameters, such as per_page and page"] = None,
+        graphql: Annotated[str | None, "A GraphQL query to run in place of a REST GET. Mutations are refused"] = None,
+        variables: Annotated[_APIValues, "Variables for the GraphQL query"] = None,
+        max_bytes: Annotated[int, "Cap on the body returned"] = FILE_MAX_BYTES,
+    ) -> APIResult:
+        """Sends a GET to any path under api.github.com, or runs a GraphQL query, for an
+        endpoint no other tool covers. GitHub decides what the token may read, and a
+        refusal names the scope it lacks where GitHub says. See #543."""
+        if graphql and is_mutation(graphql):
+            raise GitHubValidationError("github_api_read runs queries only. Send a mutation with github_api_write.")
+        return await self._api_call("GET", path, graphql, variables, max_bytes, params=params)
+
+    @_destructive
+    async def api_write(
+        self,
+        method: _WriteMethod = "POST",
+        path: Annotated[str, "Path under https://api.github.com, such as repos/octocat/hello-world/labels"] = "",
+        body: Annotated[_APIBody, "JSON request body"] = None,
+        graphql: Annotated[str | None, "A GraphQL mutation to run in place of a REST call"] = None,
+        variables: Annotated[_APIValues, "Variables for the GraphQL mutation"] = None,
+        max_bytes: Annotated[int, "Cap on the body returned"] = FILE_MAX_BYTES,
+    ) -> APIResult:
+        """Sends a POST, PATCH, PUT or DELETE to any path under api.github.com, or runs a
+        GraphQL mutation, for a change no other tool makes. GitHub decides what the token
+        may change, and a refusal names the scope it lacks where GitHub says. See #543."""
+        return await self._api_call(method, path, graphql, variables, max_bytes, json=body)
