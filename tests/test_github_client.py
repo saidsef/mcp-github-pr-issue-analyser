@@ -36,6 +36,7 @@ _READ = {
     "get_skill",
     "get_user_activities",
     "get_workflow_runs",
+    "list_branches",
     "list_milestones",
     "list_open_issues_prs",
     "list_pr_comments",
@@ -82,7 +83,7 @@ _WRITE = {
 }
 
 
-_DESTRUCTIVE = {"delete_release", "delete_tag", "remove_from_project"}
+_DESTRUCTIVE = {"delete_branch", "delete_release", "delete_tag", "remove_from_project"}
 
 
 _IDEMPOTENT = {

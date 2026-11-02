@@ -10,6 +10,7 @@ github_create_milestone
 github_create_pr
 github_create_release
 github_create_tag
+github_delete_branch
 github_delete_release
 github_delete_tag
 github_dispatch_workflow
@@ -27,6 +28,7 @@ github_get_repository_file
 github_get_skill
 github_get_user_activities
 github_get_workflow_runs
+github_list_branches
 github_list_milestones
 github_list_open_issues_prs
 github_list_pr_comments
