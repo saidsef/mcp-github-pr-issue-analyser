@@ -25,6 +25,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
 | `github_update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `github_create_empty_commit` | write | Push a commit that changes no file to a branch or a PR's head, starting a new CI run under the caller's name |
+| `github_commit_files` | write | Commit text files to a branch with a commit GitHub signs, or write the merge commit that resolves a conflicted PR |
 | `github_rerun_job` | write | Re-run one Actions job and the jobs that depend on it, without a commit, optionally with debug logging, returning the run to follow |
 | `github_dispatch_workflow` | write | Start a `workflow_dispatch` workflow on a branch or tag with up to 25 inputs, returning the run it started |
 | `github_merge_pr` | write | Merge using the merge, squash or rebase method |
