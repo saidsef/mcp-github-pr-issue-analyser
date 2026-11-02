@@ -26,6 +26,7 @@ github_get_repo_stars_since
 github_get_repository_file
 github_get_skill
 github_get_user_activities
+github_get_workflow_runs
 github_list_milestones
 github_list_open_issues_prs
 github_list_pr_comments

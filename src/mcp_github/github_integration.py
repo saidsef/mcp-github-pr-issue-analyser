@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import functools
 import logging
 import time
@@ -28,6 +29,7 @@ from urllib.parse import quote, quote_plus
 
 import httpx
 from fastmcp.exceptions import ToolError
+from fastmcp_tasks.settings import DocketSettings
 
 from .activity import ActivityMixin
 from .auth import (
@@ -197,6 +199,12 @@ class StatusChecksResult(TypedDict):
     truncated: bool
 
 
+class WorkflowRunsResult(TypedDict):
+    runs: list[dict[str, Any]]
+    truncated: bool
+    timed_out: bool
+
+
 class EmptyCommitResult(TypedDict):
     commit_sha: str
     parent_sha: str
@@ -216,6 +224,9 @@ MAX_MILESTONE_PAGES = 5
 MAX_RELEASE_PAGES = 5
 MAX_STATUS_CHECKS_SUITE_PAGES = 5
 MAX_STATUS_CHECKS_RUN_PAGES_PER_SUITE = 5
+RUN_POLL_SECONDS = 10
+# A wait ends before the tasks worker hands the task to another worker. See #537.
+RUN_WAIT_MAX_SECONDS = int(DocketSettings().redelivery_timeout.total_seconds()) - 60
 
 _COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
 
@@ -233,6 +244,10 @@ _MILESTONE_FIELDS = (
 )
 
 _PROJECT_VALUE_KEYS = ("text", "number", "date", "name", "title")
+
+_RUN_FIELDS = ("id", "name", "event", "head_sha", "run_attempt", "status", "conclusion", "html_url")
+_JOB_FIELDS = ("id", "name", "status", "conclusion", "started_at", "completed_at", "html_url")
+_STEP_FIELDS = ("number", "name", "status", "conclusion")
 
 # The tools read these headers off a successful response, and the cache keeps
 # them with the body so a 304 rebuilt from it matches the original. See #516.
@@ -613,6 +628,18 @@ def _run_dict(run: dict[str, Any], app_name: str) -> dict[str, Any]:
         "details_url": run.get("detailsUrl"),
         "suite_app": app_name,
     }
+
+
+def _job(job: dict[str, Any]) -> dict[str, Any]:
+    """Trim an Actions job to its fields and its steps. A job's id is the check
+    run id github_get_job_log takes."""
+    return {**_pick(job, *_JOB_FIELDS), "steps": [_pick(step, *_STEP_FIELDS) for step in job.get("steps") or []]}
+
+
+def _all_completed(runs: list[dict[str, Any]]) -> bool:
+    """An empty list has not finished, since GitHub creates the runs for a push a
+    few seconds after it. See #537."""
+    return bool(runs) and all(run.get("status") == "completed" for run in runs)
 
 
 def _head_commit(pull_request: dict[str, Any]) -> dict[str, Any]:
@@ -1474,11 +1501,14 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         commit on the branch. Each call starts another attempt, so calling it twice
         runs the job twice. A re-run keeps the privileges of the first run, so a
         Dependabot job that failed on its read-only token wants
-        github_create_empty_commit instead. See #503."""
-        url = f"{_repo(repo_owner, repo_name)}/actions/jobs/{job_id}/rerun"
+        github_create_empty_commit instead. It returns the run's id as
+        workflow_run_id, which github_get_workflow_runs follows. See #503 and #537."""
+        url = f"{_repo(repo_owner, repo_name)}/actions/jobs/{job_id}"
+        # The job is read first, so a failed read leaves nothing re-run.
+        job = (await self._request("GET", url, context=f"job {job_id}")).json()
         payload = {"enable_debug_logging": enable_debug_logging}
-        await self._request("POST", url, context=f"re-run job {job_id}", json=payload)
-        return {"job_id": job_id, "status": "requested"}
+        await self._request("POST", f"{url}/rerun", context=f"re-run job {job_id}", json=payload)
+        return {"job_id": job_id, "workflow_run_id": job["run_id"], "status": "requested"}
 
     @_write
     async def dispatch_workflow(
@@ -2394,4 +2424,58 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
             "bytes_returned": len(kept),
             "bytes_total": len(content),
             "truncated": len(kept) < len(content),
+        }
+
+    async def _find_runs(
+        self, repo_owner: str, repo_name: str, run_id: int | None, sha: str | None
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """The run run_id names, or every run on the commit sha, and whether GitHub
+        holds more runs than one page."""
+        base = f"{_repo(repo_owner, repo_name)}/actions/runs"
+        if run_id is not None:
+            return [(await self._request("GET", f"{base}/{run_id}", context=f"workflow run {run_id}")).json()], False
+        if sha is None:
+            return [], False
+        params = {"head_sha": sha, "per_page": 100}
+        response = await self._request("GET", base, context=f"workflow runs on {sha}", params=params)
+        return response.json().get("workflow_runs") or [], _has_more(response)
+
+    async def _with_jobs(self, repo_owner: str, repo_name: str, run: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+        """A run trimmed to its fields, with the jobs of its newest attempt and
+        whether GitHub holds more jobs than one page. GitHub lists the newest
+        attempt's jobs by default, which covers a re-run."""
+        url = f"{_repo(repo_owner, repo_name)}/actions/runs/{run['id']}/jobs"
+        response = await self._request("GET", url, context=f"jobs for run {run['id']}", params={"per_page": 100})
+        jobs = [_job(job) for job in response.json().get("jobs") or []]
+        return {**_pick(run, *_RUN_FIELDS), "jobs": jobs}, _has_more(response)
+
+    @_read_only(task=True)
+    async def get_workflow_runs(
+        self,
+        repo_owner: str,
+        repo_name: str,
+        run_id: Annotated[
+            int | None, "A run's id, such as the workflow_run_id github_dispatch_workflow returns"
+        ] = None,
+        head: Annotated[str | None, "Branch, tag or SHA whose commit to read every run of, in place of run_id"] = None,
+        wait_seconds: Annotated[int, "Seconds to wait for every run to complete, capped by the server"] = 0,
+    ) -> WorkflowRunsResult:
+        """Reads a workflow run by id, or every run on the commit that head names,
+        with each run's jobs and their steps. A wait polls until every run has
+        completed, and the server caps it so a task ends before its worker hands it
+        to another. timed_out says a run had not completed when the tool returned.
+        See #537."""
+        if (run_id is None) == (head is None):
+            raise GitHubValidationError("Pass run_id or head, not both.")
+        sha = await self.get_latest_sha(repo_owner, repo_name, head) if head else None
+        deadline = time.monotonic() + min(wait_seconds, RUN_WAIT_MAX_SECONDS)
+        runs, truncated = await self._find_runs(repo_owner, repo_name, run_id, sha)
+        while not _all_completed(runs) and time.monotonic() < deadline:
+            await asyncio.sleep(RUN_POLL_SECONDS)
+            runs, truncated = await self._find_runs(repo_owner, repo_name, run_id, sha)
+        read = [await self._with_jobs(repo_owner, repo_name, run) for run in runs]
+        return {
+            "runs": [run for run, _ in read],
+            "truncated": truncated or any(more for _, more in read),
+            "timed_out": not _all_completed(runs),
         }
