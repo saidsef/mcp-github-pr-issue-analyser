@@ -18,11 +18,11 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Opening a PR
 
-1. Call `github_list_repo_labels` to see the label names the repository defines
+1. Read the label names the repository defines, per Listing Labels in the `issue-management` skill
 2. Write the title to the Title Convention and the body to the PR Body template below
 3. Call `github_create_pr` with that title, body, head branch, base branch and labels
-4. Call `github_set_assignees` with whoever owns the work
-5. Call `github_request_reviewers` with the people and teams who should review it
+4. Assign whoever owns the work, per Assigning an Issue or PR in the `issue-management` skill
+5. Ask the people and teams who should review it, as in Requesting reviewers below
 6. Pass `draft=True` while the work is still in progress
 7. The tool appends the `mcp` label to any `labels` you pass, so leave it out of the list. Omitting `labels` leaves the PR unlabelled
 
@@ -30,8 +30,8 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 1. Call `github_update_pr` to change any subset of the title, body, state, base branch and labels. This is the one to reach for, since it leaves the fields you omit alone
 2. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
-3. Call `github_set_assignees` to set the assignees
-4. Call `github_update_pr_branch` when the base branch has moved on and the PR needs the latest upstream commits. GitHub refuses a conflicted branch, so resolve it as Resolving a conflicted PR describes
+3. Change the assignees per Assigning an Issue or PR in the `issue-management` skill
+4. Bring the branch up to date, as in Updating the branch below, when the base branch has moved on and the PR needs the latest upstream commits. GitHub refuses a conflicted branch, so resolve it as Resolving a conflicted PR describes
 5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
 6. Call `github_commit_files` with the PR's `head_ref` to commit text files to its branch
 7. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit. Pass the `workflow_run_id` it returns to `github_get_workflow_runs` to follow the run
@@ -40,7 +40,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 ### Resolving a conflicted PR
 
 1. Call `github_get_pr_content` and keep `head_sha`, `head_ref`, `base_ref` and `changed_files`. A conflicted PR reads `mergeable: false`
-2. Call `github_get_latest_sha` with `ref` set to `base_ref` for the commit to merge in
+2. Read the commit to merge in with `github_api_read` on `repos/{owner}/{repo}/commits` and `params={"per_page": 1, "sha": "<base_ref>"}`, and keep the first entry's `sha`
 3. Call `github_get_pr_diff` for the files the PR changes
 4. Read each of those files at `head_sha` and at the base commit with `github_get_repository_file`, and write the version that keeps both sides' changes
 5. Call `github_commit_files` with `branch` set to `head_ref`, `parents` set to `head_sha` then the base commit, and every file from step 3 in `files` as it should read after the merge. A file the PR deletes goes in as `null`
@@ -51,15 +51,15 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 1. Call `github_update_pr` with `state="closed"`. Reopen with `state="open"`
 2. Closing is not merging. A closed PR keeps its branch and its comments
-3. Call `github_delete_branch` to remove the head branch once the PR is merged or closed and nobody wants the branch any more. Call `github_list_branches` first to see which branches are left
+3. Call `github_delete_branch` to remove the head branch once the PR is merged or closed and nobody wants the branch any more. List what is left first with `github_api_read` on `repos/{owner}/{repo}/branches`, which returns each branch's `name`, `commit.sha` and `protected` flag
 
 ### Merging a PR
 
-1. Call `github_get_pr_content` and keep its `head_sha`, then `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and `github_list_pr_reviews` for the verdicts, per the `pr-review` skill
-2. **Where a user can answer in the session, ask before calling `github_merge_pr`, and name anything that is not ready: a `failing`, `pending` or `unknown` result with the failing check names, or no approval. A yes, including "merge it anyway", is the answer, so merge and do not refuse**
+1. Call `github_get_pr_content` and keep its `head_sha`, then `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and the reviews for the verdicts, per Reading reviews in the `pr-review` skill
+2. **Where a user can answer in the session, ask before sending the merge, and name anything that is not ready: a `failing`, `pending` or `unknown` result with the failing check names, or no approval. A yes, including "merge it anyway", is the answer, so merge and do not refuse**
 3. Where nobody can answer, as in an unattended run, the request that started the run is the user's answer. Merge when it asked for a merge, and report the check and review state with the result rather than stopping to ask
-4. Call `github_merge_pr` with an explicit `commit_title`, and with that `head_sha` as `expected_head_sha`
-5. `github_merge_pr` checks nothing itself and the merge cannot be undone. A refusal from GitHub, such as branch protection requiring checks or reviews, comes back as an error that no yes overrides, so report its `GitHub said` text per the `error-handling` skill
+4. Send the merge, as in Merging below, with an explicit `commit_title` and that `head_sha` as `sha`
+5. The merge call checks nothing itself and cannot be undone. A refusal from GitHub, such as branch protection requiring checks or reviews, comes back as an error that no yes overrides, so report its `GitHub said` text per the `error-handling` skill
 6. A 409 reading `Head branch was modified` means a push arrived after step 1 and nothing merged. Go back to step 1 for the new head, since the commits that were checked are no longer the ones that would merge
 
 ## Tool Parameters
@@ -125,55 +125,30 @@ Returns `pr_number`, `is_draft` and `url`. REST accepts `draft` only when the PR
 is created, so this runs a GraphQL mutation and needs a token that can write to
 the repository.
 
-### `github_set_assignees`
+### Requesting reviewers
 
-| Parameter | Type | Description |
-|---|---|---|
-| `repo_owner` | str | GitHub organisation or username |
-| `repo_name` | str | Repository name |
-| `issue_number` | int | PR or issue number, PRs are issues for this endpoint |
-| `assignees` | list[str] | GitHub usernames. Replaces the current set |
+Call `github_api_write` with `POST` on
+`repos/{owner}/{repo}/pulls/{number}/requested_reviewers` and a body carrying
+`reviewers`, a list of user logins, and `team_reviewers`, a list of team slugs in
+the repository's organisation rather than display names. Withdraw a request with
+`github_api_delete` on the same path and the same body. GitHub requires
+`reviewers` on a withdrawal, so send `[]` when withdrawing teams alone.
 
-Returns `status`, `assignees_requested`, `assignees_applied` and `issue_url`.
+Both calls answer with the pull request, so `requested_reviewers` and
+`requested_teams` in the reply show what took effect. Check the names there,
+since GitHub can leave off a reviewer the call asked for. A request adds to the
+reviewers already asked and a withdrawal takes off only those named, so repeating
+a call leaves the PR as it was. GitHub refuses the whole call with a
+`VALIDATION_ERROR` when one login is not a collaborator. A fine-grained token
+needs Pull requests write.
 
-The list replaces every assignee already there, and `[]` clears them all, so
-include anyone who should stay. `status` reads `partial` where GitHub dropped a
-login that is not a collaborator or does not exist, and `message` then names
-the logins left out.
+### Updating the branch
 
-### `github_request_reviewers`
+Call `github_api_write` with `PUT` on `repos/{owner}/{repo}/pulls/{number}/update-branch`
+and `{"expected_head_sha": "<head_sha>"}`, using the `head_sha` from
+`github_get_pr_content`, so a push from someone else is not raced. GitHub merges
+the base branch into the head branch, adding a merge commit to the PR branch.
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `pr_number` | int | - | Pull request number |
-| `reviewers` | list[str] \| None | `None` | User logins, each a collaborator on the repository |
-| `team_reviewers` | list[str] \| None | `None` | Team slugs in the repository's organisation, not display names |
-| `remove` | bool | `False` | Withdraw the request from these reviewers rather than ask them |
-
-Returns `status`, `requested_reviewers`, `requested_teams` and `pr_url`, read
-off the PR GitHub answers with.
-
-A request adds to the reviewers already asked and a removal takes off only those
-named, so repeating a call leaves the PR as it was. GitHub refuses the whole call
-with a `VALIDATION_ERROR` when one login is not a collaborator, and the error
-names the logins and teams the call asked for. `status` reads `partial` where the
-PR leaves off a reviewer the call asked for, or still lists one it withdrew, and
-`message` then names them. A fine-grained token needs Pull requests write.
-
-### `github_update_pr_branch`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `pr_number` | int | - | Pull request number |
-| `expected_head_sha` | str \| None | `None` | Fail unless the head still matches this SHA |
-
-Merges the base branch into the head branch, adding a merge commit to the PR
-branch. Read `head_sha` from `github_get_pr_content` and pass it as
-`expected_head_sha` to avoid racing a push from someone else.
 This does not resolve conflicts. A conflicting update fails, and Resolving a
 conflicted PR above fixes the branch with `github_commit_files`.
 
@@ -284,36 +259,21 @@ GitHub refuses a workflow with no `workflow_dispatch` trigger. It takes at most
 25 inputs, so a call passing more is refused before it reaches GitHub, and an
 input left out takes the default the workflow file sets.
 
-### `github_merge_pr`
+### Merging
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `pr_number` | int | - | Pull request number |
-| `commit_title` | str \| None | `None` | Merge commit title, GitHub generates one if omitted |
-| `commit_message` | str \| None | `None` | Merge commit body |
-| `merge_method` | str | `squash` | One of `merge`, `squash`, `rebase` |
-| `expected_head_sha` | str \| None | `None` | Refuse unless the head still matches this SHA |
+Call `github_api_write` with `PUT` on `repos/{owner}/{repo}/pulls/{number}/merge` and
+a body carrying:
 
-Read `head_sha` from `github_get_pr_content` and pass it as `expected_head_sha`,
-so the merge takes the commit that was checked. GitHub refuses with a 409 once
-the head has moved, and the error carries GitHub's `Head branch was modified`
+| Field | Value |
+|---|---|
+| `merge_method` | `squash`, `merge` or `rebase`. GitHub merges with a merge commit when this is left out, so always send it |
+| `commit_title` | Merge commit title, per the Title Convention below |
+| `commit_message` | Merge commit body, optional |
+| `sha` | The `head_sha` from `github_get_pr_content` |
+
+`sha` makes the merge take the commit that was checked. GitHub refuses with a 409
+once the head has moved, and the error carries GitHub's `Head branch was modified`
 message. A call without it merges whatever the head is when GitHub receives it.
-
-### `github_list_branches`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `protected` | bool \| None | `None` | `True` for protected branches only, `False` for unprotected ones. Omit for every branch |
-| `per_page` | int | `50` | Results per page, 1 to 100 |
-| `page` | int | `1` | Page number |
-
-Returns `count`, `has_more` and `branches`, each a `name`, the `sha` at its head
-and a `protected` flag. `count` is the branches on this page. Page on while
-`has_more` is true.
 
 ### `github_delete_branch`
 
@@ -353,7 +313,7 @@ PR titles and commit subjects share one shape with issue titles:
 | Summary | Prose, not a slug. Lowercase start, imperative mood, no trailing full stop, roughly 72 characters or fewer |
 
 This governs `title` in `github_create_pr`, `title` in `github_update_pr` and
-`commit_title` in `github_merge_pr`. Always set `commit_title` explicitly when
+`commit_title` on a merge. Always set `commit_title` explicitly when
 squashing. Without it GitHub follows the repository's setting, and the default
 takes a single-commit PR's subject from that commit rather than from the PR
 title. Append the PR reference, e.g.
@@ -413,7 +373,7 @@ Two hundred and fifty words across all five sections is the ceiling.
 
 | Method | When to use |
 |---|---|
-| `squash` | Feature branches, keeps the default branch history readable. The default |
+| `squash` | Feature branches, keeps the default branch history readable. Send it unless there is a reason not to |
 | `merge` | When the individual branch commits are worth preserving |
 | `rebase` | Linear history with no merge commit. Fails if the branch does not replay cleanly |
 
@@ -423,9 +383,9 @@ Two hundred and fifty words across all five sections is the ceiling.
 - Pass `commit_title` in the same form when merging so the branch history stays parseable
 - Write PR bodies to the PR Body template above, and cut a section rather than padding it
 - Link the issue with `Fixes #N.` under Related Issues, so merging closes it
-- Assign every PR with `github_set_assignees` as you open it, so it has an owner from the start
+- Assign every PR as you open it, so it has an owner from the start
 - Read `github_get_pr_status_checks` before merging and tell the user about anything but `passing`, since `unknown` is not a pass. The user's yes, or the request that started an unattended run, is enough to merge
 - Use `draft=True` for work in progress, since a draft cannot be merged, and `github_set_pr_draft` to flip it once the work is ready
-- Call `github_list_repo_labels` before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
+- Read the repository's labels before labelling rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Label a PR through `github_create_pr` or `github_update_pr` rather than a shell, since both write the same labels the issue tools do
 - Delete the head branch with `github_delete_branch` after a merge where the repository does not delete it on merge. Where a user can answer, ask before deleting the branch of a PR closed without merging, since it may hold work someone still wants. In an unattended run, the request that started the run is the answer

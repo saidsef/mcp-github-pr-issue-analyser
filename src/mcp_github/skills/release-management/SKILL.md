@@ -17,7 +17,7 @@ then read, correct or withdraw what has already been published.
 
 ### Publishing
 
-1. **Check the target** - call `github_get_latest_sha` to see which commit will be tagged
+1. **Check the target** - call `github_api_read` on `repos/{owner}/{repo}/commits` with `params={"per_page": 1}`, and read `sha` from the first entry, to see which commit will be tagged
 2. **Check what is already out** - call `github_get_release` with no tag for the current latest, or `github_list_releases` for the history
 3. **Create the tag** - call `github_create_tag` with a semantic version string
 4. **Publish the release** - call `github_create_release` against that tag
@@ -35,16 +35,13 @@ then read, correct or withdraw what has already been published.
 
 ## Tool Parameters
 
-### `github_get_latest_sha`
+### Reading the newest commit
 
-| Parameter | Type | Description |
-|---|---|---|
-| `repo_owner` | str | GitHub organisation or username |
-| `repo_name` | str | Repository name |
-| `ref` | str \| None | Branch, tag or SHA to read. Omit for the default branch |
-
-Returns the SHA of the newest commit on `ref`, or `None` if the repository has
-no commits. A ref GitHub cannot resolve is an error rather than `None`.
+Call `github_api_read` on `repos/{owner}/{repo}/commits` with
+`params={"per_page": 1}`, adding `"sha": "<ref>"` for a branch, tag or SHA other
+than the default branch. The first entry's `sha` is the newest commit. A
+repository with no commits answers 409, and a ref GitHub cannot resolve answers
+404.
 
 The answer is a reading rather than a pin. A push landing afterwards moves it,
 so re-read it if time has passed.
@@ -150,17 +147,11 @@ first publishes the tag. Publishing again over the same tag falls through to
 this tool, which does not send it. Changing which release is latest means
 deleting the release and publishing it again, or setting it in the GitHub UI.
 
-### `github_list_tags`
+### Listing tags
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `per_page` | int | `50` | Results per page, 1 to 100 |
-| `page` | int | `1` | Page number |
-
-Returns `count`, `has_more` and `tags`, each a `name` and the `sha` it points at.
-`count` is the tags on this page. Page on while `has_more` is true.
+Call `github_api_read` on `repos/{owner}/{repo}/tags` with `params` carrying
+`per_page`, up to 100, and `page`. Each tag carries `name` and `commit.sha`, the
+commit it points at. Page on while `has_more` is true.
 
 ### `github_delete_release`
 

@@ -102,25 +102,6 @@ class CommentData(TypedDict):
     created_at: str
 
 
-class ReviewData(TypedDict):
-    id: int
-    author: str
-    state: str
-    body: str | None
-    html_url: str
-    submitted_at: str | None
-    commit_id: str | None
-
-
-class ReviewCommentData(CommentData, total=False):
-    path: str | None
-    line: int | None
-    side: str | None
-    start_line: int | None
-    start_side: str | None
-    in_reply_to_id: int | None
-
-
 class IssueData(TypedDict):
     number: int
     title: str
@@ -167,14 +148,6 @@ class FileResult(TypedDict):
     bytes_total: int
     truncated: bool
     next_offset: int | None
-
-
-class TreeResult(TypedDict):
-    path: str
-    ref: str | None
-    total: int
-    entries: list[dict[str, Any]]
-    truncated: bool
 
 
 class DiffResult(TypedDict):
@@ -248,8 +221,6 @@ RUN_POLL_SECONDS = 10
 # A wait ends before the tasks worker hands the task to another worker. See #537.
 RUN_WAIT_MAX_SECONDS = int(DocketSettings().redelivery_timeout.total_seconds()) - 60
 
-_COMMENT_SEGMENTS = {"conversation": "issues", "inline": "pulls"}
-
 _RELEASE_FIELDS = ("id", "tag_name", "name", "html_url", "draft", "prerelease", "body")
 
 _MILESTONE_FIELDS = (
@@ -274,7 +245,6 @@ _STEP_FIELDS = ("number", "name", "status", "conclusion")
 _CACHED_HEADERS = ("Link", "content-type")
 
 _OpenClosed = Literal["open", "closed"]
-_MilestoneState = Literal["open", "closed", "all"]
 _RepoSort = Literal["updated", "pushed", "created", "full_name"]
 _SearchType = Literal["lexical", "semantic", "hybrid"]
 _Side = Literal["LEFT", "RIGHT"]
@@ -365,8 +335,8 @@ def _pick(data: dict[str, Any], *keys: str) -> dict[str, Any]:
 
 def _pr_content(data: dict[str, Any]) -> PRContent:
     """Trim a GitHub pull request payload to the PRContent contract. head_sha is
-    what github_update_pr_branch takes as expected_head_sha, which had no source before.
-    See #411."""
+    what the tools taking expected_head_sha compare against, which had no source
+    before. See #411."""
     head = data.get("head") or {}
     return {
         "title": data["title"],
@@ -508,56 +478,6 @@ def _search_item(item: dict[str, Any]) -> dict[str, Any]:
         "label_names": [label["name"] for label in item.get("labels", [])],
         "is_draft": item.get("draft", False),
     }
-
-
-def _review_result(data: dict[str, Any]) -> ReviewData:
-    """Trim a GitHub review payload. submitted_at is absent on a PENDING review,
-    which is how a caller tells one that was written from one that was sent."""
-    return {
-        "id": data["id"],
-        "author": (data.get("user") or {}).get("login", ""),
-        "state": data.get("state", ""),
-        "body": data.get("body"),
-        "html_url": data["html_url"],
-        "submitted_at": data.get("submitted_at"),
-        "commit_id": data.get("commit_id"),
-    }
-
-
-def _review_comment_result(data: dict[str, Any]) -> ReviewCommentData:
-    """A review comment is a comment plus where it sits, which is what tells a
-    caller whether it has already said something about that line."""
-    return {
-        **_comment_result(data),
-        "path": data.get("path"),
-        "line": data.get("line"),
-        "side": data.get("side"),
-        "start_line": data.get("start_line"),
-        "start_side": data.get("start_side"),
-        "in_reply_to_id": data.get("in_reply_to_id"),
-    }
-
-
-def _review_request_result(data: dict[str, Any], users: list[str], teams: list[str], remove: bool) -> dict[str, Any]:
-    """The reviewer lists off the pull request a review request answers with. A
-    name the call asked about is unapplied when a request left it off the lists,
-    or a removal left it on them."""
-    logins = {user["login"] for user in data["requested_reviewers"]}
-    slugs = {team["slug"] for team in data["requested_teams"]}
-    if remove:
-        unapplied = sorted(logins.intersection(users) | slugs.intersection(teams))
-    else:
-        unapplied = sorted((set(users) - logins) | (set(teams) - slugs))
-    result: dict[str, Any] = {
-        "status": "partial" if unapplied else "ok",
-        "requested_reviewers": sorted(logins),
-        "requested_teams": sorted(slugs),
-        "pr_url": data.get("html_url"),
-    }
-    if unapplied:
-        logger.warning(f"Some reviewers were not applied: {unapplied}")
-        result["message"] = f"GitHub did not {'withdraw' if remove else 'add'} these reviewers: {unapplied}"
-    return result
 
 
 def _issue_result(data: dict[str, Any]) -> IssueData:
@@ -958,13 +878,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         return _pr_content(await self._pr(repo_owner, repo_name, pr_number))
 
     @_write
-    async def add_pr_comments(self, repo_owner: str, repo_name: str, pr_number: int, comment: str) -> CommentData:
-        """Adds a comment to a specific pull request."""
-        url = f"{_repo(repo_owner, repo_name)}/issues/{pr_number}/comments"
-        data = (await self._request("POST", url, context=f"PR #{pr_number} comment", json={"body": comment})).json()
-        return _comment_result(data)
-
-    @_write
     async def add_inline_pr_comment(
         self,
         repo_owner: str,
@@ -1007,58 +920,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         where = f"{path}:{start_line}-{line}" if start_line is not None else f"{path}:{line}"
         data = (await self._request("POST", review_url, context=f"inline comment on {where}", json=payload)).json()
         return _comment_result(data)
-
-    @_read_only
-    async def list_pr_comments(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        kind: Annotated[
-            Literal["conversation", "inline"], "conversation for the PR thread, inline for review comments on lines"
-        ] = "conversation",
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """Lists the comments on a pull request. Inline comments carry the file
-        and line they sit on, so a second review can tell what it already said."""
-        url = f"{_repo(repo_owner, repo_name)}/{_COMMENT_SEGMENTS[kind]}/{pr_number}/comments"
-        response = await self._request(
-            "GET", url, context=f"{kind} comments on PR #{pr_number}", params={"per_page": per_page, "page": page}
-        )
-        trim = _review_comment_result if kind == "inline" else _comment_result
-        comments = [trim(comment) for comment in response.json()]
-        return {**_page(response, comments), "kind": kind, "comments": comments}
-
-    @_write(idempotent=True)
-    async def update_pr_comment(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        comment_id: Annotated[int, "The comment's own id, as returned by github_list_pr_comments, not the PR number"],
-        body: str,
-        kind: Literal["conversation", "inline"] = "conversation",
-    ) -> CommentData:
-        """Rewrites a comment already posted. Conversation and review comments
-        have separate id spaces, so the kind has to match where the id came from."""
-        segment = _COMMENT_SEGMENTS[kind]
-        url = f"{_repo(repo_owner, repo_name)}/{segment}/comments/{comment_id}"
-        data = (await self._request("PATCH", url, context=f"{kind} comment {comment_id}", json={"body": body})).json()
-        return _comment_result(data)
-
-    @_write
-    async def reply_to_review_comment(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        comment_id: Annotated[int, "The review comment being replied to, which sets the thread"],
-        body: str,
-    ) -> ReviewCommentData:
-        """Replies on an existing review thread rather than starting a new one."""
-        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/comments/{comment_id}/replies"
-        data = (await self._request("POST", url, context=f"reply to comment {comment_id}", json={"body": body})).json()
-        return _review_comment_result(data)
 
     async def _replace_labels(self, repo_owner: str, repo_name: str, number: int, labels: list[str]) -> dict[str, Any]:
         """Replaces the label set on an issue or a pull request, and returns the
@@ -1240,22 +1101,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             "items": items,
         }
 
-    @_read_only
-    async def list_repo_labels(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """Lists the labels defined in a repository."""
-        url = f"{_repo(repo_owner, repo_name)}/labels"
-        response = await self._request(
-            "GET", url, context=f"labels for {repo_owner}/{repo_name}", params={"per_page": per_page, "page": page}
-        )
-        labels = [_pick(label, "name", "description", "color") for label in response.json()]
-        return {**_page(response, labels), "labels": labels}
-
     async def _milestone_by_title(self, repo_owner: str, repo_name: str, title: str) -> dict[str, Any] | None:
         """The milestone with this title, open or closed, or None. GitHub addresses
         a milestone by number while people think in titles, so every tool that
@@ -1320,46 +1165,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         repos = [_repo_result(repo) for repo in response.json()]
         return {**_page(response, repos), "repos": repos}
 
-    @_read_only
-    async def list_milestones(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        state: Annotated[_MilestoneState, "Which milestones to return"] = "open",
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """Lists a repository's milestones with the count of issues in each."""
-        url = f"{_repo(repo_owner, repo_name)}/milestones"
-        response = await self._request(
-            "GET",
-            url,
-            context=f"{state} milestones for {repo_owner}/{repo_name}",
-            params={"state": state, "per_page": per_page, "page": page},
-        )
-        milestones = [_pick(milestone, *_MILESTONE_FIELDS) for milestone in response.json()]
-        return {**_page(response, milestones), "state": state, "milestones": milestones}
-
-    @_write
-    async def create_milestone(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        title: str,
-        description: str = "",
-        due_on: Annotated[str | None, "Due date as ISO 8601, e.g. 2026-12-31T23:59:59Z"] = None,
-        state: _OpenClosed = "open",
-    ) -> dict[str, Any]:
-        """Opens a milestone. A title the repository already uses fails, since
-        titles are unique per repository. Edit the existing one with
-        github_update_milestone."""
-        url = f"{_repo(repo_owner, repo_name)}/milestones"
-        payload: dict[str, Any] = {"title": title, "state": state, "description": description}
-        if due_on:
-            payload["due_on"] = due_on
-        data = (await self._request("POST", url, context=f"create milestone {title}", json=payload)).json()
-        return _pick(data, *_MILESTONE_FIELDS)
-
     @_write(idempotent=True)
     async def update_milestone(
         self,
@@ -1389,8 +1194,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         milestone: Annotated[str | None, "Milestone title to file it under. Omit or pass null for no milestone"] = None,
     ) -> IssueData:
         """Files an issue under a milestone, or takes it off one. Takes the title
-        rather than the number GitHub wants, and looks it up, which is the work
-        github_update_issue is kept clear of. Omit the title to clear the milestone."""
+        rather than the number GitHub wants, and looks it up, so the caller does not
+        have to. Omit the title to clear the milestone."""
         number = await self._milestone_number(repo_owner, repo_name, milestone) if milestone else None
         url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
         data = (
@@ -1437,44 +1242,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             await self._request("POST", url, context=f"create issue in {repo_owner}/{repo_name}", json=payload)
         ).json()
         return _issue_result(data)
-
-    @_write
-    async def merge_pr(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        commit_title: str | None = None,
-        commit_message: str | None = None,
-        merge_method: Literal["merge", "squash", "rebase"] = "squash",
-        expected_head_sha: Annotated[
-            str | None, "Refuse unless the head still matches this SHA, as github_get_pr_content reports it"
-        ] = None,
-    ) -> dict[str, Any]:
-        """Merges a specific pull request. Read head_sha from github_get_pr_content
-        and pass it as expected_head_sha, and GitHub refuses with a 409 rather than
-        merge a push that arrived after the read. See #517."""
-        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/merge"
-        fields = _supplied(commit_title=commit_title, commit_message=commit_message, sha=expected_head_sha)
-        payload = {"merge_method": merge_method, **fields}
-        return (await self._request("PUT", url, context=f"PR #{pr_number} merge", json=payload)).json()
-
-    @_write(idempotent=True)
-    async def update_pr_branch(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        expected_head_sha: Annotated[
-            str | None, "Refuse unless the head still matches this SHA, as github_get_pr_content reports it"
-        ] = None,
-    ) -> dict[str, Any]:
-        """Updates the pull request branch with the latest upstream changes. Read
-        head_sha from github_get_pr_content and pass it as expected_head_sha to be refused
-        rather than to overwrite a push that landed since."""
-        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/update-branch"
-        payload = _supplied(expected_head_sha=expected_head_sha)
-        return (await self._request("PUT", url, context=f"PR #{pr_number} update branch", json=payload)).json()
 
     async def _branch_head(
         self, repo_owner: str, repo_name: str, branch: str | None, pr_number: int | None
@@ -1678,116 +1445,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         response = await self._request("POST", url, context=f"dispatch {workflow_id} on {ref}", json=payload)
         return _pick(response.json(), "workflow_run_id", "run_url", "html_url")
 
-    @_write(idempotent=True)
-    async def update_issue(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        issue_number: int,
-        title: Annotated[str | None, "Replacement title. Omit to leave the current title alone"] = None,
-        body: Annotated[str | None, "Replacement body in Markdown. Omit to leave the current body alone"] = None,
-        labels: Annotated[
-            list[str] | None,
-            "Replacement label set. Omit to keep the current labels, pass [] to strip them all. "
-            "The 'mcp' tracking label is not re-added here",
-        ] = None,
-        state: Annotated[_OpenClosed | None, "Omit to leave the issue in whichever state it is already in"] = None,
-    ) -> IssueData:
-        """Updates an existing issue. Only the fields supplied are sent, the rest keep their current values."""
-        payload = _changes(title=title, body=body, labels=labels, state=state)
-        url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
-        data = (await self._request("PATCH", url, context=f"issue #{issue_number}", json=payload)).json()
-        return _issue_result(data)
-
-    @_read_only
-    async def list_pr_reviews(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
-    ) -> dict[str, Any]:
-        """Lists the reviews submitted on a pull request, oldest first, each with
-        its author and verdict. A review is not a comment: github_list_pr_comments returns
-        what was said on lines and in the thread, not whether anyone approved.
-        Read requested_reviewers from github_get_pr_content to tell nobody has reviewed
-        from nobody having been asked. See #408."""
-        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/reviews"
-        response = await self._request(
-            "GET", url, context=f"reviews on PR #{pr_number}", params={"per_page": per_page, "page": page}
-        )
-        reviews = [_review_result(review) for review in response.json()]
-        return {**_page(response, reviews), "reviews": reviews}
-
-    @_write
-    async def update_reviews(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        event: Literal["APPROVE", "REQUEST_CHANGES", "COMMENT"],
-        body: str | None = None,
-        expected_head_sha: Annotated[
-            str | None, "Attach the review to this SHA, as github_get_pr_content reports it. Omit for the newest commit"
-        ] = None,
-    ) -> dict[str, Any]:
-        """Submits a review for a specific pull request. GitHub applies a review to
-        the newest commit unless told otherwise, so pass head_sha from
-        github_get_pr_content as expected_head_sha to review the commit that was read. See #517."""
-        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/reviews"
-        payload = {"body": body, "event": event, **_supplied(commit_id=expected_head_sha)}
-        data = (await self._request("POST", url, context=f"PR #{pr_number} review", json=payload)).json()
-        return _pick(data, "id", "state", "body", "html_url", "submitted_at")
-
-    @_write(idempotent=True)
-    async def update_assignees(
-        self, repo_owner: str, repo_name: str, issue_number: int, assignees: list[str]
-    ) -> dict[str, Any]:
-        """Updates the assignees for a specific issue or pull request."""
-        url = f"{_repo(repo_owner, repo_name)}/issues/{issue_number}"
-        data = (
-            await self._request(
-                "PATCH", url, context=f"issue/PR #{issue_number} assignees", json={"assignees": assignees}
-            )
-        ).json()
-        actual_logins = {u["login"] for u in data.get("assignees", [])}
-        requested = set(assignees)
-        missing = requested - actual_logins
-        result: dict[str, Any] = {
-            "status": "partial" if missing else "ok",
-            "assignees_requested": sorted(requested),
-            "assignees_applied": sorted(actual_logins),
-            "issue_url": data.get("html_url"),
-        }
-        if missing:
-            logger.warning(f"Some assignees were not applied: {missing}")
-            result["message"] = (
-                f"The following assignees could not be applied (not a collaborator or user does not exist): {sorted(missing)}"
-            )
-        return result
-
-    @_write(idempotent=True)
-    async def request_reviewers(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        pr_number: int,
-        reviewers: Annotated[_Names, "User logins, each a collaborator on the repository"] = None,
-        team_reviewers: Annotated[_Names, "Team slugs in the repository's organisation"] = None,
-        remove: Annotated[bool, "Withdraw the request from these reviewers rather than ask them"] = False,
-    ) -> dict[str, Any]:
-        """Asks users and teams to review a pull request, or withdraws the request.
-        Both calls answer with the pull request, so its reviewer lists show what took
-        effect without a second read. The removal endpoint requires reviewers, so
-        withdrawing teams alone sends an empty list. See #502."""
-        users, teams = reviewers or [], team_reviewers or []
-        url = f"{_repo(repo_owner, repo_name)}/pulls/{pr_number}/requested_reviewers"
-        context = f"{'withdraw' if remove else 'request'} review from {', '.join(users + teams)} on PR #{pr_number}"
-        payload = {"reviewers": users, "team_reviewers": teams}
-        data = (await self._request("DELETE" if remove else "POST", url, context=context, json=payload)).json()
-        return _review_request_result(data, users, teams, remove)
-
     @_read_only
     async def get_repository_file(
         self,
@@ -1800,8 +1457,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
     ) -> FileResult:
         """Reads one file from a repository at ref, windowed to limit bytes from
         offset. bytes_total is the whole file either way and next_offset says where
-        to carry on, so a partial read never passes for the lot. A directory
-        belongs to github_list_repository_tree. See #409."""
+        to carry on, so a partial read never passes for the lot. A directory is
+        listed through github_api_read instead. See #409."""
         if offset < 0 or limit < 0:
             raise GitHubValidationError("offset and limit cannot be negative.")
         url = f"{_repo(repo_owner, repo_name)}/contents/{quote(path.lstrip('/'))}"
@@ -1810,7 +1467,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         where = f"{path} at {ref or 'the default branch'}"
         response = await self._request("GET", url, context=where, headers={"Accept": "application/vnd.github.raw"})
         if response.headers.get("content-type", "").startswith("application/json"):
-            raise GitHubValidationError(f"{path} is a directory. Call github_list_repository_tree to list it.")
+            listing = f"repos/{repo_owner}/{repo_name}/contents/{path.lstrip('/')}"
+            raise GitHubValidationError(f"{path} is a directory. List it with github_api_read on {listing}.")
         content = response.content
         window = content[offset : offset + limit]
         end = offset + len(window)
@@ -1826,35 +1484,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             "next_offset": end if end < len(content) else None,
         }
 
-    @_read_only
-    async def list_repository_tree(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        path: Annotated[str, "Subdirectory to list. Omit for the repository root"] = "",
-        ref: Annotated[str | None, "Branch, tag or SHA to list at. Omit for the default branch"] = None,
-        recursive: Annotated[bool, "Descend into every subdirectory rather than one level"] = False,
-    ) -> TreeResult:
-        """Lists a repository's tree at ref, one level deep unless recursive. Each
-        entry carries path, mode, type, size and sha. truncated is True where the
-        tree exceeded GitHub's cap, which no amount of paging widens. See #409."""
-        target = f"{ref or 'HEAD'}:{path.strip('/')}" if path.strip("/") else (ref or "HEAD")
-        url = f"{_repo(repo_owner, repo_name)}/git/trees/{quote(target, safe='')}"
-        if recursive:
-            url += "?recursive=1"
-        where = f"{path or 'the root'} at {ref or 'the default branch'}"
-        data = (await self._request("GET", url, context=f"tree of {where}")).json()
-        entries = [_pick(entry, "path", "mode", "type", "size", "sha") for entry in data.get("tree", [])]
-        return {
-            "path": path,
-            "ref": ref,
-            "total": len(entries),
-            "entries": entries,
-            "truncated": data.get("truncated", False),
-        }
-
-    @_read_only
-    async def get_latest_sha(
+    async def _latest_sha(
         self,
         repo_owner: str,
         repo_name: str,
@@ -1889,7 +1519,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         """Creates a new tag. With a message it is an annotated tag, which stores
         the message; without one it is a lightweight ref."""
         base = _repo(repo_owner, repo_name)
-        target = sha or await self.get_latest_sha(repo_owner, repo_name)
+        target = sha or await self._latest_sha(repo_owner, repo_name)
         if not target:
             raise GitHubNotFoundError(f"No commits found in {repo_owner}/{repo_name}; cannot create tag {tag_name}")
         ref_target = target
@@ -2083,22 +1713,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             "tag_deleted": delete_tag,
         }
 
-    @_read_only
-    async def list_tags(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """Lists a repository's tags and the commit each points at."""
-        url = f"{_repo(repo_owner, repo_name)}/tags"
-        response = await self._request(
-            "GET", url, context=f"tags for {repo_owner}/{repo_name}", params={"per_page": per_page, "page": page}
-        )
-        tags = [{"name": tag["name"], "sha": (tag.get("commit") or {}).get("sha")} for tag in response.json()]
-        return {**_page(response, tags), "tags": tags}
-
     async def _delete_tag_ref(self, repo_owner: str, repo_name: str, tag_name: str) -> None:
         """Removes the tag ref itself."""
         url = f"{_repo(repo_owner, repo_name)}/git/refs/tags/{tag_name}"
@@ -2122,26 +1736,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             )
         await self._delete_tag_ref(repo_owner, repo_name, tag_name)
         return {"status": "deleted", "tag_name": tag_name, "release_still_published": bool(release)}
-
-    @_read_only
-    async def list_branches(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        protected: Annotated[bool | None, "True for protected branches only, False for unprotected ones"] = None,
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: int = 1,
-    ) -> dict[str, Any]:
-        """Lists a repository's branches, the commit at each head and whether a
-        protection rule covers it."""
-        url = f"{_repo(repo_owner, repo_name)}/branches"
-        params = {**_supplied(protected=protected), "per_page": per_page, "page": page}
-        response = await self._request("GET", url, context=f"branches for {repo_owner}/{repo_name}", params=params)
-        branches = [
-            {"name": item["name"], "sha": (item.get("commit") or {}).get("sha"), "protected": item.get("protected")}
-            for item in response.json()
-        ]
-        return {**_page(response, branches), "branches": branches}
 
     @_destructive
     async def delete_branch(
@@ -2661,7 +2255,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         See #537."""
         if (run_id is None) == (head is None):
             raise GitHubValidationError("Pass run_id or head, not both.")
-        sha = await self.get_latest_sha(repo_owner, repo_name, head) if head else None
+        sha = await self._latest_sha(repo_owner, repo_name, head) if head else None
         deadline = time.monotonic() + min(wait_seconds, RUN_WAIT_MAX_SECONDS)
         runs, truncated = await self._find_runs(repo_owner, repo_name, run_id, sha)
         while not _all_completed(runs) and time.monotonic() < deadline:

@@ -12,55 +12,6 @@ from mcp_github.github_integration import GitHubIntegration
 from tests.support import CREATED_PR, label_payload, mock_response, pr_payload
 
 
-class TestMergePr:
-    @pytest.mark.anyio
-    async def test_merges_without_ctx(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data={"merged": True}))
-        result = await gi.merge_pr("owner", "repo", 42)
-        assert result == {"merged": True}
-
-    @pytest.mark.anyio
-    async def test_merge_405_includes_github_message(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(
-            return_value=mock_response(status_code=405, json_data={"message": "Pull Request is not mergeable"})
-        )
-        with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 251)
-        text = str(excinfo.value)
-        assert "Pull Request is not mergeable" in text
-        assert "405" in text
-
-    @pytest.mark.anyio
-    async def test_a_head_that_moved_is_refused_with_githubs_message(self, gi: GitHubIntegration):
-        moved = {"message": "Head branch was modified. Review and try the merge again."}
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=409, json_data=moved))
-        with pytest.raises(ToolError) as excinfo:
-            await gi.merge_pr("owner", "repo", 42, expected_head_sha="9341d65")
-        assert gi._http.request.call_args.kwargs["json"] == {"merge_method": "squash", "sha": "9341d65"}
-        text = str(excinfo.value)
-        assert "Head branch was modified" in text
-        assert "409" in text
-
-    @pytest.mark.anyio
-    async def test_merge_payload_includes_optional_commit_fields(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data={"merged": True}))
-        await gi.merge_pr(
-            "owner",
-            "repo",
-            42,
-            commit_title="Custom title",
-            commit_message="Custom message",
-            merge_method="rebase",
-        )
-        kwargs = gi._http.request.call_args.kwargs
-        payload = kwargs["json"]
-        assert payload == {
-            "merge_method": "rebase",
-            "commit_title": "Custom title",
-            "commit_message": "Custom message",
-        }
-
-
 class TestGetPRContent:
     _ON_BRANCH = {"head": {"sha": "9341d65", "ref": "feature/x"}, "base": {"ref": "main"}}
 
@@ -72,21 +23,6 @@ class TestGetPRContent:
         assert result["head_sha"] == "9341d65"
         assert result["head_ref"] == "feature/x"
         assert result["base_ref"] == "main"
-
-    @pytest.mark.anyio
-    async def test_the_head_sha_reaches_update_pr_branch(self, gi: GitHubIntegration):
-        """The guard pr-management recommends had no source until get_pr_content
-        carried the head SHA."""
-        responses = iter(
-            [
-                mock_response(json_data=pr_payload(**self._ON_BRANCH)),
-                mock_response(json_data={"message": "Updating pull request branch."}),
-            ]
-        )
-        gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
-        content = await gi.get_pr_content("o", "r", 5)
-        await gi.update_pr_branch("o", "r", 5, expected_head_sha=content["head_sha"])
-        assert gi._http.request.call_args.kwargs["json"] == {"expected_head_sha": "9341d65"}
 
     @pytest.mark.anyio
     async def test_reports_who_was_asked_to_review(self, gi: GitHubIntegration):
@@ -444,47 +380,3 @@ class TestCreateEmptyCommit:
         with pytest.raises(GitHubValidationError, match="allow_default_branch=True"):
             await gi.create_empty_commit("o", "r")
         assert gi._http.request.call_count == 2
-
-
-class TestRequestReviewers:
-    _URL = "https://api.github.com/repos/o/r/pulls/5/requested_reviewers"
-
-    @pytest.mark.anyio
-    async def test_a_request_posts_both_lists(self, gi: GitHubIntegration):
-        payload = pr_payload(requested_reviewers=[{"login": "octocat"}], requested_teams=[{"slug": "platform"}])
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=201, json_data=payload))
-        result = await gi.request_reviewers("o", "r", 5, reviewers=["octocat"], team_reviewers=["platform"])
-        assert gi._http.request.call_args.args == ("POST", self._URL)
-        assert gi._http.request.call_args.kwargs["json"] == {"reviewers": ["octocat"], "team_reviewers": ["platform"]}
-        assert result["status"] == "ok"
-        assert result["requested_reviewers"] == ["octocat"]
-        assert result["requested_teams"] == ["platform"]
-
-    @pytest.mark.anyio
-    async def test_a_team_only_removal_sends_an_empty_reviewers_list(self, gi: GitHubIntegration):
-        """The removal endpoint requires reviewers even when only teams are named."""
-        gi._http.request = AsyncMock(
-            return_value=mock_response(json_data=pr_payload(requested_reviewers=[], requested_teams=[]))
-        )
-        result = await gi.request_reviewers("o", "r", 5, team_reviewers=["platform"], remove=True)
-        assert gi._http.request.call_args.args == ("DELETE", self._URL)
-        assert gi._http.request.call_args.kwargs["json"] == {"reviewers": [], "team_reviewers": ["platform"]}
-        assert result["status"] == "ok"
-
-    @pytest.mark.anyio
-    async def test_a_reviewer_missing_from_the_reply_is_named(self, gi: GitHubIntegration):
-        payload = pr_payload(requested_reviewers=[{"login": "octocat"}], requested_teams=[])
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=201, json_data=payload))
-        result = await gi.request_reviewers("o", "r", 5, reviewers=["octocat"], team_reviewers=["platform"])
-        assert result["status"] == "partial"
-        assert "'platform'" in result["message"]
-        assert "octocat" not in result["message"]
-
-    @pytest.mark.anyio
-    async def test_a_422_names_the_logins_asked_for(self, gi: GitHubIntegration):
-        refusal = {"message": "Reviews may only be requested from collaborators."}
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=422, json_data=refusal))
-        with pytest.raises(
-            ToolError, match=r"request review from octocat, stranger on PR #5: .*GitHub said: Reviews may only"
-        ):
-            await gi.request_reviewers("o", "r", 5, reviewers=["octocat", "stranger"])

@@ -201,7 +201,7 @@ Every tool declares the scopes its work needs, and the server checks that declar
 | Tool class | Scopes required | Examples |
 |------------|-----------------|----------|
 | Read-only | None | `github_get_pr_diff`, `github_list_repos`, `github_search_issues_prs` |
-| Write | `repo` | `github_create_issue`, `github_update_pr`, `github_merge_pr` |
+| Write | `repo` | `github_create_issue`, `github_update_pr`, `github_api_write` |
 | Destructive | `repo` | `github_delete_release`, `github_delete_tag` |
 | Board write | `repo` and `project` | `github_add_to_project`, `github_set_project_field`, `github_remove_from_project` |
 

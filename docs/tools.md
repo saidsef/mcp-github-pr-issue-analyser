@@ -23,21 +23,11 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_create_pr` | write | Open a PR with title, body, head and base branch, a draft option and labels |
 | `github_update_pr` | write | Change any subset of a PR's title, body, state, base branch and labels |
 | `github_set_pr_draft` | write | Mark a draft ready for review, or return a PR to draft, via GraphQL |
-| `github_update_pr_branch` | write | Update the PR branch with the latest base branch |
 | `github_create_empty_commit` | write | Push a commit that changes no file to a branch or a PR's head, starting a new CI run under the caller's name |
 | `github_commit_files` | write | Commit text files to a branch with a commit GitHub signs, or write the merge commit that resolves a conflicted PR |
 | `github_rerun_job` | write | Re-run one Actions job and the jobs that depend on it, without a commit, optionally with debug logging, returning the run to follow |
 | `github_dispatch_workflow` | write | Start a `workflow_dispatch` workflow on a branch or tag with up to 25 inputs, returning the run it started |
-| `github_merge_pr` | write | Merge using the merge, squash or rebase method |
-| `github_add_pr_comments` | write | Post a general comment on the PR thread |
 | `github_add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
-| `github_list_pr_comments` | read | Conversation or inline comments already on a PR, inline ones with their file, line and side |
-| `github_update_pr_comment` | write | Rewrite a comment already posted |
-| `github_reply_to_review_comment` | write | Reply on an existing review thread |
-| `github_request_reviewers` | write | Ask users and teams to review a PR, or withdraw the request |
-| `github_list_pr_reviews` | read | Reviews submitted on a PR, each with its author, verdict and timestamp |
-| `github_submit_review` | write | Approve, request changes, or comment as a review |
-| `github_set_assignees` | write | Assign or update users on a PR or issue |
 
 ## Issues, labels and milestones
 
@@ -45,12 +35,8 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 |------|------|-------------|
 | `github_get_issue` | read | One issue by number, with its body, labels, assignees and milestone |
 | `github_create_issue` | write | Open an issue with title, body, labels and an optional milestone |
-| `github_update_issue` | write | Update any subset of an existing issue's title, body, labels or state |
 | `github_list_open_issues_prs` | read | List open PRs or issues for a user or organisation |
 | `github_search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included, with an option to match issues by meaning |
-| `github_list_repo_labels` | read | Name, description and colour of every label a repository defines |
-| `github_list_milestones` | read | Open, closed or all milestones, with the count of issues in each |
-| `github_create_milestone` | write | Open a milestone with a description and a due date |
 | `github_update_milestone` | write | Rename a milestone, move its due date, or close it |
 | `github_set_issue_milestone` | write | File an issue under a milestone, or take it off one |
 
@@ -59,26 +45,22 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `github_get_repository_file` | read | One file at a branch, tag or SHA, windowed by `offset` and `limit` |
-| `github_list_repository_tree` | read | Entries of a directory, one level deep or every level |
 
 ## Branches
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `github_list_branches` | read | A repository's branches, the commit at each head and whether a protection rule covers it |
 | `github_delete_branch` | destructive | Remove a branch, refusing the default branch, and one an open PR comes from unless forced |
 
 ## Tags and releases
 
 | Tool | Kind | Description |
 |------|------|-------------|
-| `github_get_latest_sha` | read | The newest commit SHA on a branch, tag or SHA, defaulting to the default branch |
 | `github_create_tag` | write | Tag a commit, a named one or the latest, annotated when given a message |
 | `github_create_release` | write | Publish a release with a changelog, refusing a tag that already has one unless `if_exists="update"` |
 | `github_list_releases` | read | A repository's releases, newest first |
 | `github_get_release` | read | One release, by tag or the latest published |
 | `github_update_release` | write | Change a release's title, notes, draft or prerelease state, a draft included |
-| `github_list_tags` | read | A repository's tags and the commit each points at |
 | `github_delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise, which skips the `github_delete_tag` force check |
 | `github_delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
 
@@ -106,7 +88,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 ## REST and GraphQL requests
 
-These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists.
+These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists. A merge, a comment, a review, an assignee change and a milestone each go through these tools, and the skill for each task gives the call.
 
 | Tool | Kind | Description |
 |------|------|-------------|

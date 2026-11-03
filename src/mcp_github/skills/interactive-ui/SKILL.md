@@ -33,7 +33,7 @@ user's next turn and carry on from it.
 
 This is the right way to get confirmation before anything irreversible, where
 a user is there to click. The merge step in the pr-management skill asks before
-`github_merge_pr`, which does not prompt on its own, and names any check that is
+sending the merge, which does not prompt on its own, and names any check that is
 not passing so the user can merge anyway:
 
 ```
@@ -44,7 +44,7 @@ choose(
 )
 ```
 
-A click on `Merge anyway` is the user's answer, so call `github_merge_pr` on it.
+A click on `Merge anyway` is the user's answer, so send the merge on it.
 An unattended run has nobody to click, and `choose` waits for one, so skip it
 there and follow the request that started the run.
 
@@ -101,7 +101,7 @@ API lives in this tool, so call it rather than guessing at argument names.
 
 ## Best Practices
 
-- Ask with `choose` before calling `github_merge_pr`, and before anything else that cannot be undone, wherever a user can answer
+- Ask with `choose` before a merge, and before anything else that cannot be undone, wherever a user can answer
 - Treat a `choose` click as the user's answer, since the tool returns nothing to you
 - Call `github_search_prefab_components` before writing Prefab code rather than guessing component arguments
 - Keep `PrefabApp` as the outermost context manager so the panel streams

@@ -93,12 +93,10 @@ MCP_ENABLE_REMOTE = _env_enabled("MCP_ENABLE_REMOTE")
 
 TOOL_PREFIX = "github_"
 
-_TOOL_NAMES = {"update_reviews": "submit_review", "update_assignees": "set_assignees"}
-
 
 def _tool_name(method_name: str) -> str:
     """The name a Python method is registered under."""
-    return f"{TOOL_PREFIX}{_TOOL_NAMES.get(method_name, method_name)}"
+    return f"{TOOL_PREFIX}{method_name}"
 
 
 # The request tools that fix their method, beside github_api_write, which takes one.
@@ -245,9 +243,9 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use github_get_repository_file to read the code a hunk sits in, since a few lines of context rarely settle whether a change is right
 - Use single dashes instead of em-dashes in PR descriptions and issue bodies
 - Use github_update_pr to change a PR's title, body, state, base branch or labels, leaving out whatever is not changing
-- Use github_create_issue and github_update_issue for issue management
+- Use github_create_issue to open an issue, and github_api_write with PATCH on repos/{owner}/{repo}/issues/{number} to change one
 - Use the labels parameter on github_create_pr and github_update_pr to label a pull request, since GitHub keeps PR labels on the issues endpoint
-- Use github_set_issue_milestone to file an issue under a milestone after it exists, since github_update_issue cannot clear one
+- Use github_set_issue_milestone to file an issue under a milestone by its title, since GitHub wants the milestone's number
 - Use github_create_tag and github_create_release for release management
 - Use github_list_projects to find a board's number from its owner's login, since every other board tool takes one
 - Use github_get_project_fields before github_set_project_field, since option names differ per board

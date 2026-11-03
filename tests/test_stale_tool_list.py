@@ -93,7 +93,7 @@ class TestWhatDoesNotTriggerIt:
         response.json, response.headers, response.content = list, {}, b"[]"
         server.gi._http.request = AsyncMock(return_value=response)
         with _sent() as send:
-            await server.mcp.call_tool("github_list_repo_labels", {"repo_owner": "o", "repo_name": "r"})
+            await server.mcp.call_tool("github_list_releases", {"repo_owner": "o", "repo_name": "r"})
 
         send.assert_not_awaited()
 

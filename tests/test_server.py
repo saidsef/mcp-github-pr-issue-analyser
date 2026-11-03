@@ -193,7 +193,7 @@ class TestScopeGate:
         async with Client(server.mcp) as client:
             listed = await client.list_tools()
             await client.call_tool(
-                "github_update_issue", {"repo_owner": "o", "repo_name": "r", "issue_number": 1, "state": "closed"}
+                "github_set_issue_milestone", {"repo_owner": "o", "repo_name": "r", "issue_number": 1}
             )
 
         assert len(listed) == len(registered)
@@ -554,15 +554,6 @@ class TestToolNaming:
         bare = {name for name in names - self._NOT_OURS if not name.startswith(TOOL_PREFIX)}
 
         assert bare == set()
-
-    @pytest.mark.anyio
-    async def test_the_two_misnamed_tools_say_what_they_do(self):
-        """update_reviews submits a new review rather than updating one, and
-        update_assignees replaces the set rather than adding to it."""
-        names = {tool.name for tool in await analyser().mcp.list_tools(run_middleware=False)}
-
-        assert {"github_submit_review", "github_set_assignees"} <= names
-        assert names.isdisjoint({"github_update_reviews", "github_update_assignees"})
 
     @pytest.mark.anyio
     async def test_no_description_points_at_a_name_that_is_not_registered(self):

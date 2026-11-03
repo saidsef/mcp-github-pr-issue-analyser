@@ -87,11 +87,12 @@ GitHub works out `mergeable` in a background job and reports `None` until the
 job finishes. Read the PR again after a few seconds rather than treating `None`
 as a conflict.
 
-`head_sha` is what `github_update_pr_branch` takes as `expected_head_sha`.
+`head_sha` is the value to pass as `expected_head_sha` to the tools that take it,
+and as `sha` on a merge.
 
 GitHub empties `requested_reviewers` once that reviewer answers, so an empty
 list with no reviews means nobody was asked. Read the verdicts themselves with
-`github_list_pr_reviews`.
+`github_api_read` on `repos/{owner}/{repo}/pulls/{number}/reviews`.
 
 ### `github_get_pr_diff`
 
@@ -159,25 +160,20 @@ Pass `next_offset` back as `offset` to walk a long file. A cut lands on a byte
 boundary and any character split across it is dropped, so a window can end
 mid-line. A binary file returns no content rather than mangled text.
 
-A directory is an error naming `github_list_repository_tree`. The default is set by
-`GITHUB_FILE_MAX_BYTES`.
+A directory is an error naming the `github_api_read` call that lists it. The
+default is set by `GITHUB_FILE_MAX_BYTES`.
 
-### `github_list_repository_tree`
+### Listing a directory
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `path` | str | `""` | Subdirectory to list. Omit for the repository root |
-| `ref` | str \| None | `None` | Branch, tag or SHA to list at. Omit for the default branch |
-| `recursive` | bool | `False` | Descend into every subdirectory rather than one level |
+Call `github_api_read` on `repos/{owner}/{repo}/git/trees/{ref}:{path}`, such as
+`git/trees/main:src`, or `git/trees/HEAD` for the root of the default branch. Pass
+`params={"recursive": 1}` to descend into every subdirectory rather than one level.
 
-Returns `path`, `ref`, `total`, `entries` and `truncated`. Each entry carries
-`path`, `mode`, `type`, `size` and `sha`. `type` is `blob` for a file, `tree`
-for a directory and `commit` for a submodule.
+Each entry in `tree` carries `path`, `mode`, `type`, `size` and `sha`. `type` is
+`blob` for a file, `tree` for a directory and `commit` for a submodule.
 
-`truncated` is `True` where the tree exceeded GitHub's cap of 100,000 entries or
-7 MB. Paging does not widen it, so list a subdirectory at a time instead.
+`truncated` in the reply is `true` where the tree exceeded GitHub's cap of 100,000
+entries or 7 MB. Paging does not widen it, so list a subdirectory at a time instead.
 
 ### `github_get_pr_linked_issues`
 

@@ -99,8 +99,8 @@ Where GitHub sends an `X-Accepted-GitHub-Permissions` header, as it does for a
 fine-grained token, the message names that permission, such as `actions=write`.
 
 A refused 403 has several causes and each needs a different fix, so the code and
-the status settle nothing on their own. `github_merge_pr` meets all of them, and
-a 409 under `GITHUB_API_ERROR` where the head moved.
+the status settle nothing on their own. A merge sent with `github_api_write` meets
+all of them, and a 409 under `GITHUB_API_ERROR` where the head moved.
 
 | GitHub said | Cause | Do |
 |---|---|---|
@@ -171,14 +171,13 @@ the resource.
 
 ## Statuses That Are Not Errors
 
-Five calls name a status the server returns to the tool instead of raising, so
+Four calls name a status the server returns to the tool instead of raising, so
 the tool decides what it means and the client sees the decision rather than the
 status.
 
 | Tool | Status | What the client gets |
 |---|---|---|
 | `github_list_repos` | 404 on the account lookup | `[NOT_FOUND] HTTP 404: No user or organisation named '<owner>'`, naming the account rather than the resource |
-| `github_get_latest_sha` | 409 on the commit listing | `null`, since a repository with no commits has no SHA |
 | `github_create_release` | 422 where the release exists | The release updated under `if_exists='update'`, or a `VALIDATION_ERROR` pointing at `github_update_release` under `if_exists='fail'` |
 | `github_get_release`, `github_update_release`, `github_delete_release`, `github_delete_tag` | 404 on the release lookup | `[NOT_FOUND] HTTP 404: No release found for tag '<tag>' in <owner>/<repo>` for the first three, and clearance to proceed for `github_delete_tag` |
 | `github_get_job_log` | 302 on the log request | The log, downloaded from the storage host the redirect names |

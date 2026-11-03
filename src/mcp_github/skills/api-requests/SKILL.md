@@ -16,8 +16,8 @@ Use another tool wherever one covers the task:
 
 | Task | Tool |
 |---|---|
-| Read a file or a directory | `github_get_repository_file`, `github_list_repository_tree` |
-| List or delete branches | `github_list_branches`, `github_delete_branch` |
+| Read a file | `github_get_repository_file` |
+| Delete a branch | `github_delete_branch` |
 | Commit files to a branch | `github_commit_files` |
 | Read workflow runs and job logs | `github_get_workflow_runs`, `github_get_job_log` |
 | Label a pull request | `github_update_pr`, since GitHub keeps PR labels on the issues endpoint |
@@ -75,8 +75,8 @@ the same way.
 
 1. Find the endpoint as above
 2. Read the current state with `github_api_read`
-3. **Before `github_api_write`, tell the user the method, the path and the body, and get an explicit yes in chat**
-4. **Before `github_api_delete`, do the same and say that the removal cannot be undone**
+3. **Before `github_api_write` or `github_api_delete`, tell the user the method, the path and the body, and get an explicit yes in chat.** A request that already names the change, such as "approve PR 12" or "assign octocat to issue 7", is that yes
+4. **Before `github_api_delete`, say that the removal cannot be undone**
 5. Read the result back with `github_api_read` to confirm the change
 
 Where no user can answer, as in an unattended run, the request that started the run
