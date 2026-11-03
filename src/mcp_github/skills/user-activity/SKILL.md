@@ -10,7 +10,7 @@ Find the repositories an account owns, then retrieve a user's profile, their con
 ## Prerequisites
 
 - The target GitHub `username`, or the owner whose repositories you want
-- GitHub token with `read:user` scope, since most of these tools use the GraphQL API
+- GitHub token with `read:user` scope. Only `github_get_user_activities` uses the GraphQL API, and the other calls here use REST
 
 `github_get_user_activities` and `github_get_repo_stars_since` run as long-running tasks
 and report progress while they work. `github_list_repos` is a plain read.

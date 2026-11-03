@@ -7,8 +7,11 @@ An [MCP](https://www.anthropic.com/news/model-context-protocol) server that conn
 - **Pull requests** - fetch diffs, content, linked issues and CI status, create, comment, review, merge and update, close, retarget, label and flip draft status, read and correct posted comments
 - **Issues** - create, update, list, search and assign, read a repository's labels, run milestones and file issues under them
 - **Releases** - tag commits, publish releases, and list, correct or withdraw what is published
-- **Users** - profile lookup, contribution activity and star growth via GraphQL
+- **Project boards** - find boards, add and remove cards, and set their fields
+- **CI** - read check status, workflow runs and job logs, and re-run a job
+- **Users** - profile lookup, contribution activity over GraphQL, and star growth from each repository's star history
 - **Repositories** - list what a user, an organisation or the caller owns, and read any file or directory tree at a branch, tag or SHA
+- **Any other endpoint** - search GitHub's REST routes, and send a REST or GraphQL request
 
 The full tool list is in [docs/tools.md](./docs/tools.md).
 

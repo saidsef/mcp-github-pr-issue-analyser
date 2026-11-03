@@ -234,7 +234,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 
 ## Prerequisites
 1. GitHub integration is preconfigured
-2. Appropriate permissions and GitHub API key is set
+2. A GitHub token with the scopes the task needs
 
 ## Best Practices
 - Use github_get_skill to read the guidance covering a task before starting it, since it carries constraints the tool schemas do not
@@ -272,7 +272,7 @@ def _instructions() -> str:
     """The server instructions, ending in the skill list read from each SKILL.md
     front matter, so the list cannot drift from the skills that ship."""
     skills = (
-        f"- skill://{path.parent.name}/SKILL.md -- {_description(path.read_text(encoding='utf-8'))}"
+        f"- skill://{path.parent.name}/SKILL.md - {_description(path.read_text(encoding='utf-8'))}"
         for path in _skill_paths()
     )
     return _MCP_INSTRUCTIONS + "\n".join(skills) + "\n"

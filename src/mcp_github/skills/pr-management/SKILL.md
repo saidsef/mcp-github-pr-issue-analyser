@@ -290,8 +290,10 @@ message. A call without it merges whatever the head is when GitHub receives it.
 Returns `status`, `branch` and `closed_prs`, the numbers of the open PRs that
 `force` closed by deleting their head branch.
 
-Destructive. GitHub can restore a deleted branch from its PR page, but no tool
-here can. The default branch is refused, and `force` does not lift that. A branch
+Destructive. GitHub can restore a deleted branch from its PR page.
+`github_api_write` with `POST` on `repos/{owner}/{repo}/git/refs` and
+`{"ref": "refs/heads/<branch>", "sha": "<head_sha>"}` recreates it, given a head SHA
+read before the delete, since the tool does not return one. The default branch is refused, and `force` does not lift that. A branch
 that an open PR comes from is refused unless `force=True`, because GitHub closes
 the PR when its head branch goes. A protection rule that forbids deleting the
 branch comes back as GitHub's own refusal, per the `error-handling` skill.
@@ -321,18 +323,25 @@ takes a single-commit PR's subject from that commit rather than from the PR
 title. Append the PR reference, e.g.
 `feat(auth): support GitHub App tokens (#123)`.
 
-The summary names the action and what it acts on, and stops there. What the
+The summary names the action and what it acts on, and stops there. It names that
+thing so a reader who has not seen the code can tell which one changed, never by how
+it was chosen: `refactor(tools): remove 22 tools that generic API tools already cover`,
+not `refactor(tools): remove tools that only send one GitHub request`. It says
+what was done, with the verb a colleague would use, and never passes a verdict on
+the old version: `docs(skills): update skills and docs to match current tools`, not
+`docs(skills): correct stale and contradictory text`. It drops "the", "a" and "an"
+wherever it reads the same without them, as a headline does. What the
 change displaces belongs in the body, where there is room to say why, so
-`docs(site): publish the documentation on Read the Docs` beats the same line
+`docs(site): publish documentation on Read the Docs` beats the same line
 with `instead of one long README` on the end. A title that leads with the fault
-reads the wrong way round: `fix(api): retry a failed token refresh`, not
+reads the wrong way round: `fix(api): retry failed token refreshes`, not
 `fix(api): token refresh never retried`. A version being released never appears
 in the title, though versions being moved do, as in `chore(deps): bump ruff from
 0.16.7 to 0.16.8`.
 
 Examples:
 
-- `fix(tools): handle empty diff response from the compare endpoint`
+- `fix(tools): handle empty diff response from compare endpoint`
 - `feat(cache): add Redis-backed PR diff cache`
 - `chore(deps): bump fastmcp-slim to 3.4.7, refresh lock`
 

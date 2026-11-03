@@ -1613,12 +1613,11 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         draft: bool | None = None,
         prerelease: bool | None = None,
     ) -> dict[str, Any]:
-        """Changes a release in place, a draft included. Only the fields supplied are sent,
-        so correcting a title does not wipe the notes. make_latest is settable on
-        github_create_release alone, and only on the call that first publishes the tag,
-        since publishing again falls through to here and this tool does not send
-        it. Move the latest badge by deleting the release and publishing it again,
-        or in the GitHub UI."""
+        """Changes a release in place, a draft included. The tool sends only the fields
+        supplied, so correcting a title does not wipe the notes. On a draft it also sends
+        tag_name, since GitHub otherwise renames the draft's tag. This tool does not send
+        make_latest, so move the latest badge with github_api_write, sending PATCH on
+        repos/{owner}/{repo}/releases/{id} with make_latest."""
         payload = _changes(name=name, body=body, draft=draft, prerelease=prerelease)
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
         # GitHub swaps a draft's tag for an untagged-<hex> name on an update that leaves tag_name out.
@@ -1879,8 +1878,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         repo_name: str,
         issue_number: int,
     ) -> dict[str, Any]:
-        """Takes an issue or pull request off a project board. The issue itself is
-        untouched and stays open, but the field values its card held go with it."""
+        """Takes an issue or pull request off a project board. The issue itself does
+        not change, but the field values its card held go with it."""
         project = await self._project(project_owner, project_number)
         node = await self._issue_node(repo_owner, repo_name, issue_number)
         item_id = _item_on_project(node, project["id"])

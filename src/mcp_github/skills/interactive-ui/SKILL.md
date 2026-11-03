@@ -4,18 +4,18 @@ description: Ask the user to pick an option, or render GitHub data as an interac
 
 # Interactive UI
 
-Two ways to put something in front of the user: a set of buttons to choose from, or a rendered panel built from Prefab components.
+This skill covers two ways to put something in front of the user: a set of buttons to choose from, or a rendered panel built from Prefab components.
 
 ## Prerequisites
 
 - A client that renders MCP UI. Text-only clients will not show `choose` or `github_pr_issue_analyser_ui`, though `github_search_prefab_components` returns plain text and works anywhere
-- No GitHub token, since none of the three tools here calls GitHub
+- The three tools here do not call GitHub, so they work without a token
 
 ## Choosing Between Them
 
-`choose` when the answer is one of a few known options and you need the user to
-pick. `github_pr_issue_analyser_ui` when you have data worth showing as
-something other than a wall of text.
+Use `choose` when the answer is one of a few known options and the user needs to
+pick. Use `github_pr_issue_analyser_ui` when the data reads better as something
+other than a wall of text.
 
 Neither replaces a plain answer. A single fact belongs in the reply.
 

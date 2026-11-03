@@ -48,13 +48,13 @@ so re-read it if time has passed.
 
 ### `github_create_tag`
 
-| Parameter | Type | Description |
-|---|---|---|
-| `repo_owner` | str | GitHub organisation or username |
-| `repo_name` | str | Repository name |
-| `tag_name` | str | Tag name, e.g. `v1.2.3` |
-| `message` | str | Tag message. Omit for a lightweight tag |
-| `sha` | str | Commit to tag. Omit to tag the newest commit on the default branch |
+| Parameter | Type | Default | Description |
+|---|---|---|---|
+| `repo_owner` | str | - | GitHub organisation or username |
+| `repo_name` | str | - | Repository name |
+| `tag_name` | str | - | Tag name, e.g. `v1.2.3` |
+| `message` | str | `""` | Tag message. Omit for a lightweight tag |
+| `sha` | str \| None | `None` | Commit to tag. Omit to tag the newest commit on the default branch |
 
 Pass `sha` to cut a release from a known commit. Without it the tool resolves
 the default branch HEAD itself, and what that points at can change between
@@ -138,14 +138,16 @@ and `github_update_release` and `github_delete_release` find drafts the same way
 | `draft` | bool \| None | `None` | Publish a draft with `False`, or pull one back with `True` |
 | `prerelease` | bool \| None | `None` | Mark or unmark as a pre-release |
 
-Only the fields you pass are sent, so correcting a title leaves the notes alone.
-The notes replace rather than append, so read the release first if you are
-adding to them. A call supplying nothing to change is rejected.
+The tool sends only the fields you pass, so correcting a title leaves the notes
+alone. On a draft it also sends the draft's `tag_name`, because GitHub otherwise
+renames a draft's tag to `untagged-<hex>`. The notes replace rather than append,
+so read the release first if you are adding to them. The tool refuses a call that
+names nothing to change.
 
-`make_latest` is settable on `github_create_release` only, and only on the call that
-first publishes the tag. Publishing again over the same tag falls through to
-this tool, which does not send it. Changing which release is latest means
-deleting the release and publishing it again, or setting it in the GitHub UI.
+This tool does not send `make_latest`, and `github_create_release` sends it only on
+the call that first publishes the tag. To move the latest badge, call
+`github_api_write` with `PATCH` on `repos/{owner}/{repo}/releases/{id}` and
+`{"make_latest": "true"}`, taking `id` from `github_get_release`.
 
 ### Listing tags
 

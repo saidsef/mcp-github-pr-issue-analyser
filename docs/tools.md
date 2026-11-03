@@ -6,7 +6,7 @@ The server registers every public method on the GitHub integration that carries 
 
 Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and returns `count` with `has_more`. `count` is the number of items in the reply, never the size of the result set. `has_more` comes from GitHub's `Link` header, so paging stops on a fact rather than on a guess from a full page.
 
-`total` appears only where GitHub reports a genuine count: `github_search_issues_prs` reports the matches found, `github_list_projects` reports the boards an owner has, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
+Among the tools that read lists from GitHub, `total` appears only where GitHub reports a count: `github_search_issues_prs` reports the matches found, `github_list_projects` reports the boards an owner has, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
 
 `github_list_projects` and `github_list_project_items` read GraphQL connections, which page by cursor, so they take `after` and return `next_cursor` in place of `page`. Both report `total`, since the connection carries a count.
 
@@ -57,13 +57,13 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_create_release` | write | Publish a release with a changelog, refusing a tag that already has one unless `if_exists="update"` |
 | `github_list_releases` | read | A repository's releases, newest first |
 | `github_get_release` | read | One release, by tag or the latest published |
-| `github_update_release` | write | Change a release's title, notes, draft or prerelease state, a draft included |
+| `github_update_release` | write | Change a release's title, notes, draft or prerelease state, a draft included, keeping a draft on its tag |
 | `github_delete_release` | destructive | Remove a release, keeping its tag unless asked otherwise, which skips the `github_delete_tag` force check |
 | `github_delete_tag` | destructive | Remove a tag, refused while a release points at it unless forced |
 
 ## Project boards
 
-Projects (v2) has no REST surface, so every tool here goes through GraphQL. The token needs a Projects grant separate from `repo`: `read:project` to read, `project` to write.
+Every tool here goes through GraphQL. The token needs a Projects grant separate from `repo`: `read:project` to read, `project` to write.
 
 | Tool | Kind | Description |
 |------|------|-------------|
@@ -72,7 +72,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 | `github_list_project_items` | read | What is on a board, each card with its field values |
 | `github_add_to_project` | write | Put an issue or pull request on a board |
 | `github_set_project_field` | write | Set a single-select field such as Status, by field and option name |
-| `github_remove_from_project` | destructive | Take a card off a board, leaving the issue open |
+| `github_remove_from_project` | destructive | Take a card off a board, leaving the issue itself unchanged |
 
 ## Users and activity
 
@@ -84,7 +84,7 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 ## REST and GraphQL requests
 
-These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists. A merge, a comment, a review, an assignee change, a milestone, a user profile, a workflow dispatch and a PR's linked issues each go through these tools, and the skill for each task gives the call.
+These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists. A merge, a comment, a review, an assignee change, a new milestone, a user profile, a workflow dispatch and a PR's linked issues each go through these tools, and the skill for each task gives the call.
 
 | Tool | Kind | Description |
 |------|------|-------------|
@@ -119,9 +119,10 @@ Every tool above names the skill that documents it, at the end of its own descri
 | `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge |
 | `skill://issue-management/SKILL.md` | Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates |
 | `skill://release-management/SKILL.md` | Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there |
-| `skill://project-boards/SKILL.md` | Put issues and pull requests on a GitHub project board, set their fields, read what is on a board, and take items off it |
+| `skill://project-boards/SKILL.md` | Find the GitHub project boards an owner has, put issues and pull requests on one, set their fields, read what is on a board, and take items off it |
 | `skill://user-activity/SKILL.md` | Find a user's or organisation's repositories, and look up a profile, contribution history, and which repos gained stars recently |
 | `skill://error-handling/SKILL.md` | Read the error codes these tools raise and decide whether to retry, fix the call, or stop |
 | `skill://interactive-ui/SKILL.md` | Ask the user to pick an option, or render GitHub data as an interactive UI panel |
+| `skill://api-requests/SKILL.md` | Find and call a GitHub REST or GraphQL endpoint that no other tool covers, searching with github_search_api_routes and sending with github_api_read, github_api_write or github_api_delete |
 
 The descriptions are the front matter of each SKILL.md, which is also what the server instructions and `github_list_skills` report.

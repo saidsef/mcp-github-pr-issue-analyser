@@ -12,7 +12,7 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - GitHub token with `repo` read access
 
 `github_get_pr_status_checks` and `github_get_workflow_runs` run as long-running tasks.
-None of them reports progress while it works.
+Neither reports progress while it works.
 `github_get_pr_content`, `github_get_pr_diff` and `github_get_job_log` are plain reads.
 
 ## Workflow
@@ -42,8 +42,8 @@ analyse.
 
 ## Tool Parameters
 
-`github_get_pr_content`, `github_get_pr_diff` and `github_get_pr_status_checks` take
-the same three arguments.
+`github_get_pr_content` and `github_get_pr_status_checks` take these three
+arguments, and `github_get_pr_diff` takes them with `max_bytes`.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -119,7 +119,7 @@ changed file appears once, with its hunks numbered as
 `github_add_inline_pr_comment` expects them. The patch is not paginated and
 carries no per-file metadata. `bytes_total` is the full size even on a
 truncated reply, so `max_bytes=0` is a cheap way to decide whether to ask for
-the patch at all. A cut lands on a byte boundary and any character split across
+the patch at all. A cut falls on a byte boundary and any character split across
 it is dropped, so the tail of a truncated patch can end mid-line.
 
 GitHub refuses a diff past its own size limit with HTTP 406, and the
@@ -127,7 +127,7 @@ GitHub refuses a diff past its own size limit with HTTP 406, and the
 avoids the refusal, `0` included, because the tool cuts the patch only after
 GitHub serves it.
 
-The default is set by `GITHUB_DIFF_MAX_BYTES`.
+`GITHUB_DIFF_MAX_BYTES` sets the default.
 
 ### `github_get_repository_file`
 
@@ -156,12 +156,14 @@ Returns:
 A hunk shows a few lines either side of a change, which is often not enough to
 judge whether the change is right. Read the file to see what surrounds it.
 
-Pass `next_offset` back as `offset` to walk a long file. A cut lands on a byte
+Pass `next_offset` back as `offset` to walk a long file. A cut falls on a byte
 boundary and any character split across it is dropped, so a window can end
 mid-line. A binary file returns no content rather than mangled text.
 
-A directory is an error naming the `github_api_read` call that lists it. The
-default is set by `GITHUB_FILE_MAX_BYTES`.
+A directory is an error that names a `github_api_read` call on
+`repos/{owner}/{repo}/contents/{path}`, which lists one level. Listing a directory
+below gives the tree form, which can recurse. `GITHUB_FILE_MAX_BYTES` sets the
+default `limit`.
 
 ### Listing a directory
 
@@ -247,7 +249,7 @@ Returns `JobLogResult`:
 | `truncated` | bool | `True` when `log` is only the end of it |
 
 A job reports its failure last, so a cut keeps the end of the log where
-`github_get_pr_diff` keeps the start. A cut lands on a byte boundary and any
+`github_get_pr_diff` keeps the start. A cut falls on a byte boundary and any
 character split across it is dropped, so a truncated log can start mid-line.
 Re-read with a higher `max_bytes` where the end does not show the cause.
 

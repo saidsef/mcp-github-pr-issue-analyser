@@ -37,9 +37,11 @@ rulesets, webhooks, commit comparisons, or a GraphQL field no tool selects.
 
 A grant without `repo` does not list `github_api_write` or `github_api_delete` at all.
 
-Each request tool refuses a call that belongs to another, so its hint stays true.
-`github_api_read` refuses any mutation, and `github_api_write` refuses a mutation
-that calls a `delete...` or `remove...` field. Some `POST`, `PATCH` and `PUT` routes
+`github_api_read` and `github_api_write` refuse a call that belongs to another, so
+their hints stay true. `github_api_read` refuses any mutation, and
+`github_api_write` refuses a mutation that calls a `delete...` or `remove...` field.
+`github_api_delete` does not check what it sends, so send it only a `DELETE` or a
+mutation that deletes or removes something. Some `POST`, `PATCH` and `PUT` routes
 still overwrite data, such as `PUT /repos/{owner}/{repo}/topics`, which replaces every
 topic. Read the route's summary before calling it.
 
@@ -102,7 +104,7 @@ holds none of them, the error says which scopes the token holds and which the
 endpoint needs, as in:
 
 ```
-Error calling tool 'github_api_read': [NOT_FOUND] HTTP 404: user/gpg_keys: Resource not found, or hidden from a token without the scope to see it. The token holds repo, workflow, and this endpoint needs one of admin:gpg_key, read:gpg_key, write:gpg_key. GitHub said: Not Found
+[NOT_FOUND] HTTP 404: user/gpg_keys: Resource not found, or hidden from a token without the scope to see it. The token holds repo, workflow, and this endpoint needs one of admin:gpg_key, read:gpg_key, write:gpg_key. GitHub said: Not Found
 ```
 
 Stop and tell the user which scope to grant. A fine-grained token gets the

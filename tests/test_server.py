@@ -465,7 +465,7 @@ class TestSkillsAreReachable:
         assert "github_list_skills" in instructions
         assert "github_get_skill" in instructions
         for entry in (await server.gi.list_skills())["skills"]:
-            assert f"- {entry['uri']} -- {entry['description']}" in instructions
+            assert f"- {entry['uri']} - {entry['description']}" in instructions
 
 
 class TestAnnotationCoverage:

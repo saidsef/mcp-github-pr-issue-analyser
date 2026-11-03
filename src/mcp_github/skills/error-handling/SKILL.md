@@ -19,9 +19,9 @@ The code is written `[<CODE>] HTTP <status>: ` when a status is known and
 varies with the call and is not stable enough to match on.
 
 The code does not always start the message. A REST call that failed opens with
-it, as above. An authentication failure, a rate limit and anything a
-GraphQL-backed step raised arrive wrapped once more and open with the tool name
-instead:
+it, as above. An authentication failure, a rate limit, anything a GraphQL-backed
+step raised, and any error a tool raises on its own, such as a `VALIDATION_ERROR`
+refusal, arrive wrapped once more and open with the tool name instead:
 
 ```
 Error calling tool 'github_get_pr_content': [AUTH_FAILED] HTTP 401: PR #1: Authentication failed. Check your GitHub token. GitHub said: Bad credentials
@@ -109,7 +109,7 @@ all of them, and a 409 under `GITHUB_API_ERROR` where the head moved.
 | `Resource not accessible by integration` | The App installation lacks the permission the call needs | Grant the permission on the installation |
 | `<n> of <m> required status checks have not succeeded`, or a ruleset refusal | Branch protection is refusing this actor | Report it. No token change helps |
 | `At least <n> approving review is required` | The PR is short of reviews | Report it. Retrying fails again |
-| `Head branch was modified. Review and try the merge again.` | A push arrived after the `head_sha` passed as `expected_head_sha` was read | Read the PR again and decide on the new head, per the `pr-management` skill |
+| `Head branch was modified. Review and try the merge again.` | A push arrived after the `head_sha` sent as `sha` in the merge body was read | Read the PR again and decide on the new head, per the `pr-management` skill |
 
 **A 404 does not prove the thing is missing.** GitHub returns 404 rather than
 403 for a resource the token cannot see, so a private repository the token
@@ -125,8 +125,9 @@ since a retry fails the same way until the token changes.
 
 The project board tools, `github_get_user_activities`, `github_get_pr_status_checks`,
 `github_set_pr_draft`, `github_create_empty_commit` and `github_commit_files`,
-apart from its merge commits, run on GitHub's GraphQL API, and Projects (v2) has no REST equivalent at all. GraphQL answers HTTP 200 and puts the refusal in an `errors`
-array, so the server reads the first entry and maps its `type` onto a code:
+apart from its merge commits, run on GitHub's GraphQL API. GraphQL answers HTTP
+200 and puts the refusal in an `errors` array, so the server reads the first entry
+and maps its `type` onto a code:
 
 | GraphQL `type` | Code | Status the message shows |
 |---|---|---|
@@ -159,8 +160,10 @@ A `FORBIDDEN` is a refusal, and it reads the way a refused REST 403 does. The
 common ones. Authorising again changes nothing, so report the text to the user.
 
 `NOT_FOUND`, `AUTH_FAILED` and `RATE_LIMITED` reach the client as themselves.
-Every other GraphQL code is labelled with the step that raised it, so a board
-read that GitHub refuses arrives under two codes:
+On the tools listed above, the step that raised any other GraphQL code labels it,
+so a board read that GitHub refuses arrives under two codes. A GraphQL call
+through `github_api_read`, `github_api_write` or `github_api_delete` does not
+carry a step label, so its message carries one code.
 
 ```
 Error calling tool 'github_list_projects': [GITHUB_API_ERROR] Failed to list projects: [GITHUB_API_ERROR] HTTP 403: Refused. GitHub said: Resource not accessible by integration
@@ -217,8 +220,8 @@ Wait that long before retrying. A message without `Retry after` means GitHub
 sent no timing the server could read, so wait a minute or so on a secondary
 limit and longer on a primary one, since the primary window is an hour.
 
-No tool retries or backs off internally. A failed call is simply raised, so any
-waiting is yours to do. Do not retry in a tight loop, since every attempt spends
+No tool retries or backs off internally. Each tool raises the failure at once,
+so any waiting is yours to do. Do not retry in a tight loop, since every attempt spends
 another request against a limit that is already exhausted.
 
 Reading the same thing twice is charged once, under conditions. A repeated read
@@ -254,32 +257,43 @@ invisible until an org admin approves the OAuth App under Org Settings,
 Third-party access, OAuth App access policy. Surface that to the user, since no
 retry and no change of arguments will fix it.
 
-The `workflow` scope guidance takes the place of that line rather than joining
-it, so a 403 mentioning the scope reads the same in either mode and says
-nothing about org approval. Read the scope guidance as the answer where it
+The `workflow` scope guidance and the list of scopes an endpoint needs each take
+the place of that line rather than joining it, so a refusal that names a scope
+reads the same in either mode and does not mention org approval. Read the scope guidance as the answer where it
 appears, and do not go looking for a missing approval behind it.
 
 ## Timeouts
 
-Reading a response is bounded by `GITHUB_API_TIMEOUT`, 5 seconds by default.
-Opening the connection is bounded separately by `GITHUB_API_CONNECT_TIMEOUT`,
-3 seconds by default. A REST call that hits either surfaces as a `ToolError`
-carrying the underlying httpx message rather than one of the codes above.
-
-A GraphQL call takes a different path. The GraphQL step codes the failure as
-`GITHUB_API_ERROR` and the step label codes it again, so the message carries the
-code twice:
+`GITHUB_API_TIMEOUT` bounds reading a response, 5 seconds by default.
+`GITHUB_API_CONNECT_TIMEOUT` bounds opening the connection separately, 3 seconds
+by default. A REST call that hits either raises `GITHUB_API_ERROR` with no
+status, naming the method and the call:
 
 ```
-[GITHUB_API_ERROR] Failed to <action>: [GITHUB_API_ERROR] GraphQL request failed: <httpx message>
+[GITHUB_API_ERROR] POST user/repos: GitHub did not answer within 5s, the GITHUB_API_TIMEOUT setting. The change may still have gone through, so read it back before sending it again.
 ```
 
-`GraphQL request failed: ` after the repeated code marks a transport failure
-rather than an API refusal, so read the httpx message at the end for the cause.
+The last sentence appears on a write alone, because GitHub can finish a write
+whose answer never arrived. Read the change back before sending the call again.
+A timeout while connecting ends `GitHub could not be reached in time, so nothing
+was sent.`, and a call that ends that way is safe to send again.
 
-Large diffs and busy status-check queries are the usual causes, and the
-operator raises `GITHUB_API_TIMEOUT` for them. That no longer changes how long
-the server waits on a host it cannot reach.
+A GraphQL call on one of the tools listed under GraphQL Failures carries the code
+twice, because the step label codes it again:
+
+```
+[GITHUB_API_ERROR] Failed to <action>: [GITHUB_API_ERROR] GraphQL request: GitHub did not answer within 5s, the GITHUB_API_TIMEOUT setting.
+```
+
+`GraphQL request: ` after the repeated code marks a timeout, and
+`GraphQL request failed: ` marks any other transport failure, rather than a
+refusal by the API. A timeout on a mutation adds the same read-back sentence as a
+REST write.
+
+Large diffs, busy status-check queries and slow writes, such as creating a
+repository, are the usual causes, and the operator raises `GITHUB_API_TIMEOUT` for
+them. The connect timeout stays separate, so raising `GITHUB_API_TIMEOUT` does not
+lengthen the wait on a host the server cannot reach.
 
 ## Reporting a Server Fault
 
@@ -291,7 +305,7 @@ refusal by GitHub. Three shapes point at the server.
 |---|---|
 | `VALIDATION_ERROR` on a call whose arguments match the parameters the documenting skill lists | The server built the request body, so GitHub rejected a field the client never sent |
 | `GraphQL error: <message>` where the inner code repeats the outer `GITHUB_API_ERROR` | The GraphQL error type matched nothing the server maps, so the message names no cause the user controls |
-| A message carrying no bracketed code and none of the httpx text a timeout produces | The failure escaped the typed paths |
+| A message carrying no bracketed code | The failure escaped the typed paths |
 
 The unmapped GraphQL type reads:
 

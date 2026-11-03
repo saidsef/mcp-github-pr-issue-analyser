@@ -34,7 +34,6 @@ The endpoint is `http://localhost:8081/mcp`. Clients must send `Authorization: B
 ### HTTP mode with GitHub OAuth2
 
 ```sh
-export GITHUB_TOKEN="<github-token>"
 export MCP_ENABLE_REMOTE=true
 export GITHUB_OAUTH_CLIENT_ID="<oauth-app-client-id>"
 export GITHUB_OAUTH_CLIENT_SECRET="<oauth-app-client-secret>"
@@ -58,7 +57,6 @@ With OAuth2 and a shared token store, Redis here:
 
 ```sh
 docker run \
-  -e GITHUB_TOKEN="<github-token>" \
   -e GITHUB_OAUTH_CLIENT_ID="<oauth-app-client-id>" \
   -e GITHUB_OAUTH_CLIENT_SECRET="<oauth-app-client-secret>" \
   -e GITHUB_OAUTH_BASE_URL="https://mcp.example.com" \
@@ -85,7 +83,7 @@ The base reads from these objects in the same namespace:
 | `redis-config` | ConfigMap and Secret | `host-port`, `password` |
 | `dynamodb-config` | ConfigMap | `arn` |
 
-Every key is optional except the token: supply one store and leave the other object out. With neither, the pod runs the in-process store. For DynamoDB, annotate the `mcp-github` service account with a role carrying the [IAM policy](./configuration.md#iam-policy-for-dynamodb).
+Every key is optional. Supply one store and leave the other object out. With neither, the pod runs the in-process store. For DynamoDB, annotate the `mcp-github` service account with a role carrying the [IAM policy](./configuration.md#iam-policy-for-dynamodb).
 
 The pod runs as a non-root user with a read-only root filesystem, drops all capabilities, and carries `prometheus.io/scrape` annotations. For OAuth2 mode, add the three `GITHUB_OAUTH_*` variables to the container spec and expose the service on the host named in `GITHUB_OAUTH_BASE_URL`.
 
@@ -101,12 +99,12 @@ curl http://localhost:8081/
 {
   "status": "ok",
   "service": "GitHub PR and Issue Analyser",
-  "version": "43.1.0",
-  "tools": 52
+  "version": "<installed version>",
+  "tools": 44
 }
 ```
 
-`tools` is the number of tools the server registered, so a response confirms tool discovery ran rather than only that the port is open. The endpoint calls neither the GitHub API nor the token store, which keeps it a liveness signal: a GitHub outage does not change what it returns. It sits outside the auth layer, as `/metrics` does, so a probe needs no credentials. The Kubernetes readiness probe in `deployment/` uses this path.
+`tools` is the number of tools the server registered, so a response confirms tool discovery ran rather than only that the port is open. The endpoint calls neither the GitHub API nor the token store, which keeps it a liveness signal: a GitHub outage does not change what it returns. It sits outside the auth layer, as `/metrics` does, so a probe needs no credentials. The Kubernetes readiness probe in `deployment/` uses `/metrics`, which also answers without credentials.
 
 ## Next
 
