@@ -727,9 +727,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             raise _rate_limit_error(response, response_body, where, detail)
 
         if status == 404:
-            msg = "Resource not found"
+            msg = "Resource not found."
             if scopes := _scope_hint(response):
-                msg += f", or hidden from a token without the scope to see it.{scopes}"
+                msg = f"Resource not found, or hidden from a token without the scope to see it.{scopes}"
             elif self._oauth_mode:
                 msg += (
                     " If this is a private organisation repository, the org admin may need to"
@@ -739,7 +739,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
 
         if status == 422:
             raise GitHubValidationError(
-                f"{where}Validation failed. Check your input data.{detail}", response_body=response_body
+                f"{where}Validation failed. Check your input data.{detail}",
+                response_body=response_body,
+                status_code=422,
             )
 
         message = f"GitHub API error ({context})" if context else "GitHub API error"
@@ -1589,7 +1591,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             if if_exists == "fail":
                 raise GitHubValidationError(
                     f"A release already exists for tag '{tag_name}' in {repo_owner}/{repo_name}. "
-                    "Edit it with github_update_release, or pass if_exists='update' to overwrite its title and notes."
+                    "Edit it with github_update_release, or pass if_exists='update' to overwrite its title and notes.",
+                    status_code=422,
                 )
             logger.info(f"Release for {tag_name} already exists, updating it instead")
             updated = await self.update_release(

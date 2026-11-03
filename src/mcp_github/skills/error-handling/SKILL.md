@@ -11,7 +11,7 @@ Every tool in this server fails through one small set of typed errors. The code 
 Failures arrive as a `ToolError` carrying a bracketed code:
 
 ```
-[NOT_FOUND] HTTP 404: PR #4321: Resource not found GitHub said: Not Found
+[NOT_FOUND] HTTP 404: PR #4321: Resource not found. GitHub said: Not Found
 ```
 
 The code is written `[<CODE>] HTTP <status>: ` when a status is known and
@@ -61,7 +61,7 @@ the text. `github_get_repo_stars_since` on a name nobody holds reports the same
 missing account under a different code:
 
 ```
-Error calling tool 'github_get_repo_stars_since': [GITHUB_API_ERROR] Failed to fetch repo stars: [NOT_FOUND] HTTP 404: repos for nobody: Resource not found GitHub said: Not Found
+Error calling tool 'github_get_repo_stars_since': [GITHUB_API_ERROR] Failed to fetch repo stars: [NOT_FOUND] HTTP 404: repos for nobody: Resource not found. GitHub said: Not Found
 ```
 
 Read the innermost code in a message that carries two. A rate limit never
@@ -76,6 +76,7 @@ carries two, and reads `RATE_LIMITED` first whichever transport carried it.
 | `RATE_LIMITED` | 403 or 429 | A primary or secondary rate limit is exhausted | Wait for the time the message names, then retry the same call unchanged |
 | `NOT_FOUND` | 404 | The resource is absent, or the token cannot see it | Check the owner, repo and number. Do not retry unchanged |
 | `VALIDATION_ERROR` | 422 | GitHub rejected the arguments | Fix the arguments. Retrying unchanged fails again |
+| `VALIDATION_ERROR` | None | The server refused the arguments before sending any request | Fix the arguments. GitHub has not seen the call |
 | `GITHUB_API_ERROR` | 403 or other | Permission denied, or any status not listed above | Read the message. Permission problems need a token or approval change, not a retry |
 
 Three of these are easy to misread.

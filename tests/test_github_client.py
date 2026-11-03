@@ -384,7 +384,7 @@ class TestErrorDetail:
     def test_a_404_keeps_both_the_context_and_the_message(self, gi: GitHubIntegration):
         body = {"message": "Not Found"}
         response = mock_response(status_code=404, json_data=body)
-        with pytest.raises(GitHubNotFoundError, match=r"PR #4321: Resource not found GitHub said: Not Found"):
+        with pytest.raises(GitHubNotFoundError, match=r"PR #4321: Resource not found\. GitHub said: Not Found"):
             gi._handle_response_error(response, "PR #4321")
 
     def test_a_401_carries_githubs_own_message(self, gi: GitHubIntegration):
@@ -468,7 +468,7 @@ class TestTypedCodes:
 
     @pytest.mark.anyio
     async def test_a_missing_repo_name_raises_the_validation_code(self, gi: GitHubIntegration):
-        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] HTTP 422: repo_name is required"):
+        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] repo_name is required"):
             await gi.list_open_issues_prs("owner", filtering="repo")
 
 
