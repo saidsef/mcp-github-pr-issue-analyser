@@ -117,6 +117,7 @@ Every tool above names the skill that documents it, at the end of its own descri
 | `skill://pr-analysis/SKILL.md` | Analyse a GitHub pull request by fetching its metadata, diff, linked issues and CI status |
 | `skill://pr-review/SKILL.md` | Review a GitHub pull request by posting inline code comments and submitting a review decision |
 | `skill://pr-management/SKILL.md` | Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge |
+| `skill://ci-checks/SKILL.md` | Find out why a pull request's checks fail, read the failing job's log, run the job again or start a new run, follow it to its result, and get a Dependabot update merged |
 | `skill://issue-management/SKILL.md` | Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates |
 | `skill://release-management/SKILL.md` | Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there |
 | `skill://project-boards/SKILL.md` | Find the GitHub project boards an owner has, put issues and pull requests on one, set their fields, read what is on a board, and take items off it |

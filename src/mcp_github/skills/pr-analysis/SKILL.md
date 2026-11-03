@@ -11,9 +11,8 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - `repo_owner`, `repo_name` and `pr_number` for the target PR
 - GitHub token with `repo` read access
 
-`github_get_pr_status_checks` and `github_get_workflow_runs` run as long-running tasks.
-Neither reports progress while it works.
-`github_get_pr_content`, `github_get_pr_diff` and `github_get_job_log` are plain reads.
+`github_get_pr_content` and `github_get_pr_diff` are plain reads. The `ci-checks`
+skill documents the tools that read checks, runs and job logs.
 
 ## Workflow
 
@@ -21,8 +20,8 @@ Neither reports progress while it works.
 2. **Fetch the diff** - call `github_get_pr_diff` for the raw unified diff of every changed file
 3. **Read the surrounding code** - call `github_get_repository_file` on a file whose hunk does not say enough on its own
 4. **Fetch linked issues** - read what merging will auto-close, as in Reading linked issues below
-5. **Fetch CI status** - call `github_get_pr_status_checks` to see whether the head commit is green
-6. **Read a failed job's log** - call `github_get_job_log` with the `id` of a failing GitHub Actions run to see why it failed
+5. **Fetch CI status** - call `github_get_pr_status_checks` to see whether the head commit is green, per the `ci-checks` skill
+6. **Read a failed job's log** - call `github_get_job_log` with the `id` of a failing GitHub Actions run, as in Finding out why a check failed in the `ci-checks` skill
 7. **Synthesise** - combine what you have into a structured analysis
 
 Steps 4 and 5 do not depend on steps 1 and 2, so issue them together.
@@ -42,8 +41,8 @@ analyse.
 
 ## Tool Parameters
 
-`github_get_pr_content` and `github_get_pr_status_checks` take these three
-arguments, and `github_get_pr_diff` takes them with `max_bytes`.
+`github_get_pr_content` takes these three arguments, and `github_get_pr_diff` takes
+them with `max_bytes`.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -197,111 +196,6 @@ Only issues GitHub will auto-close on merge are returned: those named in the PR
 body with a closing keyword such as `Fixes #42`, and those linked by hand from
 the Development sidebar. GitHub reads a closing keyword only on a PR into the
 default branch. An issue merely mentioned as `#42` is not included.
-
-### `github_get_pr_status_checks`
-
-Returns `StatusChecksResult`:
-
-| Field | Type | Description |
-|---|---|---|
-| `pr_number` | int | The PR queried |
-| `head_sha` | str \| None | The head commit the checks were read from, `None` where GitHub resolved no commit for the PR |
-| `overall` | str | One of `passing`, `failing`, `pending`, `unknown` |
-| `check_runs` | list | Check runs on the head commit |
-| `commit_statuses` | list | Legacy commit statuses on the head commit |
-| `truncated` | bool | `True` if the check-suite or check-run page caps were hit |
-
-Each entry in `check_runs` carries `id`, `name`, `status`, `conclusion`,
-`details_url` and `suite_app`, the last naming the app that owns the suite.
-On a run whose `suite_app` is `GitHub Actions`, `id` is the job id
-`github_get_job_log` takes. A run from another app, such as Codacy or CodeQL,
-carries an `id` with no job log behind it.
-Each entry in `commit_statuses` carries `context`, `state`, `description` and
-`target_url`.
-
-`overall` is derived, and `failing` and `pending` are authoritative. `passing`
-is returned only when the full set of checks was read, so `truncated=True`
-downgrades an otherwise-clean result to `unknown` rather than `passing`. A head
-commit with no checks and no statuses at all also reads `unknown`, with its
-`head_sha` set. A `head_sha` of `None` means GitHub resolved no head commit, and
-no checks were read. Treat `unknown` as "not verified", never as "fine".
-
-The tool reads the head commit from the pull request, so a merged PR whose
-branch was deleted still reports its checks.
-
-### `github_get_job_log`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `job_id` | int | - | The `id` of a GitHub Actions check run from `github_get_pr_status_checks` |
-| `max_bytes` | int | `131072` | Cap on the log returned, kept from the end. `0` asks the size without reading the log |
-
-Returns `JobLogResult`:
-
-| Field | Type | Description |
-|---|---|---|
-| `job_id` | int | The job queried |
-| `log` | str | The plain-text log, or its end where it was cut |
-| `bytes_returned` | int | Size of `log` |
-| `bytes_total` | int | Size of the whole log, whether or not it was cut |
-| `truncated` | bool | `True` when `log` is only the end of it |
-
-A job reports its failure last, so a cut keeps the end of the log where
-`github_get_pr_diff` keeps the start. A cut falls on a byte boundary and any
-character split across it is dropped, so a truncated log can start mid-line.
-Re-read with a higher `max_bytes` where the end does not show the cause.
-
-GitHub answers the log request with a redirect to a storage host, and the link
-expires after one minute. The tool follows it at once and sends no token to
-that host. A private repository needs `repo` on a classic token, or Actions
-read on a fine-grained one.
-
-The default is set by `GITHUB_DIFF_MAX_BYTES`, which `github_get_pr_diff` reads
-as well.
-
-### `github_get_workflow_runs`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `run_id` | int \| None | `None` | A run's id, such as the `workflow_run_id` that a workflow dispatch or `github_rerun_job` returns |
-| `head` | str \| None | `None` | Branch, tag or SHA whose commit to read every run of, in place of `run_id` |
-| `wait_seconds` | int | `0` | Seconds to wait for every run to complete, capped by the server |
-
-Pass `run_id` or `head`, not both. The tool resolves `head` to one commit when
-the call starts, so a push during the wait does not move it.
-
-Returns `WorkflowRunsResult`:
-
-| Field | Type | Description |
-|---|---|---|
-| `runs` | list | The run `run_id` names, or every run on the commit `head` resolves to |
-| `truncated` | bool | `True` when GitHub holds more than 100 runs for the commit, or more than 100 jobs for a run |
-| `timed_out` | bool | `True` when a run had not completed by the time the tool returned |
-
-Each entry in `runs` carries `id`, `name`, `event`, `head_sha`, `run_attempt`,
-`status`, `conclusion`, `html_url` and `jobs`. Each job carries `id`, `name`,
-`status`, `conclusion`, `started_at`, `completed_at`, `html_url` and `steps`, and
-each step carries `number`, `name`, `status` and `conclusion`. A job's `id` is the
-id that `github_get_job_log` and `github_rerun_job` take. The jobs belong to the
-run's newest attempt, so a re-run reads its new jobs.
-
-With `wait_seconds` above 0 the tool polls every 10 seconds until every run has
-completed or the wait ends. The server caps the wait 60 seconds under the task
-worker's `FASTMCP_DOCKET_REDELIVERY_TIMEOUT`, so a task ends before the worker
-hands it to another. The cap is 240 seconds with the worker's default. An inline
-call blocks for the whole wait, so ask for one only when the call runs as a task,
-or keep it under the client's own timeout. A call that a timeout cuts off can run
-again, because the tool only reads.
-
-`timed_out` is `True` whenever a run had not completed when the tool returned,
-including a call with `wait_seconds=0`, so the last `status` never reads as final.
-Right after a push a lookup by `head` can find no runs yet, and the wait keeps
-polling until GitHub creates them. A run that a `workflow_run` trigger starts
-after the others finish is not in the result.
 
 ## Analysis Output Structure
 

@@ -12,7 +12,6 @@ Open pull requests, keep them current, and merge them once they are ready.
 - The `head` branch must already be pushed before creating a PR
 - GitHub token with `repo` write access
 - The `workflow` scope on that token to merge a PR touching `.github/workflows`, which GitHub refuses without it
-- Actions write on a fine-grained token to re-run a job or dispatch a workflow
 
 ## Workflow
 
@@ -32,10 +31,8 @@ Open pull requests, keep them current, and merge them once they are ready.
 2. Call `github_set_pr_draft` to mark a draft ready for review, or to put a PR back into draft
 3. Change the assignees per Assigning an Issue or PR in the `issue-management` skill
 4. Bring the branch up to date, as in Updating the branch below, when the base branch has moved on and the PR needs the latest upstream commits. GitHub refuses a conflicted branch, so resolve it as Resolving a conflicted PR describes
-5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
-6. Call `github_commit_files` with the PR's `head_ref` to commit text files to its branch
-7. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit. Pass the `workflow_run_id` it returns to `github_get_workflow_runs` to follow the run
-8. Start a workflow with a `workflow_dispatch` trigger on a branch or tag, as in Dispatching a workflow below. Follow the run it starts the same way
+5. Call `github_commit_files` with the PR's `head_ref` to commit text files to its branch
+6. Run the checks again, or start a new run, as in Running the checks again in the `ci-checks` skill
 
 ### Resolving a conflicted PR
 
@@ -55,7 +52,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 
 ### Merging a PR
 
-1. Call `github_get_pr_content` and keep its `head_sha`, then `github_get_pr_status_checks` for `overall`, per the `pr-analysis` skill, and the reviews for the verdicts, per Reading reviews in the `pr-review` skill
+1. Call `github_get_pr_content` and keep its `head_sha`, then `github_get_pr_status_checks` for `overall`, per the `ci-checks` skill, and the reviews for the verdicts, per Reading reviews in the `pr-review` skill
 2. **Where a user can answer in the session, ask before sending the merge, and name anything that is not ready: a `failing`, `pending` or `unknown` result with the failing check names, or no approval. A yes, including "merge it anyway", is the answer, so merge and do not refuse**
 3. Where nobody can answer, as in an unattended run, the request that started the run is the user's answer. Merge when it asked for a merge, and report the check and review state with the result rather than stopping to ask
 4. Send the merge, as in Merging below, with an explicit `commit_title` and that `head_sha` as `sha`
@@ -152,36 +149,6 @@ the base branch into the head branch, adding a merge commit to the PR branch.
 This does not resolve conflicts. A conflicting update fails, and Resolving a
 conflicted PR above fixes the branch with `github_commit_files`.
 
-### `github_create_empty_commit`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `branch` | str \| None | `None` | Branch to commit to. Omit it and `pr_number` for the default branch |
-| `pr_number` | int \| None | `None` | Pull request whose head branch to commit to, in place of `branch` |
-| `message` | str | `chore: trigger CI [dependabot skip]` | Commit message |
-| `expected_head_sha` | str \| None | `None` | Refuse unless the head still matches this SHA |
-| `allow_default_branch` | bool | `False` | Commit to the default branch, which is refused otherwise |
-
-Returns `commit_sha`, `parent_sha`, `parent_tree_sha`, `tree_sha`, `branch` and
-`html_url`. The commit reuses its parent's tree, so `tree_sha` equal to
-`parent_tree_sha` shows it changed no file.
-
-A re-run keeps the privileges of whoever started the first run, which for a
-Dependabot PR is a read-only token with no Actions secrets. This commit is authored
-by the caller and starts a new run under their name instead. GitHub signs it and
-acts as its committer, as for a commit made in the web interface, so it shows as
-Verified and passes a rule that requires signed commits.
-
-`branch` and `pr_number` are mutually exclusive. A PR opened from a fork is refused,
-since its head branch lives in the fork. GitHub refuses the commit when a push
-arrives after the head is read, so nothing is overwritten.
-
-Dependabot stops rebasing a PR once another commit is pushed to it, unless that
-commit's message carries `[dependabot skip]`. The default message carries it, so
-keep the marker in any message passed for a Dependabot PR.
-
 ### `github_commit_files`
 
 | Parameter | Type | Default | Description |
@@ -217,49 +184,6 @@ bit.
 
 The tool writes text only, as UTF-8, and refuses more than two parents. A PR
 opened from a fork is out of reach, since its head branch lives in the fork.
-
-### `github_rerun_job`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `job_id` | int | - | The check run's `id`, as `github_get_pr_status_checks` reports it |
-| `enable_debug_logging` | bool | `False` | Run the job again with runner and step debug logging |
-
-Returns `job_id`, the `workflow_run_id` of the run the job belongs to, and a
-`status` of `requested`. Pass `workflow_run_id` to `github_get_workflow_runs` with
-`wait_seconds` to follow the new attempt. GitHub moves the run to `queued` before
-it answers, so a wait does not end on the previous attempt's conclusion. The tool
-reads the job before it asks for the re-run, so a failed read leaves nothing
-re-run.
-
-GitHub re-runs every job that depends on this one as well, and each call starts
-another attempt. Only a check run from GitHub Actions is a job, so pass the `id`
-of one whose `suite_app` is `GitHub Actions`.
-
-A re-run keeps the privileges of whoever started the first run, so a Dependabot
-job that failed on its read-only token fails the same way again. Use
-`github_create_empty_commit` for that case.
-
-### Dispatching a workflow
-
-Call `github_api_write` with `POST` on
-`repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches`, where
-`workflow_id` is the workflow's id or its file name such as `ci.yml`. The body
-carries:
-
-| Field | Value |
-|---|---|
-| `ref` | Branch or tag to run the workflow on |
-| `inputs` | Values for the inputs the workflow declares, keyed by input name. Leave it out when there are none |
-| `return_run_details` | `true`. Without it GitHub answers 204 and says nothing of the run |
-
-The reply carries `workflow_run_id`, `run_url` and `html_url` for the run it
-started. Pass `workflow_run_id` to `github_get_workflow_runs` to follow the run.
-
-GitHub refuses a workflow with no `workflow_dispatch` trigger, and a call with
-more than 25 inputs. An input left out takes the default the workflow file sets.
 
 ### Merging
 
