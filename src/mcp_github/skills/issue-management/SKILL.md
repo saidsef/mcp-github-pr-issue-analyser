@@ -238,7 +238,7 @@ Use `repo` for the open items in one repository and `involves` for "what is on m
 ## Issue Body
 
 Five `##` sections, in this order, with nothing above the first or after the
-last.
+last. Every section stays, filled with what is true at the time.
 
 ```
 ## Problem Statement
@@ -253,7 +253,7 @@ last.
 | Problem Statement | What is wrong and what it costs, to someone who has not seen the code. Two or three sentences, a table where the problem is a set of measurements, or a verbatim error, log excerpt or request payload in a fenced block, where the failure produced one |
 | Proposed Solution | One way it could be fixed, same length. Code belongs here as a sketch of fifteen lines at most, never a finished patch |
 | Affected Resources | The files, tools, services and docs that would change, as a list. Name things that exist, and say where a guess is a guess |
-| Resource Links | External links that help: upstream documentation, a spec, a release note. Cut the section when there is nothing useful |
+| Resource Links | External links that help: upstream documentation, a spec, a release note. Give one link when only one helps, such as the API reference for the endpoint involved |
 | Acceptance Criteria | What done looks like, as three to five outcomes of one line each |
 
 An issue describes work nobody has started, so it carries no narrative account
@@ -264,8 +264,7 @@ rather than steps: one naming a specific function or flag is wrong the moment
 the work takes another route.
 
 Three hundred words across all five sections is the ceiling, and a fenced block
-does not count towards it. A section with nothing true under it comes out
-rather than getting filled.
+does not count towards it.
 
 ## Title Convention
 
@@ -312,7 +311,7 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 - Read the repository's labels before writing any rather than guessing names, since GitHub creates a new label for a name that does not exist
 - Title every issue as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Keep the type honest: `fix` for defects, `feat` for new behaviour, `chore` for maintenance
-- Write bodies to the Issue Body template above, and cut a section rather than padding it
+- Write bodies to the Issue Body template above, and fill every section with what is true rather than padding it
 - Assign every issue as you open it, so it has an owner from the start
 - Send only the fields you are changing on an update, and read the current text before replacing a `title` or `body`
 - Include `mcp` in any `labels` you send on an update, since the list replaces the whole set

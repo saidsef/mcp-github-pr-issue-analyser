@@ -344,7 +344,8 @@ Avoid bare titles such as `Update README`, bracketed prefixes such as
 ## PR Body
 
 Five `##` sections, in this order, with nothing above the first or after the
-last.
+last. Every section stays, filled with what is true at the time, and never with
+planned work.
 
 ```
 ## Summary
@@ -366,8 +367,9 @@ Never walk the change file by file. GitHub already renders the file list, so a
 bullet per file restates it.
 
 An unticked box states what was not done, so delete the line instead of leaving
-it empty. Where Changes Made can only repeat Summary, as on a one-line fix, it
-comes out.
+it empty. Tick at least one box a reviewer can check, such as the branch being
+up to date with its base. On a one-line fix, Changes Made says
+in one bullet what the fix changes.
 
 Two hundred and fifty words across all five sections is the ceiling.
 
@@ -383,7 +385,7 @@ Two hundred and fifty words across all five sections is the ceiling.
 
 - Title every PR as `<type>(<scope>): <prose summary>`, see Title Convention above
 - Pass `commit_title` in the same form when merging so the branch history stays parseable
-- Write PR bodies to the PR Body template above, and cut a section rather than padding it
+- Write PR bodies to the PR Body template above, and fill every section with what is true rather than padding it
 - Link the issue with `Fixes #N.` under Related Issues, so merging closes it
 - Assign every PR as you open it, so it has an owner from the start
 - Read `github_get_pr_status_checks` before merging and tell the user about anything but `passing`, since `unknown` is not a pass. The user's yes, or the request that started an unattended run, is enough to merge
