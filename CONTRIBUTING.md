@@ -60,9 +60,10 @@ list. See `docs/configuration.md`.
 ### Refreshing the REST route list
 
 `src/mcp_github/rest_routes.txt` holds every route in GitHub's REST API
-description for api.github.com. The metrics label each `github_api_read` and
-`github_api_write` call with the route it matched, and a route GitHub adds counts
-as `unmatched` until the list is regenerated:
+description for api.github.com, with its summary and docs page.
+`github_search_api_routes` searches it, and the metrics label each request tool
+call with the route it matched. A route GitHub adds stays out of the search, and
+counts as `unmatched`, until the list is regenerated:
 
 ```shell
 uv run python -m mcp_github.api_routes

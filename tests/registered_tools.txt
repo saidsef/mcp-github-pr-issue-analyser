@@ -4,6 +4,7 @@
 github_add_inline_pr_comment
 github_add_pr_comments
 github_add_to_project
+github_api_delete
 github_api_read
 github_api_write
 github_commit_files
@@ -49,6 +50,7 @@ github_remove_from_project
 github_reply_to_review_comment
 github_request_reviewers
 github_rerun_job
+github_search_api_routes
 github_search_issues_prs
 github_search_user
 github_set_assignees

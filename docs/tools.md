@@ -106,12 +106,14 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 
 ## REST and GraphQL requests
 
-`github_api_read` and `github_api_write` reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. Both tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers the path rules and the tools to prefer where one exists.
+These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists.
 
 | Tool | Kind | Description |
 |------|------|-------------|
+| `github_search_api_routes` | read | Routes from GitHub's OpenAPI description that match a few words, each with its method, path, summary, docs page and the tool that sends it |
 | `github_api_read` | read | A GET to any path, or a GraphQL query. A mutation is refused |
-| `github_api_write` | destructive | A POST, PATCH, PUT or DELETE to any path, or a GraphQL mutation, sent once and never retried |
+| `github_api_write` | write | A POST, PATCH or PUT to any path, or a GraphQL mutation that does not delete or remove anything, sent once and never retried |
+| `github_api_delete` | destructive | A DELETE to any path, or a GraphQL mutation that deletes or removes something, sent once and never retried |
 
 ## Interactive UI
 

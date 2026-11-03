@@ -34,7 +34,7 @@ from fastmcp.exceptions import ToolError
 from fastmcp_tasks.settings import DocketSettings
 
 from .activity import ActivityMixin
-from .api_routes import api_url, is_mutation
+from .api_routes import APIRoutesMixin, api_url, deletes, is_mutation
 from .auth import (
     MISSING_CREDENTIALS,
     APIKeyVerifier,
@@ -282,7 +282,7 @@ _IfExists = Literal["fail", "update"]
 _Names = list[str] | None
 _WorkflowInputs = dict[str, Any]
 _FileChanges = dict[str, str | None]
-_WriteMethod = Literal["POST", "PATCH", "PUT", "DELETE"]
+_WriteMethod = Literal["POST", "PATCH", "PUT"]
 _APIValues = dict[str, Any] | None
 _APIBody = dict[str, Any] | list[Any] | None
 
@@ -738,7 +738,7 @@ def _overall(check_runs: list[dict[str, Any]], commit_statuses: list[dict[str, A
     return "unknown" if truncated else "passing"
 
 
-class GitHubIntegration(ActivityMixin, SkillsMixin):
+class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
     def __init__(self):
         """Initialises the GitHubIntegration instance."""
         self.github_token = GITHUB_TOKEN
@@ -2677,8 +2677,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
     async def _api_call(
         self, method: str, path: str, graphql: str | None, variables: _APIValues, max_bytes: int, **kwargs: Any
     ) -> APIResult:
-        """The part github_api_read and github_api_write share. A call is sent once,
-        since a repeated POST can create the same thing twice. See #543."""
+        """The part the github_api_* request tools share. A call is sent once, since a
+        repeated POST can create the same thing twice. See #543."""
         if max_bytes < 0:
             raise GitHubValidationError("max_bytes cannot be negative.")
         if graphql:
@@ -2702,10 +2702,13 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         endpoint no other tool covers. GitHub decides what the token may read, and a
         refusal names the scope it lacks where GitHub says. See #543."""
         if graphql and is_mutation(graphql):
-            raise GitHubValidationError("github_api_read runs queries only. Send a mutation with github_api_write.")
+            raise GitHubValidationError(
+                "github_api_read runs queries only. Send a mutation with github_api_write,"
+                " or with github_api_delete when it deletes or removes something."
+            )
         return await self._api_call("GET", path, graphql, variables, max_bytes, params=params)
 
-    @_destructive
+    @_write
     async def api_write(
         self,
         method: _WriteMethod = "POST",
@@ -2715,7 +2718,24 @@ class GitHubIntegration(ActivityMixin, SkillsMixin):
         variables: Annotated[_APIValues, "Variables for the GraphQL mutation"] = None,
         max_bytes: Annotated[int, "Cap on the body returned"] = FILE_MAX_BYTES,
     ) -> APIResult:
-        """Sends a POST, PATCH, PUT or DELETE to any path under api.github.com, or runs a
-        GraphQL mutation, for a change no other tool makes. GitHub decides what the token
-        may change, and a refusal names the scope it lacks where GitHub says. See #543."""
+        """Sends a POST, PATCH or PUT to any path under api.github.com, or runs a GraphQL
+        mutation, for a change no other tool makes. A DELETE, and a mutation that deletes
+        or removes something, belong to github_api_delete, whose destructive hint says so.
+        GitHub decides what the token may change. See #543."""
+        if graphql and deletes(graphql):
+            raise GitHubValidationError("This mutation deletes or removes something. Send it with github_api_delete.")
         return await self._api_call(method, path, graphql, variables, max_bytes, json=body)
+
+    @_destructive
+    async def api_delete(
+        self,
+        path: Annotated[str, "Path under https://api.github.com, such as repos/octocat/hello-world/labels/bug"] = "",
+        body: Annotated[_APIBody, "JSON request body, which a few DELETE routes require"] = None,
+        graphql: Annotated[str | None, "A GraphQL mutation that deletes or removes something"] = None,
+        variables: Annotated[_APIValues, "Variables for the GraphQL mutation"] = None,
+        max_bytes: Annotated[int, "Cap on the body returned"] = FILE_MAX_BYTES,
+    ) -> APIResult:
+        """Sends a DELETE to any path under api.github.com, or runs a GraphQL mutation that
+        deletes or removes something, for a removal no other tool makes. Neither can be
+        undone. GitHub decides what the token may remove. See #543."""
+        return await self._api_call("DELETE", path, graphql, variables, max_bytes, json=body)

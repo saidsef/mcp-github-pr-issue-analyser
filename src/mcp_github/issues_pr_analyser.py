@@ -101,9 +101,10 @@ def _tool_name(method_name: str) -> str:
     return f"{TOOL_PREFIX}{_TOOL_NAMES.get(method_name, method_name)}"
 
 
-_API_READ = _tool_name("api_read")
+# The request tools that fix their method, beside github_api_write, which takes one.
+_API_METHODS = {_tool_name("api_read"): "GET", _tool_name("api_delete"): "DELETE"}
 
-_API_TOOLS = {_API_READ, _tool_name("api_write")}
+_API_TOOLS = {*_API_METHODS, _tool_name("api_write")}
 
 
 try:
@@ -118,16 +119,16 @@ TOOL_IN_PROGRESS = Gauge("mcp_tool_in_progress", "Tool calls currently running")
 STALE_TOOL_LIST = Counter("mcp_stale_tool_list_total", "Tool calls naming a tool the server does not register")
 API_ROUTE_CALLS = Counter(
     "mcp_api_route_invocations_total",
-    "github_api_read and github_api_write calls, by method and route template",
+    "github_api_read, github_api_write and github_api_delete calls, by method and route template",
     ["tool_name", "method", "route", "outcome"],
 )
 
 
 def _api_route(name: str, message: Any) -> tuple[str, str]:
-    """The method and route template an API tool call named. A read is a GET
-    whatever its arguments say."""
+    """The method and route template an API tool call named. A read is a GET and a
+    delete a DELETE, whatever their arguments say."""
     args = getattr(message, "arguments", None) or {}
-    method = "GET" if name == _API_READ else args.get("method", "POST")
+    method = _API_METHODS.get(name) or args.get("method", "POST")
     return route_label(method, args.get("path", ""), args.get("graphql"))
 
 
@@ -250,7 +251,7 @@ This server provides tools to analyse GitHub Pull Requests (PRs) and manage GitH
 - Use github_create_tag and github_create_release for release management
 - Use github_list_projects to find a board's number from its owner's login, since every other board tool takes one
 - Use github_get_project_fields before github_set_project_field, since option names differ per board
-- Use github_api_read and github_api_write only for an endpoint no other tool covers, since the other tools trim GitHub's replies and handle its quirks
+- Use github_api_read, github_api_write and github_api_delete only for an endpoint no other tool covers, since the other tools trim GitHub's replies and handle its quirks. Find the endpoint with github_search_api_routes first
 - Keep a professional and concise tone
 
 ## Fetched Content

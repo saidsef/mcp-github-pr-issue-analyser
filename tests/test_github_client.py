@@ -50,6 +50,7 @@ _READ = {
     "list_repository_tree",
     "list_skills",
     "list_tags",
+    "search_api_routes",
     "search_issues_prs",
     "search_user",
 }
@@ -57,6 +58,7 @@ _READ = {
 
 _WRITE = {
     "add_inline_pr_comment",
+    "api_write",
     "add_pr_comments",
     "add_to_project",
     "commit_files",
@@ -85,7 +87,7 @@ _WRITE = {
 }
 
 
-_DESTRUCTIVE = {"api_write", "delete_branch", "delete_release", "delete_tag", "remove_from_project"}
+_DESTRUCTIVE = {"api_delete", "delete_branch", "delete_release", "delete_tag", "remove_from_project"}
 
 
 _IDEMPOTENT = {

@@ -1,4 +1,4 @@
-"""Tests for github_api_read and github_api_write, which reach any documented route. See #543."""
+"""Tests for the github_api_* tools, which find and reach any GitHub route. See #543."""
 
 from __future__ import annotations
 
@@ -7,12 +7,19 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from mcp_github.api_routes import is_mutation, route_label
+from mcp_github.api_routes import deletes, is_mutation, route_label
 from mcp_github.exceptions import GitHubValidationError
 from mcp_github.github_integration import GitHubIntegration
 from tests.support import mock_response
 
 _NEXT = {"Link": '<https://api.github.com/repositories/1/collaborators?page=2>; rel="next"'}
+
+
+def _send(gi: GitHubIntegration, method: str, path: str):
+    """The call the tool for that method makes, as an agent would pick it."""
+    if method == "GET":
+        return gi.api_read(path)
+    return gi.api_delete(path) if method == "DELETE" else gi.api_write(method, path)
 
 
 class TestReaching:
@@ -60,6 +67,14 @@ class TestReaching:
 
         assert gi._http.post.call_args.kwargs["json"]["query"].startswith("mutation")
 
+    @pytest.mark.anyio
+    async def test_a_delete_sends_the_body_some_routes_require(self, gi: GitHubIntegration):
+        gi._http.request = AsyncMock(return_value=mock_response(json_data={"commit": {}}))
+        await gi.api_delete("repos/o/r/contents/a.md", body={"message": "m", "sha": "s"})
+
+        assert gi._http.request.call_args.args == ("DELETE", "https://api.github.com/repos/o/r/contents/a.md")
+        assert gi._http.request.call_args.kwargs["json"] == {"message": "m", "sha": "s"}
+
 
 class TestPaths:
     """A path is refused only where httpx would send something other than it says,
@@ -79,7 +94,7 @@ class TestPaths:
     @pytest.mark.anyio
     async def test_a_path_httpx_would_send_elsewhere(self, gi: GitHubIntegration, method: str, path: str):
         gi._http.request = AsyncMock()
-        call = gi.api_read(path) if method == "GET" else gi.api_write(method, path)
+        call = _send(gi, method, path)
         with pytest.raises(GitHubValidationError):
             await call
         gi._http.request.assert_not_called()
@@ -98,7 +113,7 @@ class TestPaths:
     async def test_every_path_is_left_to_github(self, gi: GitHubIntegration, method: str, path: str):
         """GitHub's permission check decides what the token may do. See #543."""
         gi._http.request = AsyncMock(return_value=mock_response(status_code=204))
-        await (gi.api_read(path) if method == "GET" else gi.api_write(method, path))
+        await _send(gi, method, path)
 
         assert gi._http.request.call_args.args == (method, f"https://api.github.com/{path}")
 
@@ -121,6 +136,54 @@ class TestPaths:
     )
     def test_a_mutation_is_found_outside_strings_and_comments(self, document: str, expected: bool):
         assert is_mutation(document) is expected
+
+
+class TestKinds:
+    """Each request tool refuses a call that belongs to another, so its hint stays true."""
+
+    @pytest.mark.anyio
+    async def test_the_write_tool_refuses_a_mutation_that_deletes(self, gi: GitHubIntegration):
+        gi._http.post = AsyncMock()
+        with pytest.raises(GitHubValidationError, match="github_api_delete"):
+            await gi.api_write(graphql='mutation { deleteRef(input: {refId: "x"}) { clientMutationId } }')
+        gi._http.post.assert_not_called()
+
+    @pytest.mark.parametrize(
+        ("document", "expected"),
+        [
+            ('mutation { deleteRef(input: {refId: "x"}) { clientMutationId } }', True),
+            ("mutation { removeLabelsFromLabelable(input: {}) { clientMutationId } }", True),
+            ("mutation { x: deleteProjectV2Item(input: {}) { deletedItemId } }", True),
+            ("mutation { addStar(input: {}) { clientMutationId } }", False),
+            ("mutation { updateIssue(input: {}) { issue { viewerCanDelete } } } # deleteRef", False),
+        ],
+    )
+    def test_a_deletion_is_found_by_field_name(self, document: str, expected: bool):
+        assert deletes(document) is expected
+
+
+class TestRouteSearch:
+    @pytest.mark.parametrize(
+        ("query", "method", "path", "tool"),
+        [
+            ("add repository collaborator", None, "/repos/{owner}/{repo}/collaborators/{username}", "github_api_write"),
+            (
+                "remove repository collaborators",
+                None,
+                "/repos/{owner}/{repo}/collaborators/{username}",
+                "github_api_delete",
+            ),
+            ("file contents", "PUT", "/repos/{owner}/{repo}/contents/{path}", "github_api_write"),
+        ],
+    )
+    @pytest.mark.anyio
+    async def test_a_search_names_the_route_and_the_tool_that_sends_it(
+        self, gi: GitHubIntegration, query: str, method: str | None, path: str, tool: str
+    ):
+        result = await gi.search_api_routes(query, method=method)
+
+        assert (result["routes"][0]["path"], result["routes"][0]["tool"]) == (path, tool)
+        assert result["routes"][0]["docs"].startswith("https://docs.github.com/rest/")
 
 
 class TestCapping:

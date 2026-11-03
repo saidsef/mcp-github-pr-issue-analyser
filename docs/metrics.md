@@ -11,7 +11,7 @@ curl http://localhost:8081/metrics
 | `mcp_tool_invocations_total` | counter | Tool calls, labelled by `tool_name` and `outcome` |
 | `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` and `outcome` |
 | `mcp_tool_in_progress` | gauge | Tool calls currently running |
-| `mcp_api_route_invocations_total` | counter | `github_api_read` and `github_api_write` calls, labelled by `tool_name`, `method`, `route` and `outcome` |
+| `mcp_api_route_invocations_total` | counter | `github_api_read`, `github_api_write` and `github_api_delete` calls, labelled by `tool_name`, `method`, `route` and `outcome` |
 | `process_*` | gauge | CPU, memory and file descriptor usage of the server process, Linux only |
 | `python_info` | gauge | Interpreter version |
 
@@ -51,6 +51,6 @@ histogram_quantile(0.95, sum by (le, tool_name) (rate(mcp_tool_duration_seconds_
 # calls currently running
 mcp_tool_in_progress
 
-# the routes reached through github_api_read and github_api_write
+# the routes reached through the github_api_* request tools
 sum by (tool_name, method, route) (rate(mcp_api_route_invocations_total[5m]))
 ```

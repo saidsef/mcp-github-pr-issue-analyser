@@ -35,7 +35,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 | `GITHUB_API_TIMEOUT` | No, default `5` | Seconds allowed for reading a GitHub API response. Raise this for large diffs and busy status-check queries |
 | `GITHUB_API_CONNECT_TIMEOUT` | No, default `3` | Seconds allowed for opening the connection, separate from the read timeout |
 | `GITHUB_DIFF_MAX_BYTES` | No, default `131072` | Default cap on the patch `github_get_pr_diff` returns and on the log `github_get_job_log` returns. Callers can override it per call, and the reply carries the full size either way |
-| `GITHUB_FILE_MAX_BYTES` | No, default `131072` | Default cap on the bytes `github_get_repository_file` reads in one window and on the body `github_api_read` and `github_api_write` return. Callers can override it per call, and the reply carries the full size either way |
+| `GITHUB_FILE_MAX_BYTES` | No, default `131072` | Default cap on the bytes `github_get_repository_file` reads in one window and on the body `github_api_read`, `github_api_write` and `github_api_delete` return. Callers can override it per call, and the reply carries the full size either way |
 | `GITHUB_ETAG_CACHE_ENTRIES` | No, default `256` | How many read responses to keep for conditional requests. A repeat read is sent with `If-None-Match`, and GitHub charges no rate limit for a `304`. `0` sends every read unconditionally |
 | `LOG_LEVEL` | No, default `WARNING` | Root log level, one of the standard Python names. Applied by the entry point only, not on import |
 

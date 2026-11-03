@@ -16,12 +16,13 @@
 #  * limitations under the License.
 #  */
 
-"""Paths and metric labels for github_api_read and github_api_write.
+"""Paths, metric labels and the route search for the github_api_* tools.
 
-Both tools send a caller's path to api.github.com whatever route it names, and
-GitHub's own permission check decides what the token may do. The route list
-beside this module comes from GitHub's OpenAPI description and only labels the
-calls for metrics. Running the module regenerates it:
+The request tools send a caller's path to api.github.com whatever route it names,
+and GitHub's own permission check decides what the token may do. The route list
+beside this module comes from GitHub's OpenAPI description. It labels those calls
+for metrics, and github_search_api_routes searches it so an agent can find the
+method and path for a task. Running the module regenerates it:
 
     uv run python -m mcp_github.api_routes
 
@@ -33,13 +34,14 @@ from __future__ import annotations
 import functools
 import re
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, Literal, NamedTuple, TypedDict
 from urllib.parse import unquote
 
 import httpx
 
 from .exceptions import GitHubValidationError
 from .graphql_client import API
+from .tool_annotations import _read_only
 
 ROUTES_FILE = Path(__file__).parent / "rest_routes.txt"
 
@@ -47,7 +49,14 @@ DESCRIPTION_URL = (
     "https://raw.githubusercontent.com/github/rest-api-description/main/descriptions/api.github.com/api.github.com.json"
 )
 
+DOCS_URL = "https://docs.github.com/rest/"
+
+# The tool that sends each method, so a search result names the one to call.
+_TOOL_FOR = {"GET": "github_api_read", "DELETE": "github_api_delete"}
+
 _METHODS = ("get", "post", "put", "patch", "delete")
+
+_Method = Literal["GET", "POST", "PATCH", "PUT", "DELETE"]
 
 _PARAM = re.compile(r"\{(\+?)([^}]+)\}")
 
@@ -55,6 +64,27 @@ _PARAM = re.compile(r"\{(\+?)([^}]+)\}")
 _GRAPHQL_NOISE = re.compile(r'"""(?:\\"""|[\s\S])*?"""|"(?:\\.|[^"\\\n\r])*"|#[^\n\r]*')
 
 _MUTATION = re.compile(r"\bmutation\b")
+
+# GitHub names a mutation that takes something away delete... or remove...
+_DELETION = re.compile(r"\b(?:delete|remove)[A-Z]\w*")
+
+
+class Route(NamedTuple):
+    method: str
+    raw: str
+    summary: str
+    docs: str
+    pattern: re.Pattern[str]
+
+    @property
+    def template(self) -> str:
+        """The path as GitHub's docs write it, without the {+name} marker."""
+        return self.raw.replace("{+", "{")
+
+
+class RouteSearchResult(TypedDict):
+    total: int
+    routes: list[dict[str, str]]
 
 
 def _pattern(template: str) -> re.Pattern[str]:
@@ -68,16 +98,26 @@ def _pattern(template: str) -> re.Pattern[str]:
 
 
 @functools.cache
-def _routes() -> dict[str, list[tuple[str, re.Pattern[str]]]]:
-    """Every route by method, fewest parameters first, so pulls/comments matches its
-    own route before pulls/{pull_number}, as it does on GitHub."""
-    routes: dict[str, list[tuple[str, re.Pattern[str]]]] = {}
+def _catalogue() -> list[Route]:
+    """Every route in ROUTES_FILE, in file order."""
+    routes = []
     for line in ROUTES_FILE.read_text(encoding="utf-8").splitlines():
         if line and not line.startswith("#"):
-            method, template = line.split(" ", 1)
-            routes.setdefault(method, []).append((template, _pattern(template)))
+            method, raw, summary, docs = line.split("\t")
+            docs = docs if docs.startswith("https://") else DOCS_URL + docs
+            routes.append(Route(method, raw, summary, docs, _pattern(raw)))
+    return routes
+
+
+@functools.cache
+def _routes() -> dict[str, list[Route]]:
+    """Every route by method, fewest parameters first, so pulls/comments matches its
+    own route before pulls/{pull_number}, as it does on GitHub."""
+    routes: dict[str, list[Route]] = {}
+    for route in _catalogue():
+        routes.setdefault(route.method, []).append(route)
     for entries in routes.values():
-        entries.sort(key=lambda entry: (entry[0].count("{+"), entry[0].count("{")))
+        entries.sort(key=lambda route: (route.raw.count("{+"), route.raw.count("{")))
     return routes
 
 
@@ -105,14 +145,59 @@ def route_label(method: Any, path: Any, graphql: Any) -> tuple[str, str]:
     except GitHubValidationError:
         return "unmatched", "unmatched"
     routes = _routes().get(str(method), [])
-    template = next((template for template, pattern in routes if pattern.fullmatch(sent)), None)
+    template = next((route.template for route in routes if route.pattern.fullmatch(sent)), None)
     return (str(method), template) if template else ("unmatched", "unmatched")
 
 
+def _code(document: str) -> str:
+    """A GraphQL document with its strings and comments blanked, so a keyword search
+    neither trips on them nor misses what a block string hides."""
+    return _GRAPHQL_NOISE.sub(" ", document)
+
+
 def is_mutation(document: str) -> bool:
-    """True when a GraphQL document holds a mutation. Strings and comments are blanked
-    first, so a search for the word does not trip it and a block string cannot hide one."""
-    return _MUTATION.search(_GRAPHQL_NOISE.sub(" ", document)) is not None
+    """True when a GraphQL document holds a mutation."""
+    return _MUTATION.search(_code(document)) is not None
+
+
+def deletes(document: str) -> bool:
+    """True when a GraphQL document calls a field named delete... or remove..."""
+    return _DELETION.search(_code(document)) is not None
+
+
+class APIRoutesMixin:
+    """Searches GitHub's REST route list without going near GitHub."""
+
+    @_read_only
+    async def search_api_routes(
+        self,
+        query: Annotated[str, "Words for what the call should do, such as 'add collaborator' or 'ruleset'"],
+        method: Annotated[_Method | None, "Only routes sent with this method"] = None,
+        limit: Annotated[int, "Most routes to return"] = 20,
+    ) -> RouteSearchResult:
+        """Finds REST routes whose summary or path holds every word of the query, each
+        with its method, path, summary, docs link and the request tool that sends it.
+        The routes come from GitHub's OpenAPI description. See #543."""
+        words = [word.removesuffix("s") for word in query.lower().split()]
+        found = [
+            route
+            for route in _catalogue()
+            if (method is None or route.method == method)
+            and all(word in f"{route.summary} {route.template}".lower() for word in words)
+        ]
+        return {
+            "total": len(found),
+            "routes": [
+                {
+                    "method": route.method,
+                    "path": route.template,
+                    "summary": route.summary,
+                    "docs": route.docs,
+                    "tool": _TOOL_FOR.get(route.method, "github_api_write"),
+                }
+                for route in found[: max(limit, 0)]
+            ],
+        }
 
 
 def _template(description: dict[str, Any], path: str, parameters: list[dict[str, Any]]) -> str:
@@ -128,17 +213,24 @@ def write_routes() -> None:
     """Rewrite ROUTES_FILE from the description GitHub publishes for api.github.com."""
     description = httpx.get(DESCRIPTION_URL, timeout=60, follow_redirects=True).raise_for_status().json()
     routes = sorted(
-        (_template(description, path, [*item.get("parameters", []), *op.get("parameters", [])]), method.upper())
+        (
+            _template(description, path, [*item.get("parameters", []), *op.get("parameters", [])]),
+            method.upper(),
+            " ".join(op["summary"].split()),
+            op["externalDocs"]["url"].removeprefix(DOCS_URL),
+        )
         for path, item in description["paths"].items()
         for method in _METHODS
         if (op := item.get(method))
     )
     header = (
         "# Every REST route on api.github.com, from GitHub's OpenAPI description.\n"
+        f"# Tab-separated: method, path, summary, and the docs page under {DOCS_URL}\n"
         "# {+name} marks a parameter that spans several path segments.\n"
         "# Regenerate with: uv run python -m mcp_github.api_routes\n"
     )
-    ROUTES_FILE.write_text(header + "".join(f"{method} {template}\n" for template, method in routes), encoding="utf-8")
+    lines = "".join(f"{method}\t{raw}\t{summary}\t{docs}\n" for raw, method, summary, docs in routes)
+    ROUTES_FILE.write_text(header + lines, encoding="utf-8")
 
 
 if __name__ == "__main__":
