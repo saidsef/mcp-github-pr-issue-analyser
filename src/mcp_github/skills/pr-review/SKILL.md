@@ -95,6 +95,27 @@ sent.
 An empty list means nobody has reviewed. To tell that from nobody having been
 asked, read `requested_reviewers` on `github_get_pr_content`.
 
+Each REST review carries the reviewer's whole profile and a set of links. On a PR
+with a long review history, pass this query as `graphql` to `github_api_read`
+instead, which returns the same fields without them:
+
+```graphql
+query($owner: String!, $name: String!, $number: Int!, $after: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      reviews(first: 100, after: $after) {
+        pageInfo { hasNextPage endCursor }
+        nodes { databaseId author { login } state body submittedAt commit { oid } }
+      }
+    }
+  }
+}
+```
+
+`databaseId` is the REST `id`. Pass `endCursor` back as `after` while
+`hasNextPage` is true. GraphQL names a bot without the `[bot]` suffix, so
+`github-actions[bot]` reads as `github-actions`.
+
 ### Reading comments
 
 Call `github_api_read` on `repos/{owner}/{repo}/issues/{number}/comments` for the
@@ -102,6 +123,37 @@ PR conversation, or on `repos/{owner}/{repo}/pulls/{number}/comments` for inline
 comments on lines. Inline comments carry `path`, `line`, `side`, `start_line`,
 `start_side` and `in_reply_to_id`, which is what lets a review tell whether it
 has already spoken about a line or a range.
+
+Both listings carry each author's whole profile, and the inline one carries the
+diff hunk as well, so a busy PR can pass `max_bytes`. This query reads both kinds
+in one call:
+
+```graphql
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      comments(first: 100) {
+        pageInfo { hasNextPage endCursor }
+        nodes { databaseId author { login } body createdAt }
+      }
+      reviewThreads(first: 100) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          isResolved path line startLine diffSide
+          comments(first: 100) { nodes { databaseId author { login } body replyTo { databaseId } } }
+        }
+      }
+    }
+  }
+}
+```
+
+A thread carries the `path`, `line`, `startLine` and `diffSide` of its comments,
+and `isResolved`, which REST does not report. `startLine` equals `line` on a
+single-line comment, where REST reports `start_line` as `null`, so tell a range
+from `startLine` being less than `line`. Each comment's `databaseId` is the
+`id` that editing and replying below take. Page `comments` and `reviewThreads`
+separately, each with its own `after` argument.
 
 ### Posting a conversation comment
 
