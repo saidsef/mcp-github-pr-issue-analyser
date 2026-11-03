@@ -46,11 +46,11 @@ step that failed, such as `fetch user activities` or `fetch status checks`.
 Which codes survive that labelling is a question of transport. An error raised
 inside the step itself, by the tool or by the GraphQL mapper, keeps its own code
 where it is `NOT_FOUND`, `AUTH_FAILED` or `RATE_LIMITED`, since the labelling
-re-raises those three untouched. `github_search_user` raises one against its own
-result for a name nobody holds:
+re-raises those three untouched. `github_get_user_activities` raises one against its
+own result for a name nobody holds:
 
 ```
-Error calling tool 'github_search_user': [NOT_FOUND] HTTP 404: User 'nobody' not found
+Error calling tool 'github_get_user_activities': [NOT_FOUND] HTTP 404: User 'nobody' not found
 ```
 
 An error the step met on a REST call is labelled even where it carries a code,
@@ -123,8 +123,7 @@ since a retry fails the same way until the token changes.
 
 ## GraphQL Failures
 
-The project board tools, `github_search_user`, `github_get_user_activities`,
-`github_get_pr_linked_issues`, `github_get_pr_status_checks`,
+The project board tools, `github_get_user_activities`, `github_get_pr_status_checks`,
 `github_set_pr_draft`, `github_create_empty_commit` and `github_commit_files`,
 apart from its merge commits, run on GitHub's GraphQL API, and Projects (v2) has no REST equivalent at all. GraphQL answers HTTP 200 and puts the refusal in an `errors`
 array, so the server reads the first entry and maps its `type` onto a code:

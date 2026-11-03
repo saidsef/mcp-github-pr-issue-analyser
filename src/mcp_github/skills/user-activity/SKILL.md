@@ -12,15 +12,13 @@ Find the repositories an account owns, then retrieve a user's profile, their con
 - The target GitHub `username`, or the owner whose repositories you want
 - GitHub token with `read:user` scope, since most of these tools use the GraphQL API
 
-`github_search_user`, `github_get_user_activities` and `github_get_repo_stars_since` run as
-long-running tasks. `github_get_user_activities` and `github_get_repo_stars_since` report
-progress while they work, `github_search_user` returns in one step and reports none,
-and `github_list_repos` is a plain read.
+`github_get_user_activities` and `github_get_repo_stars_since` run as long-running tasks
+and report progress while they work. `github_list_repos` is a plain read.
 
 ## Workflow
 
 1. **Find the repository** - call `github_list_repos` when you do not already know the name
-2. **Look up the profile** - call `github_search_user` to confirm the user exists and get context
+2. **Look up the profile** - read the profile, as in Reading a profile below, to confirm the user exists and get context
 3. **Retrieve contributions** - call `github_get_user_activities`, optionally filtered by org, repo or date range
 4. **Measure star growth** - call `github_get_repo_stars_since` when the question is about stars in a time window
 
@@ -51,18 +49,16 @@ entitled to see them.
 An owner that is neither a user nor an organisation fails with a not-found
 error naming it.
 
-## `github_search_user`
+## Reading a profile
 
-| Parameter | Type | Description |
-|---|---|---|
-| `username` | str | GitHub username to look up |
+Call `github_api_read` on `users/{login}`. The reply carries `login`, `name`,
+`company`, `location`, `bio`, `html_url`, `created_at`, `followers`, `following`
+and `public_repos`, with `type` set to `User` or `Organization`. An account
+nobody holds comes back as `NOT_FOUND`.
 
-Returns `UserSearchResult`: `login`, `name`, `email`, `company`, `location`,
-`bio`, `url`, `avatar_url`, `created_at`, `updated_at`, `followers`,
-`following`, `public_repos`, `recent_repos`, `organizations`.
-
-`recent_repos` is the 10 most recently updated public repositories, not the
-user's pinned ones. Public repositories only.
+Call `github_api_read` on `users/{login}/orgs` for the organisations the user
+shows publicly, and `github_list_repos` with `owner` for their recently updated
+repositories.
 
 ## `github_get_user_activities`
 
@@ -153,7 +149,7 @@ today.
 ## Best Practices
 
 - Call `github_list_repos` rather than guessing a repository name, and omit `owner` when you want your own private ones
-- Call `github_search_user` first, since it confirms the user exists and gives context before the heavier calls
+- Read the profile first, since it confirms the user exists and gives context before the heavier calls
 - Combine `org` and `repo` to scope activity to one project
 - Keep `max_results` at 50 to 100 for wide date ranges, remembering the cap is per section
 - Use date ranges when investigating a specific sprint or quarter, and split anything over a year

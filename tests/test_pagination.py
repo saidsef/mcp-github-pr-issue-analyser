@@ -98,7 +98,6 @@ class TestPaginationMetadata:
         import inspect as _inspect
 
         names = [
-            "list_open_issues_prs",
             "search_issues_prs",
             "list_repos",
             "list_releases",

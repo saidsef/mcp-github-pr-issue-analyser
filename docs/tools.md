@@ -6,7 +6,7 @@ The server registers every public method on the GitHub integration that carries 
 
 Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and returns `count` with `has_more`. `count` is the number of items in the reply, never the size of the result set. `has_more` comes from GitHub's `Link` header, so paging stops on a fact rather than on a guess from a full page.
 
-`total` appears only where GitHub reports a genuine count: `github_list_open_issues_prs` and `github_search_issues_prs` report the matches found, `github_list_projects` reports the boards an owner has, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
+`total` appears only where GitHub reports a genuine count: `github_search_issues_prs` reports the matches found, `github_list_projects` reports the boards an owner has, and `github_list_project_items` reports the cards on the board. A tool without `total` cannot answer how many there are without paging to the end.
 
 `github_list_projects` and `github_list_project_items` read GraphQL connections, which page by cursor, so they take `after` and return `next_cursor` in place of `page`. Both report `total`, since the connection carries a count.
 
@@ -16,7 +16,6 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 |------|------|-------------|
 | `github_get_pr_diff` | read | Retrieve the net diff of a PR, capped at `max_bytes` and reporting the full size |
 | `github_get_pr_content` | read | PR title, description, author, timestamps, state, draft and merge status, size, head SHA, the branches either side, who was asked to review, labels and assignees |
-| `github_get_pr_linked_issues` | read, task | Issues that auto-close when the PR merges, via GraphQL `closingIssuesReferences` |
 | `github_get_pr_status_checks` | read, task | Check run conclusions and legacy commit status for the PR's HEAD commit |
 | `github_get_job_log` | read | The end of a GitHub Actions job's log, capped at `max_bytes` and reporting the full size |
 | `github_get_workflow_runs` | read, task | One workflow run by id, or every run on a commit, with jobs and steps, optionally waiting for the runs to finish |
@@ -26,7 +25,6 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 | `github_create_empty_commit` | write | Push a commit that changes no file to a branch or a PR's head, starting a new CI run under the caller's name |
 | `github_commit_files` | write | Commit text files to a branch with a commit GitHub signs, or write the merge commit that resolves a conflicted PR |
 | `github_rerun_job` | write | Re-run one Actions job and the jobs that depend on it, without a commit, optionally with debug logging, returning the run to follow |
-| `github_dispatch_workflow` | write | Start a `workflow_dispatch` workflow on a branch or tag with up to 25 inputs, returning the run it started |
 | `github_add_inline_pr_comment` | write | Comment on a line or a range in a PR's files, either side of the diff |
 
 ## Issues, labels and milestones
@@ -35,8 +33,7 @@ Every REST list tool takes `per_page` (default 50, maximum 100) and `page`, and 
 |------|------|-------------|
 | `github_get_issue` | read | One issue by number, with its body, labels, assignees and milestone |
 | `github_create_issue` | write | Open an issue with title, body, labels and an optional milestone |
-| `github_list_open_issues_prs` | read | List open PRs or issues for a user or organisation |
-| `github_search_issues_prs` | read | Free-text and qualifier search across issues and PRs, closed ones included, with an option to match issues by meaning |
+| `github_search_issues_prs` | read | Search issues and PRs by text and qualifiers, open, closed or merged, with an option to match issues by meaning |
 | `github_update_milestone` | write | Rename a milestone, move its due date, or close it |
 | `github_set_issue_milestone` | write | File an issue under a milestone, or take it off one |
 
@@ -82,13 +79,12 @@ Projects (v2) has no REST surface, so every tool here goes through GraphQL. The 
 | Tool | Kind | Description |
 |------|------|-------------|
 | `github_list_repos` | read | Repositories for a user, an organisation, or the caller, private ones included |
-| `github_search_user` | read, task | Fetch a user's profile via GraphQL |
 | `github_get_user_activities` | read, task | Commit, PR, issue and review contributions, filtered by org, repo or date |
 | `github_get_repo_stars_since` | read, task | Repositories owned by a user that gained the most stars since a given date, with a `truncated` flag when the repo listing or a repo's star history was cut short |
 
 ## REST and GraphQL requests
 
-These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists. A merge, a comment, a review, an assignee change and a milestone each go through these tools, and the skill for each task gives the call.
+These tools reach any path under `https://api.github.com` and any GraphQL operation, for an endpoint no other tool covers. `github_search_api_routes` finds the route, and one request tool per kind sends it, so a read, a write and a deletion each carry their own hint. GitHub decides what the token may do, and an error names the scope the token lacks where GitHub reports one. The request tools return the body as text capped at `max_bytes`, with `bytes_total`, `truncated` and `has_more`. The `api-requests` skill covers finding an endpoint, the path rules and the tools to prefer where one exists. A merge, a comment, a review, an assignee change, a milestone, a user profile, a workflow dispatch and a PR's linked issues each go through these tools, and the skill for each task gives the call.
 
 | Tool | Kind | Description |
 |------|------|-------------|

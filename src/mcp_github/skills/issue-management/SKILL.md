@@ -41,7 +41,8 @@ defines.
 
 ### Listing Issues and PRs
 
-1. Call `github_list_open_issues_prs`, choosing `filtering` for the scope you want
+1. Call `github_search_issues_prs` with `is:open` and `is:pr` or `is:issue`, plus one scope qualifier
+2. Scope with `involves:<login>` for items a user authored, is assigned, is mentioned in or commented on, `user:<login>` for that user's repositories, `org:<org>` for an organisation's, or `repo:<owner>/<name>` for one repository
 
 ### Finding an Issue or PR
 
@@ -131,31 +132,6 @@ Open or closed makes no difference. A number belonging to a pull request is
 rejected with a validation error, since GitHub serves both from this path and
 the result would describe a PR as an issue. Use `github_get_pr_content` for those.
 
-### `github_list_open_issues_prs`
-
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | Organisation, username, or repo owner depending on `filtering` |
-| `repo_name` | str | `""` | Repository name. Required when `filtering="repo"`, ignored otherwise |
-| `issue` | str | `pr` | `pr` for pull requests, `issue` for issues |
-| `filtering` | str | `involves` | One of `involves`, `user`, `org`, `repo` |
-| `per_page` | int | `50` | Results per page, 1 to 100 |
-| `page` | int | `1` | Page number |
-
-Returns `{"total": int, "count": int, "has_more": bool, "open_prs" | "open_issues": [...]}`,
-where the list key follows the `issue` argument. Each entry carries `url`,
-`title`, `number`, `state`, `created_at`, `updated_at`, `author`, `label_names`
-and `is_draft`.
-
-`total` is every match GitHub found, `count` is the entries on this page.
-
-Only open items are returned, since the search is hardcoded to `is:open`. Reach
-for `github_search_issues_prs` for a closed or merged item.
-
-This tool and `github_search_issues_prs` share the result shape. For a review or
-merge decision on one PR, read `is_draft` from `github_get_pr_content`, which reads
-the PR itself rather than the search index.
-
 ### `github_search_issues_prs`
 
 | Parameter | Type | Default | Description |
@@ -166,7 +142,10 @@ the PR itself rather than the search index.
 | `search_type` | str | `lexical` | One of `lexical`, `semantic`, `hybrid` |
 
 Returns `{"total": int, "incomplete_results": bool, "search_type": str, "lexical_fallback_reason": list[str] | null, "count": int, "has_more": bool, "items": [...]}`,
-each item in the same shape `github_list_open_issues_prs` returns.
+Each item carries `url`, `title`, `number`, `state`, `created_at`, `updated_at`,
+`author`, `label_names` and `is_draft`. `count` is the entries on this page.
+For a review or merge decision on one PR, read `is_draft` from
+`github_get_pr_content`, which reads the PR itself rather than the search index.
 
 The query is yours, so nothing is scoped for you. Without a `repo:` or `org:`
 qualifier the search runs across all of GitHub. `total` counts every match, not

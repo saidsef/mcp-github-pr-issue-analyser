@@ -11,7 +11,7 @@ Read-only inspection of a pull request: what it changes, what it closes, and whe
 - `repo_owner`, `repo_name` and `pr_number` for the target PR
 - GitHub token with `repo` read access
 
-`github_get_pr_linked_issues`, `github_get_pr_status_checks` and `github_get_workflow_runs` run as long-running tasks.
+`github_get_pr_status_checks` and `github_get_workflow_runs` run as long-running tasks.
 None of them reports progress while it works.
 `github_get_pr_content`, `github_get_pr_diff` and `github_get_job_log` are plain reads.
 
@@ -20,7 +20,7 @@ None of them reports progress while it works.
 1. **Fetch metadata** - call `github_get_pr_content` for title, description, author, state and timestamps
 2. **Fetch the diff** - call `github_get_pr_diff` for the raw unified diff of every changed file
 3. **Read the surrounding code** - call `github_get_repository_file` on a file whose hunk does not say enough on its own
-4. **Fetch linked issues** - call `github_get_pr_linked_issues` to see what merging will auto-close
+4. **Fetch linked issues** - read what merging will auto-close, as in Reading linked issues below
 5. **Fetch CI status** - call `github_get_pr_status_checks` to see whether the head commit is green
 6. **Read a failed job's log** - call `github_get_job_log` with the `id` of a failing GitHub Actions run to see why it failed
 7. **Synthesise** - combine what you have into a structured analysis
@@ -42,8 +42,8 @@ analyse.
 
 ## Tool Parameters
 
-`github_get_pr_content`, `github_get_pr_diff`, `github_get_pr_linked_issues` and
-`github_get_pr_status_checks` take the same three arguments.
+`github_get_pr_content`, `github_get_pr_diff` and `github_get_pr_status_checks` take
+the same three arguments.
 
 | Parameter | Type | Description |
 |---|---|---|
@@ -175,14 +175,21 @@ Each entry in `tree` carries `path`, `mode`, `type`, `size` and `sha`. `type` is
 `truncated` in the reply is `true` where the tree exceeded GitHub's cap of 100,000
 entries or 7 MB. Paging does not widen it, so list a subdirectory at a time instead.
 
-### `github_get_pr_linked_issues`
+### Reading linked issues
 
-Returns `LinkedIssuesResult`:
+Pass this query as `graphql` to `github_api_read`:
 
-| Field | Type | Description |
-|---|---|---|
-| `pr_number` | int | The PR queried |
-| `linked_issues` | list | One entry per issue with `number`, `title`, `state`, `url`, `created_at`, `labels` |
+```graphql
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $number) {
+      closingIssuesReferences(first: 25) {
+        nodes { number title state url labels(first: 10) { nodes { name } } }
+      }
+    }
+  }
+}
+```
 
 Only issues GitHub will auto-close on merge are returned: those named in the PR
 body with a closing keyword such as `Fixes #42`, and those linked by hand from
@@ -258,7 +265,7 @@ as well.
 |---|---|---|---|
 | `repo_owner` | str | - | GitHub organisation or username |
 | `repo_name` | str | - | Repository name |
-| `run_id` | int \| None | `None` | A run's id, such as the `workflow_run_id` that `github_dispatch_workflow` or `github_rerun_job` returns |
+| `run_id` | int \| None | `None` | A run's id, such as the `workflow_run_id` that a workflow dispatch or `github_rerun_job` returns |
 | `head` | str \| None | `None` | Branch, tag or SHA whose commit to read every run of, in place of `run_id` |
 | `wait_seconds` | int | `0` | Seconds to wait for every run to complete, capped by the server |
 
@@ -313,5 +320,5 @@ Cover:
 - Re-read a `truncated=True` patch with a higher `max_bytes` rather than analysing half of it
 - For diffs over 500 lines, analyse the high-risk files first: auth, config, dependency manifests
 - Report `overall="unknown"` as unverified rather than treating it as a pass
-- Use `github_get_pr_linked_issues` to check a PR actually closes what it claims to
+- Read the linked issues to check a PR actually closes what it claims to
 - Read draft, merged and mergeable status from `github_get_pr_content`, and report `mergeable=None` as not yet known rather than as a conflict

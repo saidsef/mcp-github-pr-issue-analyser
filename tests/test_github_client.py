@@ -27,7 +27,6 @@ _READ = {
     "get_job_log",
     "get_pr_content",
     "get_pr_diff",
-    "get_pr_linked_issues",
     "get_pr_status_checks",
     "get_project_fields",
     "get_release",
@@ -36,7 +35,6 @@ _READ = {
     "get_skill",
     "get_user_activities",
     "get_workflow_runs",
-    "list_open_issues_prs",
     "list_project_items",
     "list_projects",
     "list_releases",
@@ -44,7 +42,6 @@ _READ = {
     "list_skills",
     "search_api_routes",
     "search_issues_prs",
-    "search_user",
 }
 
 
@@ -58,7 +55,6 @@ _WRITE = {
     "create_pr",
     "create_release",
     "create_tag",
-    "dispatch_workflow",
     "rerun_job",
     "set_issue_milestone",
     "set_pr_draft",
@@ -84,12 +80,10 @@ _IDEMPOTENT = {
 
 
 _TASKS = {
-    "get_pr_linked_issues",
     "get_pr_status_checks",
     "get_repo_stars_since",
     "get_user_activities",
     "get_workflow_runs",
-    "search_user",
 }
 
 
@@ -467,9 +461,9 @@ class TestTypedCodes:
             await gi.add_inline_pr_comment("o", "r", 5, "app.py", 3, "fix this")
 
     @pytest.mark.anyio
-    async def test_a_missing_repo_name_raises_the_validation_code(self, gi: GitHubIntegration):
-        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] repo_name is required"):
-            await gi.list_open_issues_prs("owner", filtering="repo")
+    async def test_an_empty_query_raises_the_validation_code(self, gi: GitHubIntegration):
+        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] Supply a search query"):
+            await gi.search_issues_prs("  ")
 
 
 class TestMissingCredentials:

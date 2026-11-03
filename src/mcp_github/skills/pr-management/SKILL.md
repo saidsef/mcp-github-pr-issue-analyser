@@ -35,7 +35,7 @@ Open pull requests, keep them current, and merge them once they are ready.
 5. Call `github_create_empty_commit` with `pr_number` to start a new CI run under your name, such as on a Dependabot PR whose run failed on its read-only token
 6. Call `github_commit_files` with the PR's `head_ref` to commit text files to its branch
 7. Call `github_rerun_job` with a failed check run's `id` from `github_get_pr_status_checks` to run that job again, and the jobs that depend on it, without a commit. Pass the `workflow_run_id` it returns to `github_get_workflow_runs` to follow the run
-8. Call `github_dispatch_workflow` to start a workflow with a `workflow_dispatch` trigger on a branch or tag, passing its inputs. Follow the run it starts the same way
+8. Start a workflow with a `workflow_dispatch` trigger on a branch or tag, as in Dispatching a workflow below. Follow the run it starts the same way
 
 ### Resolving a conflicted PR
 
@@ -242,22 +242,24 @@ A re-run keeps the privileges of whoever started the first run, so a Dependabot
 job that failed on its read-only token fails the same way again. Use
 `github_create_empty_commit` for that case.
 
-### `github_dispatch_workflow`
+### Dispatching a workflow
 
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `repo_owner` | str | - | GitHub organisation or username |
-| `repo_name` | str | - | Repository name |
-| `workflow_id` | int \| str | - | The workflow's id, or its file name such as `ci.yml` |
-| `ref` | str | - | Branch or tag to run the workflow on |
-| `inputs` | dict \| None | `None` | Values for the inputs the workflow declares, keyed by input name |
+Call `github_api_write` with `POST` on
+`repos/{owner}/{repo}/actions/workflows/{workflow_id}/dispatches`, where
+`workflow_id` is the workflow's id or its file name such as `ci.yml`. The body
+carries:
 
-Returns `workflow_run_id`, `run_url` and `html_url` for the run it started. Pass
-`workflow_run_id` to `github_get_workflow_runs` to follow the run.
+| Field | Value |
+|---|---|
+| `ref` | Branch or tag to run the workflow on |
+| `inputs` | Values for the inputs the workflow declares, keyed by input name. Leave it out when there are none |
+| `return_run_details` | `true`. Without it GitHub answers 204 and says nothing of the run |
 
-GitHub refuses a workflow with no `workflow_dispatch` trigger. It takes at most
-25 inputs, so a call passing more is refused before it reaches GitHub, and an
-input left out takes the default the workflow file sets.
+The reply carries `workflow_run_id`, `run_url` and `html_url` for the run it
+started. Pass `workflow_run_id` to `github_get_workflow_runs` to follow the run.
+
+GitHub refuses a workflow with no `workflow_dispatch` trigger, and a call with
+more than 25 inputs. An input left out takes the default the workflow file sets.
 
 ### Merging
 

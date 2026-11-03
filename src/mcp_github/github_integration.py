@@ -58,12 +58,10 @@ from .graphql_queries import (
     DELETE_PROJECT_ITEM_MUTATION,
     ISSUE_PROJECT_ITEMS_QUERY,
     MARK_PR_READY_MUTATION,
-    PR_LINKED_ISSUES_QUERY,
     PR_STATUS_CHECKS_QUERY,
     PROJECT_ITEMS_QUERY,
     PROJECT_QUERY,
     PROJECTS_QUERY,
-    SEARCH_USER_QUERY,
     SET_PROJECT_FIELD_MUTATION,
 )
 from .skills_access import SkillsMixin
@@ -114,29 +112,6 @@ class IssueData(TypedDict):
     html_url: str
     created_at: str
     updated_at: str
-
-
-class UserSearchResult(TypedDict):
-    login: str
-    name: str | None
-    email: str | None
-    company: str | None
-    location: str | None
-    bio: str | None
-    url: str
-    avatar_url: str | None
-    created_at: str
-    updated_at: str
-    followers: int
-    following: int
-    public_repos: int
-    recent_repos: list[dict[str, Any]]
-    organizations: list[dict[str, Any]]
-
-
-class LinkedIssuesResult(TypedDict):
-    pr_number: int
-    linked_issues: list[dict[str, Any]]
 
 
 class FileResult(TypedDict):
@@ -250,7 +225,6 @@ _SearchType = Literal["lexical", "semantic", "hybrid"]
 _Side = Literal["LEFT", "RIGHT"]
 _IfExists = Literal["fail", "update"]
 _Names = list[str] | None
-_WorkflowInputs = dict[str, Any]
 _FileChanges = dict[str, str | None]
 _WriteMethod = Literal["POST", "PATCH", "PUT"]
 _APIValues = dict[str, Any] | None
@@ -1053,41 +1027,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         return result
 
     @_read_only
-    async def list_open_issues_prs(
-        self,
-        repo_owner: Annotated[
-            str, "Username under involves and user, organisation under org, repository owner under repo"
-        ],
-        repo_name: Annotated[str, "Repository name. Required when filtering is repo, ignored otherwise"] = "",
-        issue: Annotated[Literal["pr", "issue"], "pr for pull requests, issue for issues"] = "pr",
-        filtering: Annotated[
-            Literal["user", "org", "repo", "involves"],
-            "involves for items that user authored, is assigned, is mentioned in or commented on, anywhere on GitHub. "
-            "user for items in that user's repositories. org for an organisation's. repo for one repository",
-        ] = "involves",
-        per_page: Annotated[int, "Number of results per page (1-100)"] = 50,
-        page: Annotated[int, "Which page of results to return, counting from 1"] = 1,
-    ) -> dict[str, Any]:
-        """Lists open pull requests or issues. The search is fixed to is:open, so
-        closed and merged items are out of reach here. Call github_search_issues_prs for
-        those, and for any qualifier this tool does not expose."""
-        if filtering == "repo":
-            if not repo_name:
-                raise GitHubValidationError("repo_name is required when filtering='repo'")
-            search_target = f"{repo_owner}/{repo_name}"
-        else:
-            search_target = repo_owner
-        url = f"{API}/search/issues?q=is:{issue}+is:open+{filtering}:{search_target}&per_page={per_page}&page={page}"
-        response = await self._request("GET", url, context=f"list open {issue}s for {search_target}")
-        data = response.json()
-        items = [_search_item(item) for item in data["items"]]
-        return {
-            "total": data["total_count"],
-            **_page(response, items),
-            f"open_{issue}s": items,
-        }
-
-    @_read_only
     async def search_issues_prs(
         self,
         query: Annotated[str, "Terms and qualifiers, e.g. 'rate limit repo:owner/name is:closed label:bug'"],
@@ -1098,9 +1037,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             "lexical matches words. semantic and hybrid match issues by meaning and need is:issue in the query",
         ] = "lexical",
     ) -> dict[str, Any]:
-        """Searches issues and pull requests by text and qualifiers. Unlike
-        github_list_open_issues_prs the query is the caller's, so closed and merged
-        items are reachable and any qualifier GitHub search accepts works. GitHub
+        """Searches issues and pull requests by text and qualifiers, open, closed or
+        merged. Any qualifier GitHub search accepts works, so 'is:open is:pr
+        involves:octocat' lists the open PRs a user is part of. GitHub
         runs a lexical search when search_type is absent, so the default sends none.
         Semantic and hybrid cover issues alone, and GitHub falls back to lexical for
         a query that can reach a PR."""
@@ -1443,26 +1382,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         payload = {"enable_debug_logging": enable_debug_logging}
         await self._request("POST", f"{url}/rerun", context=f"re-run job {job_id}", json=payload)
         return {"job_id": job_id, "workflow_run_id": job["run_id"], "status": "requested"}
-
-    @_write
-    async def dispatch_workflow(
-        self,
-        repo_owner: str,
-        repo_name: str,
-        workflow_id: Annotated[int | str, "The workflow's id, or its file name such as ci.yml"],
-        ref: Annotated[str, "Branch or tag to run the workflow on"],
-        inputs: Annotated[_WorkflowInputs | None, "Values for the inputs the workflow declares, at most 25"] = None,
-    ) -> dict[str, Any]:
-        """Starts a workflow that declares a workflow_dispatch trigger, on ref, with
-        inputs keyed by the names its file declares. GitHub takes at most 25 inputs,
-        so more are refused before any request. The request sets return_run_details,
-        since without it GitHub answers 204 and says nothing of the run. See #503."""
-        if inputs and len(inputs) > 25:
-            raise GitHubValidationError(f"GitHub takes at most 25 inputs, and {len(inputs)} were passed.")
-        url = f"{_repo(repo_owner, repo_name)}/actions/workflows/{quote(str(workflow_id), safe='')}/dispatches"
-        payload = {"ref": ref, "return_run_details": True, **_supplied(inputs=inputs)}
-        response = await self._request("POST", url, context=f"dispatch {workflow_id} on {ref}", json=payload)
-        return _pick(response.json(), "workflow_run_id", "run_url", "html_url")
 
     @_read_only
     async def get_repository_file(
@@ -2022,78 +1941,6 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
             logger.error(f"Error during {action}: {e}")
             raise GitHubAPIError(f"Failed to {action}: {e}") from e
 
-    @_read_only(task=True)
-    async def search_user(self, username: str) -> UserSearchResult:
-        """Search for a GitHub user by username using GraphQL API."""
-        logger.info(f"Searching for GitHub user: {username}")
-        async with self._guard("search for user"):
-            result = await self._execute_graphql(SEARCH_USER_QUERY, {"username": username})
-            user_data = result.get("user")
-            if not user_data:
-                raise GitHubNotFoundError(f"User '{username}' not found")
-            user_info: UserSearchResult = {
-                "login": user_data["login"],
-                "name": user_data.get("name"),
-                "email": user_data.get("email"),
-                "company": user_data.get("company"),
-                "location": user_data.get("location"),
-                "bio": user_data.get("bio"),
-                "url": user_data["url"],
-                "avatar_url": user_data.get("avatarUrl"),
-                "created_at": user_data["createdAt"],
-                "updated_at": user_data["updatedAt"],
-                "followers": user_data["followers"]["totalCount"],
-                "following": user_data["following"]["totalCount"],
-                "public_repos": user_data["repositories"]["totalCount"],
-                "recent_repos": [
-                    {
-                        "name": repo["name"],
-                        "owner": repo["owner"]["login"],
-                        "description": repo.get("description"),
-                        "url": repo["url"],
-                        "updated_at": repo["updatedAt"],
-                    }
-                    for repo in user_data["repositories"]["nodes"]
-                ],
-                "organizations": [
-                    {
-                        "login": org["login"],
-                        "name": org.get("name"),
-                        "url": org["url"],
-                    }
-                    for org in user_data["organizations"]["nodes"]
-                ],
-            }
-            logger.info(f"Successfully found user: {username}")
-            return user_info
-
-    @_read_only(task=True)
-    async def get_pr_linked_issues(self, repo_owner: str, repo_name: str, pr_number: int) -> LinkedIssuesResult:
-        """Return the issues that will be auto-closed when a pull request is merged."""
-        logger.info(f"Fetching linked issues for PR #{pr_number} in {repo_owner}/{repo_name}")
-        async with self._guard("fetch linked issues"):
-            result = await self._execute_graphql(
-                PR_LINKED_ISSUES_QUERY,
-                {"owner": repo_owner, "repo": repo_name, "number": pr_number},
-            )
-            repo_data = result.get("repository")
-            if not repo_data or not repo_data.get("pullRequest"):
-                raise GitHubNotFoundError(f"PR #{pr_number} not found in {repo_owner}/{repo_name}")
-            nodes = repo_data["pullRequest"]["closingIssuesReferences"]["nodes"]
-            linked_issues = [
-                {
-                    "number": issue["number"],
-                    "title": issue["title"],
-                    "state": issue["state"],
-                    "url": issue["url"],
-                    "created_at": issue["createdAt"],
-                    "labels": [label["name"] for label in issue["labels"]["nodes"]],
-                }
-                for issue in nodes
-            ]
-            logger.info(f"Found {len(linked_issues)} linked issue(s) for PR #{pr_number}")
-            return {"pr_number": pr_number, "linked_issues": linked_issues}
-
     async def _drain_suite_runs(
         self, suite_id: str, app_name: str, after: str | None, token: str
     ) -> tuple[list[dict[str, Any]], bool]:
@@ -2268,7 +2115,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         repo_owner: str,
         repo_name: str,
         run_id: Annotated[
-            int | None, "A run's id, such as the workflow_run_id github_dispatch_workflow returns"
+            int | None, "A run's id, such as the workflow_run_id a workflow dispatch or github_rerun_job returns"
         ] = None,
         head: Annotated[str | None, "Branch, tag or SHA whose commit to read every run of, in place of run_id"] = None,
         wait_seconds: Annotated[int, "Seconds to wait for every run to complete, capped by the server"] = 0,
