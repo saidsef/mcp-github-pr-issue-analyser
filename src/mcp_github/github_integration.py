@@ -300,6 +300,19 @@ def _timeout() -> httpx.Timeout:
     return httpx.Timeout(TIMEOUT, connect=CONNECT_TIMEOUT)
 
 
+def _transport_error(e: httpx.HTTPError, what: str, write: bool) -> str:
+    """What a failed exchange means for the caller. httpx gives a timeout an empty
+    message, and GitHub can finish a write whose answer never arrived."""
+    if isinstance(e, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+        return f"{what}: GitHub could not be reached in time, so nothing was sent."
+    if not isinstance(e, httpx.TimeoutException):
+        return f"{what} failed: {e or type(e).__name__}"
+    msg = f"{what}: GitHub did not answer within {TIMEOUT}s, the GITHUB_API_TIMEOUT setting."
+    if write:
+        msg += " The change may still have gone through, so read it back before sending it again."
+    return msg
+
+
 def _has_more(response: httpx.Response) -> bool:
     """GitHub names the next page in the Link header and omits it on the last one,
     so paging can stop on a fact rather than on a speculative extra call. A full
@@ -830,6 +843,10 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         # A rate limit keeps its type, so a guarded tool still reports RATE_LIMITED. See #519.
         except GitHubAuthError, GitHubRateLimitError:
             raise
+        except httpx.HTTPError as e:
+            raise ToolError(
+                str(GitHubAPIError(_transport_error(e, f"{method.upper()} {ctx}", method.upper() != "GET")))
+            ) from e
         except Exception as e:
             raise ToolError(str(e)) from e
 
@@ -1983,7 +2000,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
                 },
             )
         except httpx.HTTPError as e:
-            raise GitHubAPIError(f"GraphQL request failed: {e}") from e
+            raise GitHubAPIError(_transport_error(e, "GraphQL request", is_mutation(query))) from e
         if not response.is_success:
             self._handle_response_error(response, "GraphQL query")
         data = response.json()
@@ -2209,7 +2226,7 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         try:
             response = await self._http.get(redirect.headers["Location"])
         except httpx.HTTPError as e:
-            raise GitHubAPIError(f"Job {job_id} log download failed: {e}") from e
+            raise GitHubAPIError(_transport_error(e, f"Job {job_id} log download", False)) from e
         if not response.is_success:
             raise GitHubAPIError(f"Job {job_id} log download failed", status_code=response.status_code)
         content = response.content
