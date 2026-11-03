@@ -1468,6 +1468,8 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         response = await self._request("GET", url, context=where, headers={"Accept": "application/vnd.github.raw"})
         if response.headers.get("content-type", "").startswith("application/json"):
             listing = f"repos/{repo_owner}/{repo_name}/contents/{path.lstrip('/')}"
+            if ref:
+                listing += f" with params={json.dumps({'ref': ref})}"
             raise GitHubValidationError(f"{path} is a directory. List it with github_api_read on {listing}.")
         content = response.content
         window = content[offset : offset + limit]
