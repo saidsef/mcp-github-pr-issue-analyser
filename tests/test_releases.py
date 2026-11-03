@@ -220,7 +220,7 @@ class TestReleasesAndTags:
         )
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         await gi.update_release("o", "r", "v1.0.0", draft=False)
-        assert gi._http.request.call_args_list[2].kwargs["json"] == {"draft": False}
+        assert gi._http.request.call_args_list[2].kwargs["json"] == {"draft": False, "tag_name": "v1.0.0"}
 
     @pytest.mark.anyio
     async def test_update_release_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):

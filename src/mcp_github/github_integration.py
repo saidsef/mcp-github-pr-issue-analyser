@@ -1685,6 +1685,9 @@ class GitHubIntegration(ActivityMixin, SkillsMixin, APIRoutesMixin):
         or in the GitHub UI."""
         payload = _changes(name=name, body=body, draft=draft, prerelease=prerelease)
         release = await self._require_release_by_tag(repo_owner, repo_name, tag_name)
+        # GitHub swaps a draft's tag for an untagged-<hex> name on an update that leaves tag_name out.
+        if release.get("draft"):
+            payload["tag_name"] = tag_name
         url = f"{_repo(repo_owner, repo_name)}/releases/{release['id']}"
         data = (await self._request("PATCH", url, context=f"release {tag_name}", json=payload)).json()
         return _pick(data, *_RELEASE_FIELDS)
