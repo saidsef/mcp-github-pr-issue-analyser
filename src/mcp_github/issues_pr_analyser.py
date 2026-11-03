@@ -187,7 +187,8 @@ class MetricsMiddleware(Middleware):
         TOOL_IN_PROGRESS.inc()
         try:
             return await call_next(context)
-        except NotFoundError:
+        # Over HTTP the scope gate refuses an absent tool before the lookup can, as StaleToolList notes.
+        except NotFoundError, AuthorizationError:
             name, outcome = "unknown", "error"
             raise
         except Exception:
