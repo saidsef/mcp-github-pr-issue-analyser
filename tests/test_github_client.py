@@ -25,10 +25,8 @@ _READ = {
     "api_read",
     "get_issue",
     "get_job_log",
-    "get_latest_sha",
     "get_pr_content",
     "get_pr_diff",
-    "get_pr_linked_issues",
     "get_pr_status_checks",
     "get_project_fields",
     "get_release",
@@ -37,53 +35,33 @@ _READ = {
     "get_skill",
     "get_user_activities",
     "get_workflow_runs",
-    "list_branches",
-    "list_milestones",
-    "list_open_issues_prs",
-    "list_pr_comments",
-    "list_pr_reviews",
     "list_project_items",
     "list_projects",
     "list_releases",
-    "list_repo_labels",
     "list_repos",
-    "list_repository_tree",
     "list_skills",
-    "list_tags",
     "search_api_routes",
     "search_issues_prs",
-    "search_user",
 }
 
 
 _WRITE = {
     "add_inline_pr_comment",
     "api_write",
-    "add_pr_comments",
     "add_to_project",
     "commit_files",
     "create_empty_commit",
     "create_issue",
-    "create_milestone",
     "create_pr",
     "create_release",
     "create_tag",
-    "dispatch_workflow",
-    "merge_pr",
-    "reply_to_review_comment",
-    "request_reviewers",
     "rerun_job",
     "set_issue_milestone",
     "set_pr_draft",
     "set_project_field",
-    "update_assignees",
-    "update_issue",
     "update_milestone",
     "update_pr",
-    "update_pr_branch",
-    "update_pr_comment",
     "update_release",
-    "update_reviews",
 }
 
 
@@ -92,27 +70,20 @@ _DESTRUCTIVE = {"api_delete", "delete_branch", "delete_release", "delete_tag", "
 
 _IDEMPOTENT = {
     "add_to_project",
-    "request_reviewers",
     "set_issue_milestone",
     "set_pr_draft",
     "set_project_field",
-    "update_assignees",
-    "update_issue",
     "update_milestone",
     "update_pr",
-    "update_pr_branch",
-    "update_pr_comment",
     "update_release",
 }
 
 
 _TASKS = {
-    "get_pr_linked_issues",
     "get_pr_status_checks",
     "get_repo_stars_since",
     "get_user_activities",
     "get_workflow_runs",
-    "search_user",
 }
 
 
@@ -178,7 +149,7 @@ class TestConnectionPooling:
     async def test_same_client_instance_across_calls(self, gi: GitHubIntegration):
         client_before = gi._http
         gi._http.request = AsyncMock(return_value=mock_response(json_data=[{"sha": "abc"}]))
-        await gi.get_latest_sha("owner", "repo")
+        await gi._latest_sha("owner", "repo")
         assert gi._http is client_before
 
 
@@ -316,15 +287,15 @@ class TestErrorDetail:
     async def test_a_403_names_the_call_that_failed(self, gi: GitHubIntegration):
         body = {"message": "At least 1 approving review is required by reviewers with write access."}
         gi._http.request = AsyncMock(return_value=mock_response(status_code=403, json_data=body, text=json.dumps(body)))
-        with pytest.raises(ToolError, match=r"PR #42 merge: Refused.*approving review"):
-            await gi.merge_pr("owner", "repo", 42)
+        with pytest.raises(ToolError, match=r"repos/owner/repo/pulls/42/merge: Refused.*approving review"):
+            await gi.api_write("PUT", "repos/owner/repo/pulls/42/merge")
 
     @pytest.mark.anyio
     async def test_a_403_with_no_body_still_points_at_the_token(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(status_code=403, text=""))
         gi._http.request.return_value.json.side_effect = ValueError("not json")
         with pytest.raises(ToolError, match="Permission denied. Check your token permissions"):
-            await gi.merge_pr("owner", "repo", 42)
+            await gi.api_write("PUT", "repos/owner/repo/pulls/42/merge")
 
     @pytest.mark.anyio
     async def test_a_missing_workflow_scope_leads_the_message(self, gi: GitHubIntegration):
@@ -336,7 +307,7 @@ class TestErrorDetail:
             )
         )
         with pytest.raises(ToolError, match=r"Refused\. The token is missing the `workflow` scope"):
-            await gi.merge_pr("owner", "repo", 42)
+            await gi.api_write("PUT", "repos/owner/repo/pulls/42/merge")
 
     @pytest.mark.anyio
     async def test_a_missing_workflow_scope_displaces_the_org_policy_guidance(self):
@@ -344,7 +315,7 @@ class TestErrorDetail:
         follows it changes nothing that matters here. See #470."""
         oauth_gi = _refusing_oauth_client(_WORKFLOW_SCOPE_403)
         with pytest.raises(ToolError) as refused:
-            await oauth_gi.merge_pr("owner", "repo", 42)
+            await oauth_gi.api_write("PUT", "repos/owner/repo/pulls/42/merge")
 
         assert "`workflow` scope" in str(refused.value)
         assert "OAuth App access policy" not in str(refused.value)
@@ -354,7 +325,7 @@ class TestErrorDetail:
         """SAML enforcement is the refusal that guidance was written for. See #470."""
         oauth_gi = _refusing_oauth_client(_SAML_403)
         with pytest.raises(ToolError, match="OAuth App access policy"):
-            await oauth_gi.merge_pr("owner", "repo", 42)
+            await oauth_gi.api_write("PUT", "repos/owner/repo/pulls/42/merge")
 
     def test_a_permission_403_is_not_read_as_a_rate_limit(self, gi: GitHubIntegration):
         response = mock_response(status_code=403, json_data=_SAML_403, text=json.dumps(_SAML_403))
@@ -407,7 +378,7 @@ class TestErrorDetail:
     def test_a_404_keeps_both_the_context_and_the_message(self, gi: GitHubIntegration):
         body = {"message": "Not Found"}
         response = mock_response(status_code=404, json_data=body)
-        with pytest.raises(GitHubNotFoundError, match=r"PR #4321: Resource not found GitHub said: Not Found"):
+        with pytest.raises(GitHubNotFoundError, match=r"PR #4321: Resource not found\. GitHub said: Not Found"):
             gi._handle_response_error(response, "PR #4321")
 
     def test_a_401_carries_githubs_own_message(self, gi: GitHubIntegration):
@@ -490,9 +461,9 @@ class TestTypedCodes:
             await gi.add_inline_pr_comment("o", "r", 5, "app.py", 3, "fix this")
 
     @pytest.mark.anyio
-    async def test_a_missing_repo_name_raises_the_validation_code(self, gi: GitHubIntegration):
-        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] HTTP 422: repo_name is required"):
-            await gi.list_open_issues_prs("owner", filtering="repo")
+    async def test_an_empty_query_raises_the_validation_code(self, gi: GitHubIntegration):
+        with pytest.raises(GitHubValidationError, match=r"\[VALIDATION_ERROR\] Supply a search query"):
+            await gi.search_issues_prs("  ")
 
 
 class TestMissingCredentials:

@@ -193,7 +193,7 @@ class TestScopeGate:
         async with Client(server.mcp) as client:
             listed = await client.list_tools()
             await client.call_tool(
-                "github_update_issue", {"repo_owner": "o", "repo_name": "r", "issue_number": 1, "state": "closed"}
+                "github_set_issue_milestone", {"repo_owner": "o", "repo_name": "r", "issue_number": 1}
             )
 
         assert len(listed) == len(registered)
@@ -465,45 +465,7 @@ class TestSkillsAreReachable:
         assert "github_list_skills" in instructions
         assert "github_get_skill" in instructions
         for entry in (await server.gi.list_skills())["skills"]:
-            assert f"- {entry['uri']} -- {entry['description']}" in instructions
-
-
-class TestListOpenIssuesPrsSchema:
-    """What `filtering` does to `repo_owner` only ever reached the skill, so a
-    tool-only client had to guess at the field. See #412."""
-
-    @staticmethod
-    async def _schema() -> Any:
-        tools = {tool.name: tool for tool in await analyser().mcp.list_tools(run_middleware=False)}
-        return tools["github_list_open_issues_prs"]
-
-    @pytest.mark.anyio
-    async def test_repo_owner_carries_the_per_mode_meaning(self):
-        properties = (await self._schema()).parameters["properties"]
-        described = properties["repo_owner"]["description"].lower()
-
-        assert "username" in described
-        assert "organisation" in described
-        assert "owner" in described
-
-    @pytest.mark.anyio
-    async def test_filtering_names_what_each_mode_returns(self):
-        described = (await self._schema()).parameters["properties"]["filtering"]["description"].lower()
-
-        assert {"involves", "user", "org", "repo"} <= set(described.split())
-
-    @pytest.mark.anyio
-    async def test_every_parameter_is_described(self):
-        properties = (await self._schema()).parameters["properties"]
-
-        assert [name for name, field in properties.items() if not field.get("description")] == []
-
-    @pytest.mark.anyio
-    async def test_the_description_states_open_only_and_points_onward(self):
-        description = (await self._schema()).description or ""
-
-        assert "is:open" in description
-        assert "search_issues_prs" in description
+            assert f"- {entry['uri']} - {entry['description']}" in instructions
 
 
 class TestAnnotationCoverage:
@@ -554,15 +516,6 @@ class TestToolNaming:
         bare = {name for name in names - self._NOT_OURS if not name.startswith(TOOL_PREFIX)}
 
         assert bare == set()
-
-    @pytest.mark.anyio
-    async def test_the_two_misnamed_tools_say_what_they_do(self):
-        """update_reviews submits a new review rather than updating one, and
-        update_assignees replaces the set rather than adding to it."""
-        names = {tool.name for tool in await analyser().mcp.list_tools(run_middleware=False)}
-
-        assert {"github_submit_review", "github_set_assignees"} <= names
-        assert names.isdisjoint({"github_update_reviews", "github_update_assignees"})
 
     @pytest.mark.anyio
     async def test_no_description_points_at_a_name_that_is_not_registered(self):

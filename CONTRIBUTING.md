@@ -7,9 +7,9 @@ Please note we have a code of conduct, please follow it in all your interactions
 ## Pull Request Process
 
 1. Ensure any install or build dependencies are removed before the end of the layer when doing a build.
-2. Update the relevant page under `docs/` with details of changes to the interface, this includes new environment variables, exposed ports, useful file locations and container parameters. The README is a landing page only.
-3. The `tag_release.yml` workflow tags and releases every push to `main`, so do not bump a version by hand
-4. You may merge the Pull Request in once you have the sign-off of from the project team, or if you do not have permission to do that, you may request a reviewer to merge it for you.
+2. Update the relevant page under `docs/` with details of changes to the interface, such as new environment variables, exposed ports, useful file locations and container parameters. The README is a landing page only.
+3. The `tag_release.yml` workflow tags and releases every push to `main`, so do not bump a version by hand.
+4. You may merge the Pull Request in once you have the sign-off of the project team, or if you do not have permission to do that, you may request a reviewer to merge it for you.
 
 ## Development Setup
 
@@ -31,13 +31,13 @@ Run tests using pytest:
 
 ```shell
 # Run all tests
-pytest
+uv run pytest tests/ -q
 
 # Run with verbose output
-pytest -v
+uv run pytest tests/ -v
 
 # Run specific test file
-pytest tests/test_specific.py
+uv run pytest tests/test_specific.py
 ```
 
 ### Renaming or removing a tool
@@ -77,13 +77,13 @@ This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formattin
 
 ```shell
 # Check code style
-ruff check .
+uv run ruff check src/ tests/
 
 # Auto-fix issues
-ruff check . --fix
+uv run ruff check src/ tests/ --fix
 
 # Format code, which CI checks with ruff format --check
-ruff format .
+uv run ruff format src/ tests/
 ```
 
 ### Type Checking

@@ -239,7 +239,7 @@ curl -s -H "Authorization: Bearer <your-github-token>" \
 curl -s https://mcp.example.com/.well-known/oauth-authorization-server
 ```
 
-An unauthenticated request to `/mcp` returns `401` with a `WWW-Authenticate` header in both HTTP modes. `/metrics` stays unauthenticated so Prometheus can scrape it.
+An unauthenticated request to `/mcp` returns `401` with a `WWW-Authenticate` header in every HTTP mode. `/metrics` stays unauthenticated so Prometheus can scrape it.
 
 ## Common problems
 

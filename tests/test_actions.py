@@ -1,4 +1,4 @@
-"""Tests for re-running an Actions job and dispatching a workflow."""
+"""Tests for re-running an Actions job."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock
 import pytest
 from fastmcp.exceptions import ToolError
 
-from mcp_github.exceptions import GitHubValidationError
 from mcp_github.github_integration import GitHubIntegration
 from tests.support import mock_response
 
@@ -38,27 +37,3 @@ class TestRerunJob:
         )
         with pytest.raises(ToolError, match=r"Refused\. This endpoint needs the `actions=write` permission"):
             await gi.rerun_job("o", "r", 4242)
-
-
-class TestDispatchWorkflow:
-    _RUN = {
-        "workflow_run_id": 9001,
-        "run_url": "https://api.github.com/repos/o/r/actions/runs/9001",
-        "html_url": "https://github.com/o/r/actions/runs/9001",
-    }
-
-    @pytest.mark.anyio
-    async def test_sends_ref_and_inputs_and_returns_the_run(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=self._RUN))
-        result = await gi.dispatch_workflow("o", "r", "ci.yml", "main", inputs={"target": "staging"})
-        call = gi._http.request.call_args
-        assert call.args == ("POST", "https://api.github.com/repos/o/r/actions/workflows/ci.yml/dispatches")
-        assert call.kwargs["json"] == {"ref": "main", "return_run_details": True, "inputs": {"target": "staging"}}
-        assert result == self._RUN
-
-    @pytest.mark.anyio
-    async def test_twenty_six_inputs_are_refused_before_any_request(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock()
-        with pytest.raises(GitHubValidationError, match="at most 25 inputs, and 26 were passed"):
-            await gi.dispatch_workflow("o", "r", "ci.yml", "main", inputs={f"i{n}": "x" for n in range(26)})
-        gi._http.request.assert_not_called()
