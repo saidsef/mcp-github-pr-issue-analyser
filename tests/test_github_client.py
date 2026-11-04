@@ -22,6 +22,7 @@ from mcp_github.tool_annotations import GATED_SCOPES, PROJECT_SCOPES, WRITE_SCOP
 from tests.support import deployment, mock_response
 
 _READ = {
+    "api_read",
     "get_issue",
     "get_job_log",
     "get_latest_sha",
@@ -49,6 +50,7 @@ _READ = {
     "list_repository_tree",
     "list_skills",
     "list_tags",
+    "search_api_routes",
     "search_issues_prs",
     "search_user",
 }
@@ -56,6 +58,7 @@ _READ = {
 
 _WRITE = {
     "add_inline_pr_comment",
+    "api_write",
     "add_pr_comments",
     "add_to_project",
     "commit_files",
@@ -84,7 +87,7 @@ _WRITE = {
 }
 
 
-_DESTRUCTIVE = {"delete_branch", "delete_release", "delete_tag", "remove_from_project"}
+_DESTRUCTIVE = {"api_delete", "delete_branch", "delete_release", "delete_tag", "remove_from_project"}
 
 
 _IDEMPOTENT = {

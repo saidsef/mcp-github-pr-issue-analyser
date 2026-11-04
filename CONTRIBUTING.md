@@ -57,6 +57,20 @@ A rename is breaking for any client already connected, since it holds a cached
 tool list. The server refuses the old name and asks the client to re-read the
 list. See `docs/configuration.md`.
 
+### Refreshing the REST route list
+
+`src/mcp_github/rest_routes.txt` holds every route in GitHub's REST API
+description for api.github.com, with its summary and docs page.
+`github_search_api_routes` searches it, and the metrics label each request tool
+call with the route it matched. A route GitHub adds stays out of the search, and
+counts as `unmatched`, until the list is regenerated:
+
+```shell
+uv run python -m mcp_github.api_routes
+```
+
+Check that the diff adds and removes only the routes GitHub changed.
+
 ### Code Style and Linting
 
 This project uses [ruff](https://docs.astral.sh/ruff/) for linting and formatting:

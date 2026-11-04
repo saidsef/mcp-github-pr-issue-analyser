@@ -115,6 +115,11 @@ a 409 under `GITHUB_API_ERROR` where the head moved.
 lacks scope for is indistinguishable from a typo in the name. Check the
 spelling before concluding the resource does not exist.
 
+Where GitHub names the scopes an endpoint accepts and a classic or OAuth token
+holds none of them, a 404 or a refused 403 says so: `The token holds <scopes>,
+and this endpoint needs one of <scopes>.` Tell the user which scope to grant,
+since a retry fails the same way until the token changes.
+
 ## GraphQL Failures
 
 The project board tools, `github_search_user`, `github_get_user_activities`,

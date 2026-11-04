@@ -67,6 +67,18 @@ class TestMetricsMiddleware:
         await MetricsMiddleware().on_call_tool(SimpleNamespace(message=object()), call_next)
         assert _sample("mcp_tool_invocations_total", {"tool_name": "unknown", "outcome": "success"}) == 1.0
 
+    @pytest.mark.anyio
+    async def test_an_api_call_is_counted_by_route_template_not_path(self):
+        """A path per series would let a caller grow the series count at will. See #543."""
+
+        async def call_next(_ctx):
+            return None
+
+        message = SimpleNamespace(name="github_api_write", arguments={"method": "PUT", "path": "repos/o/r/topics"})
+        await MetricsMiddleware().on_call_tool(SimpleNamespace(message=message), call_next)
+        labels = {"tool_name": "github_api_write", "method": "PUT", "route": "/repos/{owner}/{repo}/topics"}
+        assert _sample("mcp_api_route_invocations_total", {**labels, "outcome": "success"}) == 1.0
+
 
 class TestMetricsRoute:
     """The /metrics endpoint served alongside /mcp in HTTP mode."""
