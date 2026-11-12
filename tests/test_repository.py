@@ -90,7 +90,7 @@ class TestGetRepositoryFile:
         responses = iter([listing, mock_response(status_code=304)])
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         for _ in range(2):
-            with pytest.raises(GitHubValidationError, match="list_repository_tree"):
+            with pytest.raises(GitHubValidationError, match="github_api_read"):
                 await gi.get_repository_file("o", "r", "src")
 
     @pytest.mark.anyio
@@ -113,58 +113,6 @@ class TestGetRepositoryFile:
         with pytest.raises(GitHubValidationError, match="negative"):
             await gi.get_repository_file("o", "r", "app.py", offset=-1)
         gi._http.request.assert_not_awaited()
-
-
-class TestListRepositoryTree:
-    @staticmethod
-    def _tree(**kw) -> MagicMock:
-        return mock_response(
-            json_data={
-                "sha": "t1",
-                "tree": [{"path": "app.py", "mode": "100644", "type": "blob", "size": 12, "sha": "b1"}],
-                "truncated": False,
-                **kw,
-            }
-        )
-
-    @pytest.mark.anyio
-    async def test_lists_the_root_at_head_by_default(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=self._tree())
-        result = await gi.list_repository_tree("o", "r")
-        assert gi._http.request.call_args.args[1].endswith("/git/trees/HEAD")
-        assert result["total"] == 1
-        assert result["entries"][0] == {"path": "app.py", "mode": "100644", "type": "blob", "size": 12, "sha": "b1"}
-
-    @pytest.mark.anyio
-    async def test_a_subdirectory_uses_the_ref_colon_path_form(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=self._tree())
-        await gi.list_repository_tree("o", "r", path="src", ref="main")
-        assert gi._http.request.call_args.args[1].endswith("/git/trees/main%3Asrc")
-
-    @pytest.mark.anyio
-    async def test_recursive_is_omitted_rather_than_sent_as_false(self, gi: GitHubIntegration):
-        """GitHub reads any value of recursive as on, "false" and "0" included,
-        so sending it at all would recurse."""
-        gi._http.request = AsyncMock(return_value=self._tree())
-        await gi.list_repository_tree("o", "r", recursive=False)
-        assert "recursive" not in gi._http.request.call_args.args[1]
-
-    @pytest.mark.anyio
-    async def test_recursive_asks_for_every_level(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=self._tree())
-        await gi.list_repository_tree("o", "r", recursive=True)
-        assert "recursive=1" in gi._http.request.call_args.args[1]
-
-    @pytest.mark.anyio
-    async def test_a_capped_tree_says_so(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=self._tree(truncated=True))
-        assert (await gi.list_repository_tree("o", "r"))["truncated"] is True
-
-    @pytest.mark.anyio
-    async def test_a_bad_ref_is_not_found(self, gi: GitHubIntegration):
-        gi._http.request = AsyncMock(return_value=mock_response(status_code=404, json_data={"message": "Not Found"}))
-        with pytest.raises(ToolError, match="nope"):
-            await gi.list_repository_tree("o", "r", ref="nope")
 
 
 class TestListRepos:

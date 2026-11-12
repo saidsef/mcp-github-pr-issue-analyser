@@ -79,5 +79,8 @@ class GitHubNotFoundError(GitHubAPIError):
 
 
 class GitHubValidationError(GitHubAPIError):
-    def __init__(self, message: str = "Validation failed.", response_body: dict | None = None):
-        super().__init__(message, status_code=422, response_body=response_body, code="VALIDATION_ERROR")
+    # A refusal made before any request carries no status, so only a reply from GitHub reads as HTTP 422.
+    def __init__(
+        self, message: str = "Validation failed.", response_body: dict | None = None, status_code: int | None = None
+    ):
+        super().__init__(message, status_code=status_code, response_body=response_body, code="VALIDATION_ERROR")

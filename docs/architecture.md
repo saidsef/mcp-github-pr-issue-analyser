@@ -1,6 +1,6 @@
 # Architecture
 
-![Architecture of the MCP GitHub PR and Issue Analyser: an MCP client reaches the auth layer over stdio or HTTP, the auth layer selects no auth, a static token verifier or GitHub OAuth2 with a memory, DynamoDB or Redis token store, and the FastMCP server calls the GitHub REST v3 and GraphQL v4 APIs while exposing Prometheus metrics](architecture.svg)
+![Architecture of the MCP GitHub PR and Issue Analyser: an MCP client reaches the auth layer over stdio or HTTP, the auth layer selects no auth, a static token verifier, GitHub OAuth2 with a memory, DynamoDB or Redis token store, or both together, and the FastMCP server calls the GitHub REST v3 and GraphQL v4 APIs while exposing Prometheus metrics](architecture.svg)
 
 ## Layers
 
@@ -17,7 +17,7 @@
 1. The client opens a session. Over stdio it launches the server as a subprocess and there is no transport auth. Over HTTP the auth layer compares the bearer token against `GITHUB_TOKEN` in constant time, runs the GitHub OAuth2 authorisation code flow with PKCE, or does both.
 2. `resolve_token` returns the token for the call: the one the request arrived with wherever the transport authenticated it, and the server's `GITHUB_TOKEN` otherwise. This is the only difference the tools see between the modes.
 3. `PRIssueAnalyser` routes the call to a registered tool. Tools are discovered from the MCP annotations on the integration's public methods, so adding an annotated method registers a tool. Every call passes through the metrics middleware.
-4. `GitHubIntegration` issues the API request over an async HTTP client bounded by `GITHUB_API_TIMEOUT`. Diffs, comments, merges, issues, labels, tags and releases go over REST v3. User search, activity, PR linked issues, PR status checks and star growth go over GraphQL v4.
+4. `GitHubIntegration` issues the API request over an async HTTP client bounded by `GITHUB_API_TIMEOUT`. Diffs, comments, merges, issues, labels, tags, releases, workflow runs and star history go over REST v3. Activity, PR status checks, draft status, signed commits and project boards go over GraphQL v4. The `github_api_*` tools reach either API.
 
 ## Tools
 
