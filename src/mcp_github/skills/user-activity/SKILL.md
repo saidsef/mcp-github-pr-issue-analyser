@@ -1,4 +1,5 @@
 ---
+name: user-activity
 description: Find a user's or organisation's repositories, and look up a profile, contribution history, and which repos gained stars recently
 ---
 

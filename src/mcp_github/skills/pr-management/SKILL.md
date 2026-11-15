@@ -1,4 +1,5 @@
 ---
+name: pr-management
 description: Manage the lifecycle of a GitHub PR - create, update the description, assign, request review, refresh the branch and merge
 ---
 

@@ -1,4 +1,5 @@
 ---
+name: release-management
 description: Tag a commit, publish a GitHub release, and read, correct or withdraw the tags and releases already there
 ---
 

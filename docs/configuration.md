@@ -157,12 +157,13 @@ caller add a series per invented tool.
 ## Skills
 
 Workflow guidance ships inside the package, under `src/mcp_github/skills/`. The
-server publishes it two ways, and every client reaches at least one of them.
+server publishes it three ways, and every client reaches at least one of them.
 
 | Path | What a client needs | What it sees |
 |------|---------------------|--------------|
 | `github_list_skills` and `github_get_skill` tools | Tool support only | The name, description and full text of every skill |
 | `skill://<name>/SKILL.md` resources | `resources/list` and `resources/read` | The same text, plus a `skill://<name>/_manifest` per skill |
+| `skills/list` and `skills/get` | The `io.modelcontextprotocol/skills` extension | Each skill's front matter, and the URI, digest and size of each of its files |
 
 Each tool also names the skill that documents it. The description ends with
 `Workflow and conventions: github_get_skill('pr-review').` and the same skill
@@ -176,14 +177,14 @@ Moving a tool between skills is a heading move and nothing else. Every tool
 carries a pointer except `github_get_skill` and `github_list_skills`, since
 pointing those at a skill would send a client in a circle.
 
-The pointer is added by a server-level transform rather than written into each
-description, which is what puts it on the three tools FastMCP's own Choice and
-GenerativeUI providers register.
+The pointer is added by a transform on each tool provider rather than written
+into each description, which is what puts it on the three tools FastMCP's own
+Choice and GenerativeUI providers register.
 
 The tools are the path to rely on. A host that consumes only tools never issues
 `resources/list`, so a `skill://` URI stays invisible to it however correctly it
-is served. Both paths read the same files, so neither goes stale against the
-other.
+is served. All three paths read the same files, so none goes stale against the
+others.
 
 The resources capability is declared on initialise as
 `{"subscribe": false, "listChanged": true}`, over HTTP and over stdio alike.

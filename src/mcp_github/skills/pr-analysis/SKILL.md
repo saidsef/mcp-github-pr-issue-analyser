@@ -1,4 +1,5 @@
 ---
+name: pr-analysis
 description: Analyse a GitHub pull request by fetching its metadata, diff, linked issues and CI status
 ---
 

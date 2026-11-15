@@ -37,7 +37,7 @@ from fastmcp.server.auth import AuthProvider, MultiAuth, restrict_tag
 from fastmcp.server.context import reset_transport, set_transport
 from fastmcp.server.dependencies import get_http_request
 from fastmcp.server.middleware import AuthMiddleware, Middleware, MiddlewareContext
-from fastmcp.server.providers.skills import SkillsDirectoryProvider
+from fastmcp.skills.provider import SkillCatalogProvider
 from fastmcp_tasks import TasksExtension
 from mcp.types import ToolListChangedNotification
 from prometheus_client import (
@@ -62,7 +62,7 @@ from .auth import (
 )
 from .github_integration import GitHubIntegration as GI
 from .skill_pointer import SkillPointer
-from .skills_access import SKILLS_DIR, _description, _skill_paths
+from .skills_access import SKILLS
 from .tool_annotations import GATED_SCOPES
 
 logger = logging.getLogger(__name__)
@@ -272,10 +272,7 @@ skill:// URI scheme, for a client that reads resources:
 def _instructions() -> str:
     """The server instructions, ending in the skill list read from each SKILL.md
     front matter, so the list cannot drift from the skills that ship."""
-    skills = (
-        f"- skill://{path.parent.name}/SKILL.md - {_description(path.read_text(encoding='utf-8'))}"
-        for path in _skill_paths()
-    )
+    skills = (f"- skill://{name}/SKILL.md - {skill.description}" for name, skill in SKILLS.items())
     return _MCP_INSTRUCTIONS + "\n".join(skills) + "\n"
 
 
@@ -356,8 +353,12 @@ class PRIssueAnalyser:
             self.mcp.tool(
                 _tool_name(name), annotations=annotations, task=getattr(method, "_mcp_task", False), tags=scopes or None
             )(method)
-        self.mcp.add_provider(SkillsDirectoryProvider(SKILLS_DIR))
-        self.mcp.add_transform(SkillPointer())
+        # FastMCP 4.2 lists no skills over the Skills extension while the server holds
+        # a transform, so the pointer goes on each tool provider instead.
+        skill_pointer = SkillPointer()
+        for provider in self.mcp.providers:
+            provider.add_transform(skill_pointer)
+        self.mcp.add_provider(SkillCatalogProvider(SKILLS))
 
     def run(self) -> None:
         """Runs the MCP server. Uses HTTP when MCP_ENABLE_REMOTE is true, otherwise stdio."""

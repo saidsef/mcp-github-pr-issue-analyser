@@ -22,27 +22,27 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastmcp-slim[server,apps]>=4.1.1",
+    "fastmcp-slim[server,apps]>=4.2.0",
     # FastMCP 4 moved background tasks out of core into the tasks extension,
     # which ships as its own package rather than an extra.
-    "fastmcp-tasks>=4.1.1",
-    "boto3>=1.43.114",
-    "botocore>=1.43.114",
+    "fastmcp-tasks>=4.2.0",
+    "boto3>=1.44.3",
+    "botocore>=1.44.3",
     "httpx>=0.28.1",
     "prometheus-client>=0.26.0",
-    "pydantic>=2.14.1",
+    "pydantic>=2.14.3",
     # auth.py imports the stores directly, so ask for the package by name with
     # the extra RedisStore needs rather than relying on fastmcp pulling it. #312
     "py-key-value-aio[redis]>=0.4.6",
-    "redis>=8.1.0",
+    "redis>=8.0.1,!=8.1.0",
 ]
 
 [project.optional-dependencies]
 docs = [
-    "mkdocs>=1.6,<2",
-    "mkdocs-material>=9.5",
-    "pygments>=2.18",
-    "pymdown-extensions>=10.7",
+    "mkdocs>=1.6.1,<2",
+    "mkdocs-material>=9.8.1",
+    "pygments>=2.21.0",
+    "pymdown-extensions>=13.1",
 ]
 
 [project.scripts]
@@ -63,7 +63,7 @@ reportMissingTypeStubs = false
 reportUnknownMemberType = false
 
 [build-system]
-requires = ["hatchling", "uv-dynamic-versioning>=0.7.0"]
+requires = ["hatchling", "uv-dynamic-versioning>=0.14.1"]
 build-backend = "hatchling.build"
 
 [tool.hatch.version]
@@ -82,9 +82,9 @@ metadata = false
 [dependency-groups]
 dev = [
     "pyright>=1.1.414",
-    "pytest>=9.1.1",
-    "ruff>=0.17.1",
-    "uv>=0.13.4",
+    "pytest>=9.2.0",
+    "ruff>=0.17.5",
+    "uv>=0.13.8",
 ]
 
 [tool.ruff]
