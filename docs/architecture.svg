@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 980" width="1000" height="980" role="img" aria-labelledby="svgtitle svgdesc" font-family="ui-sans-serif, -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif">
   <title id="svgtitle">MCP GitHub PR and Issue Analyser architecture</title>
-  <desc id="svgdesc">An MCP client connects over stdio or HTTP POST to /mcp. The auth layer in auth.py selects no auth for stdio, an APIKeyVerifier that compares the bearer token against GITHUB_TOKEN, or a GitHubProvider that proxies the GitHub OAuth2 authorisation code flow and stores tokens in memory, in DynamoDB or in Redis. Authenticated calls reach the PRIssueAnalyser FastMCP server, which registers the tools and skills, exposes Prometheus metrics on GET /metrics, and calls the GitHub integration. The integration resolves a token per call and reaches api.github.com over the REST v3 and GraphQL v4 APIs.</desc>
+  <desc id="svgdesc">An MCP client connects over stdio or HTTP POST to /mcp. The auth layer in auth.py selects no auth for stdio, an APIKeyVerifier that compares the bearer token against GITHUB_TOKEN, a GitHubProvider that proxies the GitHub OAuth2 authorisation code flow and stores tokens in memory, in DynamoDB or in Redis, or both together under MultiAuth. Authenticated calls reach the PRIssueAnalyser FastMCP server, which registers the tools and skills, exposes Prometheus metrics on GET /metrics, and calls the GitHub integration. The integration resolves a token per call and reaches api.github.com over the REST v3 and GraphQL v4 APIs.</desc>
 
   <!-- The light palette is set with presentation attributes so the diagram still renders
        if a strict CSP drops this block. Dark mode overrides only the colours. -->
@@ -103,7 +103,7 @@
   <text class="t" x="734" y="220" fill="#1f2328" font-size="15" font-weight="600">GitHub OAuth</text>
   <text class="s" x="704" y="246" fill="#656d76" font-size="11.5" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">github.com/login/oauth</text>
   <text class="l" x="704" y="264" fill="#24292f" font-size="11.5">authorisation code with PKCE</text>
-  <text class="l" x="704" y="282" fill="#24292f" font-size="11.5">scopes: repo, read:org, user</text>
+  <text class="l" x="704" y="282" fill="#24292f" font-size="11.5">scopes: GITHUB_SCOPES in auth.py</text>
 
   <!-- ===================== Token store ===================== -->
   <path class="edge" d="M620 341 H650 V380 H668" fill="none" stroke="#6e7781" stroke-width="1.5" marker-end="url(#arw)"/>
@@ -141,7 +141,7 @@
   <text class="s" x="600" y="464" text-anchor="end" fill="#656d76" font-size="12" font-family="ui-monospace, SFMono-Regular, Menlo, monospace">issues_pr_analyser.py</text>
   <path class="div" d="M236 480 H604" stroke="#d0d7de" stroke-width="1"/>
   <text class="l" x="244" y="504" fill="#24292f" font-size="12">tool registry - tools discovered by MCP annotation</text>
-  <text class="l" x="244" y="523" fill="#24292f" font-size="12">skills provider - nine skills, as tools and resources</text>
+  <text class="l" x="244" y="523" fill="#24292f" font-size="12">skills provider - bundled skills, as tools and resources</text>
   <text class="l" x="244" y="542" fill="#24292f" font-size="12">metrics middleware - counts and times each call</text>
 
   <!-- ===================== Prometheus ===================== -->
@@ -191,7 +191,7 @@
   <text class="t" x="128" y="829" fill="#1f2328" font-size="14" font-weight="600">REST v3</text>
   <text class="l" x="104" y="854" fill="#24292f" font-size="11.5">PRs: diff, content, comments, reviews</text>
   <text class="l" x="104" y="872" fill="#24292f" font-size="11.5">PRs: create, update, merge, assign</text>
-  <text class="l" x="104" y="890" fill="#24292f" font-size="11.5">Issues, labels, tags, releases</text>
+  <text class="l" x="104" y="890" fill="#24292f" font-size="11.5">Issues, labels, tags, releases, star history</text>
 
   <rect class="box" x="426" y="800" width="330" height="112" rx="8" fill="#ffffff" stroke="#8c959f" stroke-width="1.3"/>
   <g transform="translate(446,816)">
@@ -206,8 +206,8 @@
     </g>
   </g>
   <text class="t" x="470" y="829" fill="#1f2328" font-size="14" font-weight="600">GraphQL v4</text>
-  <text class="l" x="446" y="854" fill="#24292f" font-size="11.5">User profiles, activity, star growth</text>
-  <text class="l" x="446" y="872" fill="#24292f" font-size="11.5">PR linked issues, closingIssuesReferences</text>
+  <text class="l" x="446" y="854" fill="#24292f" font-size="11.5">Activity, draft status, signed commits</text>
+  <text class="l" x="446" y="872" fill="#24292f" font-size="11.5">Project boards and their fields</text>
   <text class="l" x="446" y="890" fill="#24292f" font-size="11.5">PR status checks and commit status</text>
 
   <text class="s" x="60" y="962" fill="#656d76" font-size="11.5">A dashed border marks an external service. The environment variables named in the auth layer decide which path a request takes.</text>

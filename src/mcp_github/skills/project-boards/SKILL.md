@@ -51,7 +51,7 @@ holding issues from several repositories is the common case, so read
 ### Taking something off
 
 1. Call `github_remove_from_project`
-2. The issue stays open and untouched. Only the card goes, and the field values
+2. The issue itself does not change. Only the card goes, and the field values
    it held go with it
 3. **Ask the user in chat before removing a card, since the field values cannot
    be recovered**
@@ -169,7 +169,7 @@ live otherwise.
 
 Returns `status`, `item_id`, `project_number` and `issue_number`.
 
-Destructive and not reversible. The issue is untouched and stays open. The card
+Destructive and not reversible. The issue itself does not change. The card
 goes, and every field value on it goes with it. Adding the issue back gives a
 fresh card with no values set.
 

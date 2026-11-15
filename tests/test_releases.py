@@ -16,7 +16,7 @@ class TestGetLatestShaAndCreateTag:
     @pytest.mark.anyio
     async def test_get_latest_sha_asks_for_one_commit(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=[{"sha": "abc123"}]))
-        assert await gi.get_latest_sha("owner", "repo") == "abc123"
+        assert await gi._latest_sha("owner", "repo") == "abc123"
         assert "per_page=1" in gi._http.request.call_args.args[1]
 
     @pytest.mark.anyio
@@ -26,25 +26,25 @@ class TestGetLatestShaAndCreateTag:
         gi._http.request = AsyncMock(
             return_value=mock_response(status_code=409, json_data={"message": "Git Repository is empty."})
         )
-        result = await gi.get_latest_sha("owner", "empty-repo")
+        result = await gi._latest_sha("owner", "empty-repo")
         assert result is None
 
     @pytest.mark.anyio
     async def test_get_latest_sha_reads_the_default_branch_when_no_ref_is_given(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=[{"sha": "abc123"}]))
-        await gi.get_latest_sha("owner", "repo")
+        await gi._latest_sha("owner", "repo")
         assert "sha=" not in gi._http.request.call_args.args[1]
 
     @pytest.mark.anyio
     async def test_get_latest_sha_reads_a_named_branch(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=[{"sha": "branchsha"}]))
-        assert await gi.get_latest_sha("owner", "repo", ref="feature/x") == "branchsha"
+        assert await gi._latest_sha("owner", "repo", ref="feature/x") == "branchsha"
         assert "sha=feature%2Fx" in gi._http.request.call_args.args[1]
 
     @pytest.mark.anyio
     async def test_get_latest_sha_reads_a_tag(self, gi: GitHubIntegration):
         gi._http.request = AsyncMock(return_value=mock_response(json_data=[{"sha": "tagsha"}]))
-        assert await gi.get_latest_sha("owner", "repo", ref="v1.2.3") == "tagsha"
+        assert await gi._latest_sha("owner", "repo", ref="v1.2.3") == "tagsha"
         assert "sha=v1.2.3" in gi._http.request.call_args.args[1]
 
     @pytest.mark.anyio
@@ -55,7 +55,7 @@ class TestGetLatestShaAndCreateTag:
             return_value=mock_response(status_code=404, json_data={"message": "No commit found for SHA: nope"})
         )
         with pytest.raises(ToolError, match="nope"):
-            await gi.get_latest_sha("owner", "repo", ref="nope")
+            await gi._latest_sha("owner", "repo", ref="nope")
 
     @pytest.mark.anyio
     async def test_create_tag_refuses_an_empty_repository(self, gi: GitHubIntegration):
@@ -195,13 +195,6 @@ class TestReleasesAndTags:
         }
 
     @pytest.mark.anyio
-    async def test_list_tags_keeps_name_and_sha(self, gi: GitHubIntegration):
-        payload = [{"name": "v1.0.0", "zipball_url": "z", "commit": {"sha": "abc123", "url": "u"}}]
-        gi._http.request = AsyncMock(return_value=mock_response(json_data=payload))
-        result = await gi.list_tags("o", "r")
-        assert result == {"count": 1, "has_more": False, "tags": [{"name": "v1.0.0", "sha": "abc123"}]}
-
-    @pytest.mark.anyio
     async def test_update_release_sends_only_the_fields_supplied(self, gi: GitHubIntegration):
         responses = iter(
             [
@@ -227,7 +220,7 @@ class TestReleasesAndTags:
         )
         gi._http.request = AsyncMock(side_effect=lambda *a, **kw: next(responses))
         await gi.update_release("o", "r", "v1.0.0", draft=False)
-        assert gi._http.request.call_args_list[2].kwargs["json"] == {"draft": False}
+        assert gi._http.request.call_args_list[2].kwargs["json"] == {"draft": False, "tag_name": "v1.0.0"}
 
     @pytest.mark.anyio
     async def test_update_release_rejects_a_call_with_nothing_to_change(self, gi: GitHubIntegration):

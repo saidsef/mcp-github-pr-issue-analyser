@@ -302,21 +302,3 @@ def repo_payload(**overrides) -> dict:
     }
     payload.update(overrides)
     return payload
-
-
-def review_payload(**overrides) -> dict:
-    """A review as GitHub serves it."""
-    return {
-        "id": 80,
-        "node_id": "PRR_abc",
-        "user": NOISE_USER,
-        "body": "LGTM",
-        "state": "APPROVED",
-        "html_url": "https://github.com/o/r/pull/5#pullrequestreview-80",
-        "pull_request_url": "https://api.github.com/repos/o/r/pulls/5",
-        "author_association": "OWNER",
-        "_links": {"html": {"href": "https://github.com/x"}},
-        "submitted_at": "2026-07-01T00:00:00Z",
-        "commit_id": "abc123",
-        **overrides,
-    }

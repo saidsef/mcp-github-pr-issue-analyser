@@ -48,7 +48,7 @@ Setting `GITHUB_TOKEN` alongside the three `GITHUB_OAUTH_*` variables combines t
 
 `GITHUB_OAUTH_BASE_URL` must be the URL clients reach, not the internal bind address. A mismatch makes GitHub reject the redirect.
 
-The consent screen asks for `repo`, `read:org`, `user` and `project`, whatever a
+The consent screen asks for `repo`, `workflow`, `read:org`, `user` and `project`, whatever a
 client requests for itself. `repo` covers the write and destructive tools,
 `project` the board tools on top of it, and `read:org` the org membership the
 activity queries read. A grant carrying only `user` clears the floor and is
@@ -88,8 +88,6 @@ The table is created at startup if it is missing: on-demand billing, `collection
 The account in the ARN is checked against `sts:GetCallerIdentity` at startup, so an ARN naming another account fails rather than resolving to a same-named table in yours. The check is skipped, with a warning, when the identity cannot be read.
 
 For DynamoDB Local or a private endpoint, use the AWS SDK's own `AWS_ENDPOINT_URL_DYNAMODB`.
-
-Building the DynamoDB store logs `A configured store is unstable and may change in a backwards incompatible way`. That is `py-key-value-aio` marking its own API, not a misconfiguration. Allow it if you run Python with `-W error`.
 
 ### IAM policy for DynamoDB
 
@@ -201,7 +199,7 @@ Every tool declares the scopes its work needs, and the server checks that declar
 | Tool class | Scopes required | Examples |
 |------------|-----------------|----------|
 | Read-only | None | `github_get_pr_diff`, `github_list_repos`, `github_search_issues_prs` |
-| Write | `repo` | `github_create_issue`, `github_update_pr`, `github_merge_pr` |
+| Write | `repo` | `github_create_issue`, `github_update_pr`, `github_api_write` |
 | Destructive | `repo` | `github_delete_release`, `github_delete_tag` |
 | Board write | `repo` and `project` | `github_add_to_project`, `github_set_project_field`, `github_remove_from_project` |
 

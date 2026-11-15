@@ -12,7 +12,9 @@ curl http://localhost:8081/metrics
 | `mcp_tool_duration_seconds` | histogram | Tool call duration in seconds, labelled by `tool_name` and `outcome` |
 | `mcp_tool_in_progress` | gauge | Tool calls currently running |
 | `mcp_api_route_invocations_total` | counter | `github_api_read`, `github_api_write` and `github_api_delete` calls, labelled by `tool_name`, `method`, `route` and `outcome` |
-| `process_*` | gauge | CPU, memory and file descriptor usage of the server process, Linux only |
+| `mcp_stale_tool_list_total` | counter | Tool calls naming a tool the server does not register, without labels |
+| `process_*` | gauge, and a counter for `process_cpu_seconds_total` | CPU, memory and file descriptor usage of the server process, Linux only |
+| `python_gc_*` | counter | Garbage collector runs and the objects they collected |
 | `python_info` | gauge | Interpreter version |
 
 `outcome` is `success` or `error`. A call for a tool that does not exist is recorded as `tool_name="unknown"`, which keeps the label bounded to registered tools.

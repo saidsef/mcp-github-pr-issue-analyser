@@ -112,7 +112,7 @@ class TestTheServedToolList:
     async def test_the_skill_uri_rides_along_in_meta(self):
         tools = await _tools()
 
-        assert tools["github_merge_pr"].meta["skill"] == "skill://pr-management/SKILL.md"
+        assert tools["github_update_pr"].meta["skill"] == "skill://pr-management/SKILL.md"
         assert tools["github_add_inline_pr_comment"].meta["skill"] == "skill://pr-review/SKILL.md"
 
     @pytest.mark.anyio
