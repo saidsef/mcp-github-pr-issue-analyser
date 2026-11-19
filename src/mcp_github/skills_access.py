@@ -30,12 +30,20 @@ import logging
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 
+from fastmcp.skills import Skill
+
 from .exceptions import GitHubNotFoundError
 from .tool_annotations import _read_only
 
 logger = logging.getLogger(__name__)
 
 SKILLS_DIR = Path(__file__).parent / "skills"
+
+# Read once at import, so a SKILL.md that breaks the Agent Skills spec stops the
+# server at startup rather than on the first read.
+SKILLS: dict[str, Skill] = {
+    path.parent.name: Skill.from_directory(path.parent) for path in sorted(SKILLS_DIR.glob("*/SKILL.md"))
+}
 
 
 class SkillContent(TypedDict):
@@ -45,23 +53,9 @@ class SkillContent(TypedDict):
     content: str
 
 
-def _skill_paths() -> list[Path]:
-    """Every skill directory holding a SKILL.md, in a stable order."""
-    return sorted(p for p in SKILLS_DIR.glob("*/SKILL.md") if p.is_file())
-
-
-def _description(text: str) -> str:
-    """The description from the YAML front matter, which is one line in every
-    skill here. Returns an empty string where the file carries no front matter."""
-    if not text.startswith("---"):
-        return ""
-    _, _, rest = text.partition("\n")
-    body, _, _ = rest.partition("\n---")
-    for line in body.splitlines():
-        key, sep, value = line.partition(":")
-        if sep and key.strip() == "description":
-            return value.strip()
-    return ""
+def _skill_md(skill: Skill) -> str:
+    """The SKILL.md text, front matter included."""
+    return skill.files["SKILL.md"].decode("utf-8")
 
 
 class SkillsMixin:
@@ -73,12 +67,8 @@ class SkillsMixin:
         github_get_skill takes and the skill:// URI the same content is served under. Read
         the one covering the task before starting it. See #414."""
         skills = [
-            {
-                "name": path.parent.name,
-                "uri": f"skill://{path.parent.name}/SKILL.md",
-                "description": _description(path.read_text(encoding="utf-8")),
-            }
-            for path in _skill_paths()
+            {"name": name, "uri": f"skill://{name}/SKILL.md", "description": skill.description}
+            for name, skill in SKILLS.items()
         ]
         return {"total": len(skills), "skills": skills}
 
@@ -90,14 +80,12 @@ class SkillsMixin:
         """Reads one skill in full. The same content is served as a skill://
         resource, so a client that reads resources needs neither tool."""
         wanted = name.strip().removeprefix("skill://").removesuffix("/SKILL.md").strip("/")
-        path = SKILLS_DIR / wanted / "SKILL.md"
-        if "/" in wanted or "\\" in wanted or not path.is_file():
-            known = ", ".join(p.parent.name for p in _skill_paths())
-            raise GitHubNotFoundError(f"No skill named {name!r}. Available: {known}")
-        text = path.read_text(encoding="utf-8")
+        skill = SKILLS.get(wanted)
+        if skill is None:
+            raise GitHubNotFoundError(f"No skill named {name!r}. Available: {', '.join(SKILLS)}")
         return {
             "name": wanted,
             "uri": f"skill://{wanted}/SKILL.md",
-            "description": _description(text),
-            "content": text,
+            "description": skill.description,
+            "content": _skill_md(skill),
         }

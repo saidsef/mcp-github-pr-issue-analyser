@@ -31,8 +31,7 @@ from datetime import UTC, datetime
 from typing import Any, override
 
 import boto3
-from key_value.aio._utils.managed_entry import ManagedEntry
-from key_value.aio.stores.base import BaseStore
+from key_value.aio.stores.base import BaseStore, ManagedEntry
 
 TABLE_SCHEMA: dict[str, Any] = {
     "KeySchema": [

@@ -1,4 +1,5 @@
 ---
+name: api-requests
 description: Find and call a GitHub REST or GraphQL endpoint that no other tool covers, searching with github_search_api_routes and sending with github_api_read, github_api_write or github_api_delete
 ---
 

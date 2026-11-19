@@ -1,4 +1,5 @@
 ---
+name: pr-review
 description: Review a GitHub pull request by posting inline code comments and submitting a review decision
 ---
 
