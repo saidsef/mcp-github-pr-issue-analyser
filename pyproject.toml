@@ -22,18 +22,18 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "fastmcp-slim[server,apps]>=4.2.0",
+    "fastmcp-slim[server,apps]>=4.2.2",
     # FastMCP 4 moved background tasks out of core into the tasks extension,
     # which ships as its own package rather than an extra.
-    "fastmcp-tasks>=4.2.0",
-    "boto3>=1.44.3",
-    "botocore>=1.44.3",
+    "fastmcp-tasks>=4.2.2",
+    "boto3>=1.44.6",
+    "botocore>=1.44.6",
     "httpx>=0.28.1",
     "prometheus-client>=0.26.0",
     "pydantic>=2.14.3",
     # auth.py imports the stores directly, so ask for the package by name with
     # the extra RedisStore needs rather than relying on fastmcp pulling it. #312
-    "py-key-value-aio[redis]>=0.4.6",
+    "py-key-value-aio[redis]>=0.5.0",
     "redis>=8.0.1,!=8.1.0",
 ]
 
@@ -84,7 +84,7 @@ dev = [
     "pyright>=1.1.414",
     "pytest>=9.2.0",
     "ruff>=0.17.5",
-    "uv>=0.13.8",
+    "uv>=0.13.9",
 ]
 
 [tool.ruff]

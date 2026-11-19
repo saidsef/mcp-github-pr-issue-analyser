@@ -177,9 +177,9 @@ Moving a tool between skills is a heading move and nothing else. Every tool
 carries a pointer except `github_get_skill` and `github_list_skills`, since
 pointing those at a skill would send a client in a circle.
 
-The pointer is added by a transform on each tool provider rather than written
-into each description, which is what puts it on the three tools FastMCP's own
-Choice and GenerativeUI providers register.
+The pointer is added by a server-level transform rather than written into each
+description, which is what puts it on the three tools FastMCP's own Choice and
+GenerativeUI providers register.
 
 The tools are the path to rely on. A host that consumes only tools never issues
 `resources/list`, so a `skill://` URI stays invisible to it however correctly it

@@ -353,12 +353,8 @@ class PRIssueAnalyser:
             self.mcp.tool(
                 _tool_name(name), annotations=annotations, task=getattr(method, "_mcp_task", False), tags=scopes or None
             )(method)
-        # FastMCP 4.2 lists no skills over the Skills extension while the server holds
-        # a transform, so the pointer goes on each tool provider instead.
-        skill_pointer = SkillPointer()
-        for provider in self.mcp.providers:
-            provider.add_transform(skill_pointer)
         self.mcp.add_provider(SkillCatalogProvider(SKILLS))
+        self.mcp.add_transform(SkillPointer())
 
     def run(self) -> None:
         """Runs the MCP server. Uses HTTP when MCP_ENABLE_REMOTE is true, otherwise stdio."""

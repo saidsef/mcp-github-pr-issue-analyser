@@ -66,8 +66,8 @@ def pointer(skill: str) -> str:
 
 class SkillPointer(Transform):
     """Appends the documenting skill to each tool's description and records it under
-    the skill key of the tool's meta. The server adds one instance to every tool
-    provider, so the tools FastMCP registers for itself are covered too."""
+    the skill key of the tool's meta. Server-level transforms run after the providers
+    are aggregated, so the tools FastMCP registers for itself are covered too."""
 
     def __init__(self) -> None:
         self.owners = skill_owners()
