@@ -67,6 +67,17 @@ docker run \
 
 Swap `REDIS_HOST_PORT` for `DYNAMODB_TABLE_ARN` to hold the same state in DynamoDB. The container then needs AWS credentials, from `AWS_*` variables or a mounted role.
 
+### Image attestations
+
+Images built on `main` carry signed build provenance and a signed SPDX SBOM. Verify them with the GitHub CLI:
+
+```sh
+gh attestation verify oci://ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest --owner saidsef
+
+gh attestation verify oci://ghcr.io/saidsef/mcp-github-pr-issue-analyser:latest --owner saidsef \
+  --predicate-type https://spdx.dev/Document/v2.3
+```
+
 ## Kubernetes
 
 Manifests live under `deployment/`. Apply them with kustomize:
