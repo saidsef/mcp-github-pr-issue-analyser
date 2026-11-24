@@ -37,7 +37,7 @@ from collections.abc import Sequence
 from fastmcp.server.transforms import Transform
 from fastmcp.tools import Tool
 
-from .skills_access import _skill_paths
+from .skills_access import SKILLS, _skill_md
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +49,12 @@ def skill_owners() -> dict[str, str]:
     `tool_name` headings in every SKILL.md. A tool claimed twice keeps the first
     skill in path order and is logged, since picking one beats refusing to start."""
     owners: dict[str, str] = {}
-    for path in _skill_paths():
-        skill = path.parent.name
-        for tool in _TOOL_HEADING.findall(path.read_text(encoding="utf-8")):
+    for name, skill in SKILLS.items():
+        for tool in _TOOL_HEADING.findall(_skill_md(skill)):
             if tool in owners:
-                logger.warning(f"Tool {tool} is documented by {owners[tool]} and {skill}; keeping {owners[tool]}")
+                logger.warning(f"Tool {tool} is documented by {owners[tool]} and {name}; keeping {owners[tool]}")
                 continue
-            owners[tool] = skill
+            owners[tool] = name
     return owners
 
 

@@ -1,4 +1,5 @@
 ---
+name: issue-management
 description: Create, update, list and search GitHub issues and PRs, list a repository's labels, run milestones, and check for duplicates
 ---
 

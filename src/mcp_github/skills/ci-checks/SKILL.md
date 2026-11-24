@@ -1,4 +1,5 @@
 ---
+name: ci-checks
 description: Find out why a pull request's checks fail, read the failing job's log, run the job again or start a new run, follow it to its result, and get a Dependabot update merged
 ---
 

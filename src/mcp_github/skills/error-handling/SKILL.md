@@ -1,4 +1,5 @@
 ---
+name: error-handling
 description: Read the error codes these tools raise and decide whether to retry, fix the call, or stop
 ---
 

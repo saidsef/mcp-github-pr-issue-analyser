@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mcp_github.exceptions import GitHubNotFoundError
-from mcp_github.skills_access import SKILLS_DIR, SkillsMixin, _description
+from mcp_github.skills_access import SKILLS_DIR, SkillsMixin
 
 
 @pytest.fixture
@@ -66,17 +66,6 @@ class TestGetSkill:
 
     def test_is_read_only(self, skills: SkillsMixin):
         assert skills.get_skill._mcp_annotations.read_only_hint is True
-
-
-class TestFrontMatter:
-    def test_reads_the_description(self):
-        assert _description("---\ndescription: Do a thing\n---\n\n# Title\n") == "Do a thing"
-
-    def test_a_file_without_front_matter_has_no_description(self):
-        assert _description("# Title\n") == ""
-
-    def test_a_colon_in_the_description_survives(self):
-        assert _description("---\ndescription: Read this: carefully\n---\n") == "Read this: carefully"
 
 
 class TestAuthoringConventions:

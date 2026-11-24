@@ -1,4 +1,5 @@
 ---
+name: interactive-ui
 description: Ask the user to pick an option, or render GitHub data as an interactive UI panel
 ---
 

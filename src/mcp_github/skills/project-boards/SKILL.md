@@ -1,4 +1,5 @@
 ---
+name: project-boards
 description: Find the GitHub project boards an owner has, put issues and pull requests on one, set their fields, read what is on a board, and take items off it
 ---
 
